@@ -206,6 +206,7 @@ export async function searchRoutes(app: FastifyInstance) {
   const genSchema = z.object({
     kind: z.enum(['posts', 'replies']).default('posts'),
     count: z.number().min(1).max(10).default(5),
+    brief: z.string().max(2000).optional(),
   });
   // Генерация выполняется СРАЗУ (inline). Защита бюджета: дневной лимит по тарифу +
   // учёт расхода. Персонализация: подставляем «Голос бренда». Graceful: при сбое ИИ
@@ -231,7 +232,7 @@ export async function searchRoutes(app: FastifyInstance) {
       return reply.code(429).send({ error: `Дневной лимит ИИ исчерпан (${limit}/день). Обнови тариф или вернись завтра.` });
     }
 
-    const { kind, count } = genSchema.parse(req.body ?? {});
+    const { kind, count, brief } = genSchema.parse(req.body ?? {});
     const voice: BrandVoice | undefined = brand
       ? {
           companyName: brand.companyName,
@@ -254,6 +255,7 @@ export async function searchRoutes(app: FastifyInstance) {
             keyword: search.keywords[0]?.text || search.title,
             count,
             brand: voice,
+            brief,
           });
 
     // учёт расхода (+1 за вызов) и журнал

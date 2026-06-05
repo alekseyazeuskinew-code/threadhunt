@@ -333,6 +333,7 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [genMsg, setGenMsg] = useState('');
+  const [brief, setBrief] = useState('');
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<TestPublishResult | null>(null);
   const [publishing, setPublishing] = useState(false);
@@ -380,7 +381,7 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
     setBusy(true);
     setGenMsg('');
     try {
-      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'posts', count: 5 });
+      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'posts', count: 5, brief: brief.trim() || undefined });
       setList((l) => [...l, ...(result || []).map((text) => ({ text }))]);
       if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
     } catch (e: any) {
@@ -505,11 +506,20 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted">Тексты постов. Можно добавить картинку/видео по публичной ссылке.</p>
-        <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
-          <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
-        </Button>
+      <div className="rounded-2xl border border-line bg-panel p-4">
+        <div className="mb-1 text-sm font-medium">Бриф для ИИ (необязательно)</div>
+        <p className="mb-2 text-xs text-muted">Опиши условия для постов: оплата/цена, формат и занятость, куда писать, дедлайн. ИИ впишет это в посты по формуле залетающих приманок.</p>
+        <Textarea
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          placeholder="Напр.: монтажёр Reels, 15–20 роликов/нед, 500₽ за ролик, удалёнка, кодовое слово «монтаж», дедлайн пятница"
+        />
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-xs text-muted">Тон возьмётся из «Голоса бренда» (Настройки) — добавь туда примеры своих постов.</p>
+          <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
+            <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
+          </Button>
+        </div>
       </div>
       {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
 

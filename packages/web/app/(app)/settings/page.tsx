@@ -102,8 +102,13 @@ export default function SettingsPage() {
             <Field label="Куда вести / подпись" hint="чем заканчивать ответы">
               <Input value={p.signature} onChange={(e) => set('signature', e.target.value)} placeholder="пиши в Telegram @hr_team" />
             </Field>
-            <Field label="Пример удачного поста" hint="референс стиля — ИИ повторит подачу, не копируя">
-              <Textarea value={p.sample} onChange={(e) => set('sample', e.target.value)} placeholder="Вставь свой лучший пост, который заходил" />
+            <Field label="Примеры постов (эталон тона)" hint="вставь 2–4 своих лучших поста через пустую строку — ИИ обучится твоему стилю и будет писать так же">
+              <Textarea
+                value={p.sample}
+                onChange={(e) => set('sample', e.target.value)}
+                placeholder={'Вставь свои залетавшие посты, по одному, через пустую строку.\n\nНапр.:\nМонтажёры, вы тут?????? Беру 1-2 на постоянку…\n\nДизайнеры карточек, отзовитесь! 500₽ за слайд…'}
+                rows={6}
+              />
             </Field>
             <Field label="Не использовать" hint="стоп-слова и клише">
               <Input value={p.avoid} onChange={(e) => set('avoid', e.target.value)} placeholder="«срочно требуется», канцелярит, капс" />
