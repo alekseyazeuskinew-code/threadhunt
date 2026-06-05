@@ -340,6 +340,11 @@ export interface AccountQuota {
   limit: number;
 }
 
+export interface AdminCosts {
+  ai: { today: number; month: number; all: number; estMonthUsd: number; costPerGenUsd: number };
+  series: { day: string; count: number }[];
+}
+
 export interface AdminGrowth {
   signupsByWeek: { week: string; count: number }[];
   activation: { total: number; connected: number; withSearch: number; withLead: number; paying: number };

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AdminStats, AdminUser, AdminAnalytics, AdminGrowth, WaitlistEntry } from '@/lib/types';
+import type { AdminStats, AdminUser, AdminAnalytics, AdminGrowth, AdminCosts, WaitlistEntry } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
 import { Stat } from '@/components/ui/Stat';
 import { Card } from '@/components/ui/Card';
@@ -12,6 +12,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [growth, setGrowth] = useState<AdminGrowth | null>(null);
+  const [costs, setCosts] = useState<AdminCosts | null>(null);
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[] | null>(null);
   const [denied, setDenied] = useState(false);
@@ -20,6 +21,7 @@ export default function AdminPage() {
     api.get<AdminStats>('/api/admin/stats').then(setStats).catch(() => setDenied(true));
     api.get<AdminAnalytics>('/api/admin/analytics').then(setAnalytics).catch(() => {});
     api.get<AdminGrowth>('/api/admin/growth').then(setGrowth).catch(() => {});
+    api.get<AdminCosts>('/api/admin/costs').then(setCosts).catch(() => {});
     api.get<AdminUser[]>('/api/admin/users').then(setUsers).catch(() => setDenied(true));
     api.get<WaitlistEntry[]>('/api/admin/waitlist').then(setWaitlist).catch(() => {});
   }
@@ -235,6 +237,60 @@ export default function AdminPage() {
                   ))}
                 </div>
               </div>
+            )}
+          </Card>
+        )}
+
+        {/* Расходники и баланс */}
+        {costs && (
+          <Card>
+            <div className="mb-1 text-base font-semibold">Расходники и баланс</div>
+            <p className="mb-3 text-xs text-muted">Расход ИИ и сервисы, которые надо держать пополненными. Балансы провайдеров проверяй по ссылкам — авто-чтение добавим позже.</p>
+
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Stat label="ИИ-генераций сегодня" value={costs.ai.today} />
+              <Stat label="ИИ за 30 дней" value={costs.ai.month} />
+              <Stat label="Оценка $ / 30 дней" value={`$${costs.ai.estMonthUsd}`} accent hint={`~$${costs.ai.costPerGenUsd}/ген`} />
+              <Stat label="ИИ всего" value={costs.ai.all} />
+            </div>
+
+            {/* расход ИИ за 14 дней */}
+            <div className="mt-4 text-sm font-medium">ИИ-генерации за 14 дней</div>
+            <div className="mt-2 flex items-end gap-1.5" style={{ height: 56 }}>
+              {(() => {
+                const max = Math.max(1, ...costs.series.map((d) => d.count));
+                return costs.series.map((d, i) => (
+                  <div key={i} className="flex flex-1 flex-col items-center justify-end" title={`${d.day}: ${d.count}`}>
+                    <div className="w-full rounded-t bg-accent" style={{ height: `${(d.count / max) * 44}px` }} />
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* чек-лист сервисов с биллингом */}
+            <div className="mt-5 text-sm font-medium">Держать пополненным</div>
+            <div className="mt-2 space-y-2">
+              {[
+                { name: 'Anthropic (ИИ-ключ)', what: 'ИИ-генерация постов и ответов', url: 'https://console.anthropic.com/settings/billing' },
+                { name: 'Railway (сервер + Postgres)', what: 'API, планировщик, база', url: 'https://railway.app/' },
+                { name: 'Netlify (фронт)', what: 'дашборд и лендинг', url: 'https://app.netlify.com/' },
+                { name: 'Stripe (оплаты)', what: 'приём подписок (после подключения)', url: 'https://dashboard.stripe.com/' },
+              ].map((s, i) => (
+                <div key={i} className="flex items-center justify-between rounded-xl bg-bg px-3 py-2.5 text-sm">
+                  <div>
+                    <div className="font-medium">{s.name}</div>
+                    <div className="text-xs text-muted">{s.what}</div>
+                  </div>
+                  <a href={s.url} target="_blank" rel="noreferrer" className="shrink-0 rounded-full border border-line px-3 py-1.5 text-xs hover:bg-panel-2">
+                    Открыть биллинг →
+                  </a>
+                </div>
+              ))}
+            </div>
+            {costs.ai.month > 1000 && (
+              <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
+                ⚠️ Высокий расход ИИ за месяц ({costs.ai.month} генераций) — проверь баланс Anthropic.
+              </p>
             )}
           </Card>
         )}

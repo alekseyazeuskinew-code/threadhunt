@@ -102,6 +102,42 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
+  // Расходники и баланс: реальный расход ИИ (генерации) + грубая оценка стоимости.
+  // Балансы внешних провайдеров по API не читаем — на фронте показываем чек-лист
+  // сервисов со ссылками на биллинг (пополнять вручную).
+  app.get('/api/admin/costs', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const COST_PER_GEN_USD = 0.01; // грубая оценка средней стоимости одной ИИ-генерации
+    const dayStr = (d: Date) => d.toISOString().slice(0, 10);
+    const since14 = dayStr(new Date(Date.now() - 13 * 86_400_000));
+    const since30 = dayStr(new Date(Date.now() - 29 * 86_400_000));
+
+    const [aiTodayAgg, monthRows, allAgg, recentRows] = await Promise.all([
+      db.aiUsage.aggregate({ where: { day: today() }, _sum: { count: true } }),
+      db.aiUsage.findMany({ where: { day: { gte: since30 } }, select: { count: true } }),
+      db.aiUsage.aggregate({ _sum: { count: true } }),
+      db.aiUsage.findMany({ where: { day: { gte: since14 } }, select: { day: true, count: true } }),
+    ]);
+
+    const aiToday = aiTodayAgg._sum.count || 0;
+    const aiMonth = monthRows.reduce((s, r) => s + r.count, 0);
+    const aiAll = allAgg._sum.count || 0;
+
+    // серия за 14 дней
+    const byDay: Record<string, number> = {};
+    for (const r of recentRows) byDay[r.day] = (byDay[r.day] || 0) + r.count;
+    const series: { day: string; count: number }[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = dayStr(new Date(Date.now() - i * 86_400_000));
+      series.push({ day: d.slice(5), count: byDay[d] || 0 });
+    }
+
+    return {
+      ai: { today: aiToday, month: aiMonth, all: aiAll, estMonthUsd: Math.round(aiMonth * COST_PER_GEN_USD * 100) / 100, costPerGenUsd: COST_PER_GEN_USD },
+      series,
+    };
+  });
+
   // Рост и здоровье SaaS (актуальный набор: PLG-воронка активации — ведущий
   // индикатор удержания, рост регистраций, активные пользователи, выручка и
   // adoption фич). Всё — обезличенные агрегаты по всему сервису.
