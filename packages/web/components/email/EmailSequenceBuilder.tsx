@@ -179,7 +179,7 @@ export function EmailSequenceBuilder() {
               <Button variant="ghost" onClick={() => remove(seq.id)}>
                 <Trash2 size={15} /> Удалить
               </Button>
-              <span className="text-xs text-muted">Отправка включится после подключения Resend. Сейчас — конструктор и расписание.</span>
+              <span className="text-xs text-muted">Если цепочка <b>включена</b> и аудитория «Новые пользователи» — письма уходят автоматически по расписанию (drip): новым после регистрации, дальше по задержкам.</span>
             </div>
           </Card>
 

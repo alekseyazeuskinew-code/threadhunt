@@ -447,3 +447,15 @@ model EmailSequence {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Учёт отправленных шагов drip-цепочки (дедуп + расчёт, когда слать следующий).
+model EmailDrip {
+  id         String   @id @default(cuid())
+  userId     String
+  sequenceId String
+  stepIndex  Int
+  sentAt     DateTime @default(now())
+
+  @@unique([userId, sequenceId, stepIndex])
+  @@index([userId])
+}

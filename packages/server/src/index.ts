@@ -73,6 +73,14 @@ async function ensureSchema() {
       "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
       "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
+    `CREATE TABLE IF NOT EXISTS "EmailDrip" (
+      "id" TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "sequenceId" TEXT NOT NULL,
+      "stepIndex" INTEGER NOT NULL,
+      "sentAt" TIMESTAMP NOT NULL DEFAULT now(),
+      UNIQUE("userId","sequenceId","stepIndex")
+    )`,
   ];
   for (const sql of stmts) {
     try {

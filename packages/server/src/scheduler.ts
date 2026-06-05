@@ -9,13 +9,64 @@ import { db } from './db.js';
 import { decrypt } from './crypto.js';
 import { publishPost, type MediaType } from './threads/publisher.js';
 import { resolveConnection } from './threads/resolve.js';
+import { sendEmail, renderEmailHtml } from './email.js';
 
 let running = false;
+let dripRunning = false;
 
 export function startScheduler() {
-  setInterval(tick, 60_000); // каждую минуту
+  setInterval(tick, 60_000); // автопостинг — каждую минуту
   tick(); // и сразу при старте
-  console.log('🕒 Планировщик автопостинга запущен (внутри API, без Redis)');
+  setInterval(dripTick, 5 * 60_000); // email-цепочки — каждые 5 минут
+  setTimeout(dripTick, 15_000); // и вскоре после старта
+  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки, внутри API)');
+}
+
+// Drip email-цепочек для новых пользователей: каждому подходящему юзеру шлём
+// следующий неотправленный шаг, когда подошёл его срок (delayHours от якоря:
+// для шага 0 — регистрация, дальше — отправка предыдущего шага). Один шаг на
+// юзepа за тик, с общим бюджетом писем (бережём rate-limit Resend).
+async function dripTick() {
+  if (dripRunning) return;
+  dripRunning = true;
+  try {
+    const seqs = await db.emailSequence.findMany({ where: { enabled: true, audience: 'new_users' } });
+    let budget = 20; // максимум писем за один проход
+    for (const seq of seqs) {
+      let steps: { delayHours?: number; subject?: string; blocks?: unknown[] }[] = [];
+      try {
+        steps = JSON.parse(seq.steps || '[]');
+      } catch {
+        continue;
+      }
+      if (!steps.length) continue;
+      // Кандидаты — юзеры, зарегистрированные не раньше создания цепочки (не бластим старых).
+      const users = await db.user.findMany({ where: { createdAt: { gte: seq.createdAt } }, select: { id: true, email: true, createdAt: true } });
+      for (const u of users) {
+        if (budget <= 0) return;
+        const sent = await db.emailDrip.findMany({ where: { userId: u.id, sequenceId: seq.id }, select: { stepIndex: true, sentAt: true } });
+        const sentIdx = new Set(sent.map((s) => s.stepIndex));
+        let nextIdx = 0;
+        while (sentIdx.has(nextIdx)) nextIdx++;
+        if (nextIdx >= steps.length) continue; // вся цепочка отправлена
+        const step = steps[nextIdx];
+        const anchor = nextIdx === 0 ? u.createdAt : sent.find((s) => s.stepIndex === nextIdx - 1)?.sentAt;
+        if (!anchor) continue;
+        if (Date.now() < anchor.getTime() + (step.delayHours || 0) * 3600_000) continue; // ещё не пора
+        const r = await sendEmail({ to: u.email, subject: step.subject || 'Threadhunt', html: renderEmailHtml((step.blocks as any[]) || []) });
+        if (r.ok) {
+          await db.emailDrip.create({ data: { userId: u.id, sequenceId: seq.id, stepIndex: nextIdx } });
+          budget--;
+        } else {
+          return; // провайдер не настроен/ошибка — не долбим, попробуем в следующий тик
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[drip] tick error:', (e as Error).message);
+  } finally {
+    dripRunning = false;
+  }
 }
 
 async function tick() {
