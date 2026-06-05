@@ -66,7 +66,15 @@ export default function AdminPage() {
 
   return (
     <>
-      <PageHeader title="Админка" subtitle="Все аккаунты сервиса и сводная аналитика." />
+      <PageHeader
+        title="Админка"
+        subtitle="Все аккаунты сервиса и сводная аналитика."
+        action={
+          <a href="/admin/emails" className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm hover:bg-panel-2">
+            ✉️ Email-цепочки
+          </a>
+        }
+      />
       <div className="space-y-6 p-8">
         {/* KPI сервиса */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

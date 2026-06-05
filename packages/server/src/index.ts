@@ -62,6 +62,15 @@ async function ensureSchema() {
       "status" TEXT NOT NULL DEFAULT 'new',
       "createdAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
+    `CREATE TABLE IF NOT EXISTS "EmailSequence" (
+      "id" TEXT PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "audience" TEXT NOT NULL DEFAULT 'new_users',
+      "steps" TEXT NOT NULL DEFAULT '[]',
+      "enabled" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
+      "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
   ];
   for (const sql of stmts) {
     try {

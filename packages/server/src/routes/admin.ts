@@ -5,6 +5,16 @@ import { z } from 'zod';
 import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
 import { today } from '../ai/limits.js';
+import { sendEmail, renderEmailHtml } from '../email.js';
+
+const safeParse = (s: string): unknown[] => {
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+};
 
 export async function adminRoutes(app: FastifyInstance) {
   // Гард: вернуть userId, только если это админ.
@@ -240,6 +250,67 @@ export async function adminRoutes(app: FastifyInstance) {
       },
       powerUsers,
     };
+  });
+
+  // ── Email-цепочки (drip) для новых пользователей ──
+  // steps хранятся JSON-строкой; реальная отправка через Resend (когда подключён).
+  app.get('/api/admin/email-sequences', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const rows = await db.emailSequence.findMany({ orderBy: { createdAt: 'desc' } });
+    return rows.map((r) => ({ ...r, steps: safeParse(r.steps) }));
+  });
+  app.post('/api/admin/email-sequences', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const body = (req.body as any) || {};
+    const row = await db.emailSequence.create({
+      data: { name: (body.name || 'Новая цепочка').slice(0, 120), audience: body.audience === 'waitlist' ? 'waitlist' : 'new_users' },
+    });
+    return { ...row, steps: safeParse(row.steps) };
+  });
+  const seqSchema = z.object({
+    name: z.string().min(1).max(120).optional(),
+    audience: z.enum(['new_users', 'waitlist']).optional(),
+    enabled: z.boolean().optional(),
+    steps: z.array(z.any()).optional(),
+  });
+  app.put('/api/admin/email-sequences/:id', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const id = (req.params as any).id as string;
+    const parsed = seqSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+    const d = parsed.data;
+    const row = await db.emailSequence.update({
+      where: { id },
+      data: {
+        ...(d.name !== undefined ? { name: d.name } : {}),
+        ...(d.audience !== undefined ? { audience: d.audience } : {}),
+        ...(d.enabled !== undefined ? { enabled: d.enabled } : {}),
+        ...(d.steps !== undefined ? { steps: JSON.stringify(d.steps) } : {}),
+      },
+    });
+    return { ...row, steps: safeParse(row.steps) };
+  });
+  app.delete('/api/admin/email-sequences/:id', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    await db.emailSequence.delete({ where: { id: (req.params as any).id as string } });
+    return { ok: true };
+  });
+
+  // Тест-отправка одного письма (рендер блоков → HTML → Resend). По умолчанию — себе.
+  app.post('/api/admin/email-test', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const userId = getUserId(app, req)!;
+    const body = (req.body as any) || {};
+    let to: string | undefined = typeof body.to === 'string' && body.to.includes('@') ? body.to.trim() : undefined;
+    if (!to) {
+      const me = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
+      to = me?.email;
+    }
+    if (!to) return reply.code(400).send({ error: 'Не указан адрес' });
+    const html = renderEmailHtml(Array.isArray(body.blocks) ? body.blocks : []);
+    const res = await sendEmail({ to, subject: body.subject || 'Тест Threadhunt', html });
+    if (!res.ok) return reply.code(400).send({ error: res.error });
+    return { ok: true, to };
   });
 
   // Все зарегистрированные аккаунты со статистикой.

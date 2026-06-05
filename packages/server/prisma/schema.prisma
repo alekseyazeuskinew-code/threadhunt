@@ -432,3 +432,16 @@ model WaitlistEntry {
   status    String   @default("new") // new | invited | converted
   createdAt DateTime @default(now())
 }
+
+// Email-цепочка (drip) для новых пользователей: последовательность писем с
+// задержками. steps — JSON [{ delayHours, subject, blocks:[{type,...}] }].
+// Реальная отправка — через Resend (когда подключён); конструктор/хранение — здесь.
+model EmailSequence {
+  id        String   @id @default(cuid())
+  name      String
+  audience  String   @default("new_users") // new_users | waitlist
+  steps     String   @default("[]") // JSON шагов цепочки
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
