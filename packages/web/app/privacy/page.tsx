@@ -44,7 +44,7 @@ export default function PrivacyPage() {
 
         <Section title="5. Удаление данных">
           Вы можете отключить подключения в разделе «Подключения» в любой момент. Чтобы полностью удалить аккаунт и все
-          данные — напишите на <a href="mailto:support@threadhunt.app" className="text-accent-ink hover:underline">support@threadhunt.app</a>.
+          данные — напишите на <a href="mailto:info@thread-hunt.com" className="text-accent-ink hover:underline">info@thread-hunt.com</a>.
           Для Meta мы поддерживаем автоматические колбэки <b>deauthorize</b> и <b>data deletion</b>: при отзыве доступа в
           настройках Meta связанные токены и подключение удаляются автоматически.
         </Section>
@@ -59,12 +59,12 @@ export default function PrivacyPage() {
           поисков (объёмы, конверсии этапов найма, отклик постов и текстов отбивки) для улучшения качества сервиса и
           формирования отраслевых бенчмарков. Данные агрегируются и не позволяют идентифицировать вас или кандидатов;
           персональные данные кандидатов для этой цели не используются. Согласие необязательно и его можно отозвать,
-          написав на <a href="mailto:support@threadhunt.app" className="text-accent-ink hover:underline">support@threadhunt.app</a>.
+          написав на <a href="mailto:info@thread-hunt.com" className="text-accent-ink hover:underline">info@thread-hunt.com</a>.
         </Section>
       </div>
 
       <div className="mt-10 border-t border-line pt-6 text-sm text-muted">
-        Вопросы — на support@threadhunt.app ·{' '}
+        Вопросы — на info@thread-hunt.com ·{' '}
         <Link href="/terms" className="text-accent-ink hover:underline">Условия использования</Link>
       </div>
     </main>

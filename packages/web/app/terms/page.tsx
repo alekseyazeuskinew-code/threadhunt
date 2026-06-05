@@ -56,7 +56,7 @@ export default function TermsPage() {
       </div>
 
       <div className="mt-10 border-t border-line pt-6 text-sm text-muted">
-        Вопросы — на support@threadhunt.app ·{' '}
+        Вопросы — на info@thread-hunt.com ·{' '}
         <Link href="/signup" className="text-accent-ink hover:underline">
           вернуться к регистрации
         </Link>
