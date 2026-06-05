@@ -9,6 +9,7 @@ export function setSession(reply: FastifyReply, userId: string) {
     signed: true,
     httpOnly: true,
     sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production', // в проде только по HTTPS
     path: '/',
     maxAge: MAX_AGE,
   });
