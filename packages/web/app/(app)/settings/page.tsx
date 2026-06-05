@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Wand2, User as UserIcon, KeyRound, Building2 } from 'lucide-react';
+import { Wand2, User as UserIcon, KeyRound, Building2, Webhook } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { BrandProfile, Me } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -42,12 +42,17 @@ export default function SettingsPage() {
             { id: 'sec-account', title: 'Аккаунт' },
             { id: 'sec-workspace', title: 'Пространство' },
             { id: 'sec-brand', title: 'Голос бренда' },
+            { id: 'sec-integrations', title: 'Интеграции' },
             { id: 'sec-limits', title: 'Лимиты' },
           ]}
         />
 
         <div id="sec-account" className="scroll-mt-16">
           <AccountCard />
+        </div>
+
+        <div id="sec-integrations" className="scroll-mt-16">
+          <IntegrationsCard />
         </div>
 
         {/* Рабочее пространство / организация */}
@@ -200,5 +205,69 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       </label>
       {children}
     </div>
+  );
+}
+
+// Интеграции: исходящий вебхук — новый лид и ответы анкеты уходят на URL клиента
+// (Zapier/Make/n8n → Telegram, Google Sheets, Excel Online).
+function IntegrationsCard() {
+  const [url, setUrl] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get<{ webhookUrl: string }>('/api/integrations').then((d) => setUrl(d.webhookUrl || '')).catch(() => {});
+  }, []);
+
+  async function save() {
+    setTest(null);
+    try {
+      await api.patch('/api/integrations', { webhookUrl: url.trim() });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e: any) {
+      setTest({ ok: false, text: e.message });
+    }
+  }
+  async function runTest() {
+    setBusy(true);
+    setTest(null);
+    try {
+      await api.post('/api/integrations/test', {});
+      setTest({ ok: true, text: 'Тестовое событие доставлено ✓' });
+    } catch (e: any) {
+      setTest({ ok: false, text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <div className="mb-4 flex items-center gap-2 text-base font-semibold">
+        <Webhook size={18} className="text-accent-ink" /> Интеграции
+      </div>
+      <p className="mb-4 text-sm text-muted">
+        Вебхук: на <b>новый лид</b> и на <b>ответы анкеты</b> мы шлём POST с данными на твой URL. Подключи его в
+        Zapier / Make / n8n — и получай кандидатов и их ответы прямо в <b>Telegram</b>, <b>Google Sheets</b>,{' '}
+        <b>Excel Online</b> или своей CRM.
+      </p>
+      <Field label="URL вебхука" hint="https://… (endpoint Zapier/Make/Telegram-бота)">
+        <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://hooks.zapier.com/…" />
+      </Field>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+        <Button variant="ghost" onClick={runTest} disabled={busy || !url.trim()}>
+          {busy ? 'Отправляю…' : 'Отправить тест'}
+        </Button>
+        {test && <span className={`text-sm ${test.ok ? 'text-success' : 'text-danger'}`}>{test.text}</span>}
+      </div>
+      <div className="mt-4 rounded-xl bg-bg p-3 text-xs text-muted">
+        Формат: <span className="font-mono">{'{ event, at, data }'}</span>. События: <span className="font-mono">lead.created</span>,{' '}
+        <span className="font-mono">candidate.response</span>, <span className="font-mono">candidate.completed</span>. Лиды также
+        можно выгрузить в CSV на странице «Лиды».
+      </div>
+    </Card>
   );
 }

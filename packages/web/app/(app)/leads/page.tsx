@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { LayoutGrid, List, Star, MessageSquare, Clock, Sparkles } from 'lucide-react';
+import { LayoutGrid, List, Star, MessageSquare, Clock, Sparkles, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Lead, Stage } from '@/lib/types';
 import { STAGES } from '@/lib/stages';
@@ -33,9 +33,16 @@ export default function CandidatesPage() {
         title="Кандидаты"
         subtitle="Двигай кандидатов по воронке найма. «Резерв» — тёплые про запас."
         action={
-          <div className="flex rounded-full border border-line p-0.5">
-            <ViewBtn active={view === 'board'} onClick={() => setView('board')} icon={<LayoutGrid size={15} />} label="Доска" />
-            <ViewBtn active={view === 'list'} onClick={() => setView('list')} icon={<List size={15} />} label="Список" />
+          <div className="flex items-center gap-2">
+            {leads && leads.length > 0 && (
+              <a href="/api/leads.csv" className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm text-text hover:bg-panel-2">
+                <Download size={15} /> CSV
+              </a>
+            )}
+            <div className="flex rounded-full border border-line p-0.5">
+              <ViewBtn active={view === 'board'} onClick={() => setView('board')} icon={<LayoutGrid size={15} />} label="Доска" />
+              <ViewBtn active={view === 'list'} onClick={() => setView('list')} icon={<List size={15} />} label="Список" />
+            </div>
           </div>
         }
       />

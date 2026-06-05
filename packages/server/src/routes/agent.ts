@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { db } from '../db.js';
 import { hashToken } from '../crypto.js';
 import { getUserLimits } from './limits.js';
+import { fireWebhook } from '../webhook.js';
 import type { AgentTasksResponse, AgentSearchRule } from '@threadhunt/shared';
 
 const POLL_INTERVAL_SEC = 20;
@@ -109,6 +110,11 @@ export async function agentRoutes(app: FastifyInstance) {
 
     const userId = device.userId;
     for (const e of parsed.data.events) {
+      // Новый ли лид? (для исходящего вебхука — шлём только на свежие.)
+      const existed = await db.lead.findUnique({
+        where: { searchId_fromUserKey: { searchId: e.searchId, fromUserKey: e.fromUserKey } },
+        select: { id: true },
+      });
       // upsert по (searchId, fromUserKey) — дедуп по человеку в рамках поиска.
       await db.lead.upsert({
         where: { searchId_fromUserKey: { searchId: e.searchId, fromUserKey: e.fromUserKey } },
@@ -124,6 +130,16 @@ export async function agentRoutes(app: FastifyInstance) {
         },
         update: {}, // уже отвечали — не трогаем
       });
+      if (!existed) {
+        // фоновый исходящий вебхук на новый лид (не блокирует ответ агенту)
+        void fireWebhook(userId, 'lead.created', {
+          searchId: e.searchId,
+          username: e.fromUsername,
+          matchedKeyword: e.matchedKeyword,
+          section: e.section,
+          at: e.at,
+        });
+      }
     }
     return { ok: true };
   });

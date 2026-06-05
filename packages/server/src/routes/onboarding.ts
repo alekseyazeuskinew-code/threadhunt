@@ -12,6 +12,7 @@ import { env } from '../env.js';
 import { generateDoc, type DocKind, type BrandVoice } from '../ai/generate.js';
 import { consumeAi } from './limits.js';
 import { resolveCtx, canManageLeads } from './workspace.js';
+import { fireWebhook } from '../webhook.js';
 
 export async function onboardingRoutes(app: FastifyInstance) {
   const requireUser = (req: FastifyRequest, reply: FastifyReply): string | null => {
@@ -205,6 +206,16 @@ export async function onboardingRoutes(app: FastifyInstance) {
     await db.lead.update({ where: { id: lead.id }, data });
     if (b.index === 0 && data.consentAt) await db.leadComment.create({ data: { leadId: lead.id, body: 'Кандидат оставил контакты и согласие (онбординг)', author: 'система' } });
     if (b.last) await db.leadComment.create({ data: { leadId: lead.id, body: 'Кандидат прошёл онбординг до конца', author: 'система' } });
+    // Исходящий вебхук на ответы анкеты (фоном): шлём шаг, на финале — полную анкету.
+    void fireWebhook(lead.userId, b.last ? 'candidate.completed' : 'candidate.response', {
+      leadId: lead.id,
+      searchId: lead.searchId,
+      name: data.candidateName ?? lead.candidateName ?? null,
+      contact: data.candidateContact ?? lead.candidateContact ?? null,
+      stepIndex: b.index,
+      completed: !!b.last,
+      responses,
+    });
     return { ok: true };
   });
 

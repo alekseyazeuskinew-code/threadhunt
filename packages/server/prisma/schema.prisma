@@ -26,6 +26,7 @@ model User {
   acceptedTermsAt DateTime? // когда принял условия (риск Threads-аккаунта на пользователе)
   acceptedDataUseAt DateTime? // согласие на обезличенную аналитику для улучшения сервиса (opt-in)
   extraSeats   Int       @default(0) // докупленные доп-места (аккаунты сверх тарифа); со Stripe — автоматически
+  webhookUrl   String?   // исходящий вебхук: новый лид / ответы анкеты POST-ятся сюда (Zapier/Make/Telegram/Sheets)
   createdAt    DateTime  @default(now())
 
   connections  ThreadsConnection[]

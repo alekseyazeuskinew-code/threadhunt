@@ -23,6 +23,42 @@ export async function leadRoutes(app: FastifyInstance) {
     });
   });
 
+  // Экспорт лидов в CSV (для Excel/Sheets). Те же данные, что в списке.
+  app.get('/api/leads.csv', async (req, reply) => {
+    const ctx = await resolveCtx(app, req);
+    if (!ctx) return reply.code(401).send({ error: 'unauthorized' });
+    const leads = await db.lead.findMany({
+      where: { userId: ctx.ownerId },
+      include: { search: { select: { title: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+    const esc = (v: unknown) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = ['Дата', 'Поиск', 'Username', 'Кодовое слово', 'Раздел', 'Стадия', 'Рейтинг', 'Статус', 'Контакт', 'Кандидат', 'Контакт кандидата'];
+    const rows = leads.map((l) =>
+      [
+        new Date(l.createdAt).toISOString(),
+        l.search?.title ?? '',
+        l.fromUsername ?? '',
+        l.matchedKeyword,
+        l.section ?? '',
+        l.stage,
+        l.rating,
+        l.status,
+        l.contact ?? '',
+        l.candidateName ?? '',
+        l.candidateContact ?? '',
+      ].map(esc).join(','),
+    );
+    const csv = '﻿' + [headers.join(','), ...rows].join('\n'); // BOM — чтобы Excel понял UTF-8
+    reply.header('Content-Type', 'text/csv; charset=utf-8');
+    reply.header('Content-Disposition', 'attachment; filename="threadhunt-leads.csv"');
+    return reply.send(csv);
+  });
+
   // Деталь лида + комментарии.
   app.get('/api/leads/:id', async (req, reply) => {
     const ctx = await resolveCtx(app, req);
