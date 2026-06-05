@@ -1,0 +1,14 @@
+# Конфигурация Netlify для фронта Threadhunt (монорепо: собираем только packages/web).
+# Этот файл ИМЕЕТ ПРИОРИТЕТ над настройками в UI — поэтому base/command/publish можно
+# больше не трогать в интерфейсе.
+
+[build]
+  base = "packages/web"
+  command = "corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @threadhunt/web build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
