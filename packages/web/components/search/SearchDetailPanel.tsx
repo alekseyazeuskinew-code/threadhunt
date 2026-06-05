@@ -664,7 +664,7 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
 
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить онбординг'}</Button>
-        <span className="mx-1 text-muted">·</span>
+        <span className="mx-1 hidden h-5 w-px bg-line sm:block" />
         <Input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="Название шаблона" className="w-48" />
         <Button variant="ghost" onClick={saveTemplate} disabled={!tplName.trim()}>
           {saved2 ? 'В библиотеке ✓' : 'Сохранить как шаблон'}
