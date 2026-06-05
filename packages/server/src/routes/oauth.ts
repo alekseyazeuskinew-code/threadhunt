@@ -13,12 +13,23 @@ import * as oauth from '../oauth.js';
 const WEB = env.WEB_ORIGIN;
 
 export async function oauthRoutes(app: FastifyInstance) {
-  // ── Threads: старт ──
+  // ── Threads: старт (редирект — для прямого захода на сервер) ──
   app.get('/api/threads/oauth/start', (req, reply) => {
     const uid = getUserId(app, req);
     if (!uid) return reply.redirect(`${WEB}/login`);
     if (!oauth.threadsOAuthReady()) return reply.redirect(`${WEB}/connections?threads=unconfigured`);
     return reply.redirect(oauth.threadsAuthUrl(oauth.signState(uid)));
+  });
+
+  // ── Threads: URL авторизации как JSON ──
+  // Фронт на Netlify зовёт это через прокси (cookie доходит), получает готовый
+  // URL и сам уводит браузер на threads.net. Так нет внешнего 302 через прокси
+  // (Netlify отдаёт на него «upstream error»).
+  app.get('/api/threads/oauth/url', (req, reply) => {
+    const uid = getUserId(app, req);
+    if (!uid) return reply.code(401).send({ error: 'unauthorized' });
+    if (!oauth.threadsOAuthReady()) return reply.send({ url: null, unconfigured: true });
+    return reply.send({ url: oauth.threadsAuthUrl(oauth.signState(uid)) });
   });
 
   // ── Threads: колбэк ──
@@ -48,6 +59,14 @@ export async function oauthRoutes(app: FastifyInstance) {
     if (!uid) return reply.redirect(`${WEB}/login`);
     if (!oauth.metaOAuthReady()) return reply.redirect(`${WEB}/connections?meta=unconfigured`);
     return reply.redirect(oauth.metaAuthUrl(oauth.signState(uid)));
+  });
+
+  // ── Meta (Ads): URL авторизации как JSON (см. комментарий у threads/oauth/url) ──
+  app.get('/api/meta/oauth/url', (req, reply) => {
+    const uid = getUserId(app, req);
+    if (!uid) return reply.code(401).send({ error: 'unauthorized' });
+    if (!oauth.metaOAuthReady()) return reply.send({ url: null, unconfigured: true });
+    return reply.send({ url: oauth.metaAuthUrl(oauth.signState(uid)) });
   });
 
   // ── Meta (Ads): колбэк ──

@@ -71,6 +71,21 @@ export default function ConnectionsPage() {
     }
   }
 
+  // OAuth-старт: берём готовый URL через прокси (cookie доходит) и уводим браузер
+  // напрямую на провайдера. Прямой 302 через прокси Netlify даёт «upstream error».
+  async function startOAuth(provider: 'threads' | 'meta') {
+    try {
+      const { url, unconfigured } = await api.get<{ url: string | null; unconfigured?: boolean }>(`/api/${provider}/oauth/url`);
+      if (unconfigured || !url) {
+        setNotice({ ok: false, text: provider === 'threads' ? 'Вход через Threads ещё не настроен (нет ключей приложения на сервере).' : 'Вход через Meta ещё не настроен.' });
+        return;
+      }
+      window.location.href = url;
+    } catch {
+      setNotice({ ok: false, text: 'Не удалось начать авторизацию. Попробуйте ещё раз или подключите вручную по токену.' });
+    }
+  }
+
   return (
     <>
       <PageHeader title="Подключения" subtitle="Расширение — для отбивки в директе. Threads API — для автопостинга (опционально)." />
@@ -181,7 +196,7 @@ export default function ConnectionsPage() {
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
-              <Button onClick={() => (window.location.href = `/api/threads/oauth/start`)}>
+              <Button onClick={() => startOAuth('threads')}>
                 <Send size={15} /> Войти через Threads
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setAddingApi((v) => !v)}>
@@ -243,7 +258,7 @@ export default function ConnectionsPage() {
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
-              <Button onClick={() => (window.location.href = `/api/meta/oauth/start`)}>
+              <Button onClick={() => startOAuth('meta')}>
                 <Megaphone size={15} /> Войти через Meta
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setAddingMeta((v) => !v)}>
