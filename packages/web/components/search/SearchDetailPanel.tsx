@@ -249,12 +249,32 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
             <div className="font-medium">Автопубликация</div>
             <div className="text-sm text-muted">Бот сам постит приманки по расписанию через официальный API.</div>
           </div>
-          <Toggle checked={cfg.enabled} onChange={(v) => setCfg({ ...cfg, enabled: v })} />
+          <div className="flex items-center gap-3">
+            <span className={`text-sm font-medium ${cfg.enabled ? 'text-success' : 'text-muted'}`}>
+              {cfg.enabled ? 'Включён' : 'Выключен'}
+            </span>
+            <Toggle checked={cfg.enabled} onChange={(v) => setCfg({ ...cfg, enabled: v })} />
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-muted">
           <label className="flex items-center gap-2">
             раз в
-            <Input type="number" className="w-20" value={cfg.intervalMinutes} onChange={(e) => setCfg({ ...cfg, intervalMinutes: +e.target.value })} />
+            <Input
+              type="number"
+              min={0}
+              className="w-16"
+              value={Math.floor((cfg.intervalMinutes || 0) / 60)}
+              onChange={(e) => setCfg({ ...cfg, intervalMinutes: Math.max(0, +e.target.value) * 60 + ((cfg.intervalMinutes || 0) % 60) })}
+            />
+            ч
+            <Input
+              type="number"
+              min={0}
+              max={59}
+              className="w-16"
+              value={(cfg.intervalMinutes || 0) % 60}
+              onChange={(e) => setCfg({ ...cfg, intervalMinutes: Math.floor((cfg.intervalMinutes || 0) / 60) * 60 + Math.max(0, Math.min(59, +e.target.value)) })}
+            />
             мин
           </label>
           <label className="flex items-center gap-2">
