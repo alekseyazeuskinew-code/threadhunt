@@ -4,6 +4,7 @@ export interface Keyword {
   id?: string;
   text: string;
   mode: string;
+  replyText?: string | null;
 }
 
 export interface ReplyTemplate {

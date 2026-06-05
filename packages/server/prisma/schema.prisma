@@ -245,8 +245,9 @@ model Keyword {
   id       String @id @default(cuid())
   searchId String
   search   Search @relation(fields: [searchId], references: [id], onDelete: Cascade)
-  text     String
-  mode     String @default("root") // root | word | exact
+  text      String
+  mode      String  @default("root") // root | word | exact
+  replyText String? // персональный ответ под это слово; пусто → берётся общий шаблон поиска
 
   @@index([searchId])
 }

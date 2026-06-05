@@ -16,6 +16,8 @@ export type MatchMode =
 export interface Keyword {
   text: string;
   mode?: MatchMode;
+  /** Персональный ответ под это слово. Пусто → берётся общий шаблон ответа поиска. */
+  replyText?: string;
 }
 
 /**

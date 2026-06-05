@@ -19,6 +19,18 @@ import { matchKeyword, type AgentTasksResponse, type AgentReplyEvent, type Keywo
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const BASE = location.origin; // www.threads.com или www.threads.net
 
+// Какой ответ слать: персональный текст под совпавшее слово (replyText) или, если
+// его нет — общий шаблон поиска. Для персонального id нет → событие уйдёт без
+// templateId (в БД replyTemplateId = null, FK не нарушается).
+function pickReply(
+  kw: { searchId: string; replyText?: string },
+  replyBySearch: Record<string, { id: string; text: string } | undefined>,
+): { id?: string; text: string } | null {
+  if (kw.replyText && kw.replyText.trim()) return { text: kw.replyText.trim() };
+  const tpl = replyBySearch[kw.searchId];
+  return tpl ? { id: tpl.id, text: tpl.text } : null;
+}
+
 // Разделы директа в порядке приоритета (как в bot.js).
 const SECTIONS = [
   { url: '/messages/requests', label: 'requests' },
@@ -36,7 +48,7 @@ type Chat = {
   name: string;
   section: string;
   preview: string;
-  matched?: { keyword: string; searchId: string };
+  matched?: { keyword: string; searchId: string; replyText?: string };
 };
 
 interface Sweep {
@@ -325,10 +337,10 @@ async function step() {
         const m = matchKeyword(c.preview, sweep.keywords);
         if (!m) continue; // незнакомец без кодового слова — пропускаем
         const kw = sweep.keywords.find((k) => k.text === m)!;
-        c.matched = { keyword: m, searchId: kw.searchId };
+        c.matched = { keyword: m, searchId: kw.searchId, replyText: kw.replyText };
         if (sweep.dryRun) {
           // ТЕСТ: совпадение засчитано по превью — открывать/принимать не нужно.
-          const tpl = sweep.replyBySearch[kw.searchId];
+          const tpl = pickReply(kw, sweep.replyBySearch);
           if (tpl)
             sweep.events.push({ searchId: kw.searchId, fromUserKey: c.id, fromUsername: c.name, matchedKeyword: m, templateId: tpl.id, sent: false, section: c.section, at: new Date().toISOString() });
           continue; // в список на открытие НЕ добавляем
@@ -370,7 +382,7 @@ async function step() {
       // Запрос/Скрытый, уже совпавший по превью на сборе (в тесте их тут нет —
       // они засчитаны без открытия). Реальный проход: принять диалог и ответить.
       const kw = chat.matched;
-      const tpl = sweep.replyBySearch[kw.searchId];
+      const tpl = pickReply(kw, sweep.replyBySearch);
       if (tpl) {
         await acceptRequestIfNeeded(); // закрыть OK-окно → Accept → пост-подтверждение (D.13)
         const sent = await sendReply(tpl.text);
@@ -396,7 +408,7 @@ async function step() {
         const matched = matchKeyword(last.text, sweep.keywords);
         if (matched) {
           const kw = sweep.keywords.find((k) => k.text === matched)!;
-          const tpl = sweep.replyBySearch[kw.searchId];
+          const tpl = pickReply(kw, sweep.replyBySearch);
           if (tpl) {
             let sent = false;
             if (!sweep.dryRun) {

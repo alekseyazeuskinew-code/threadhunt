@@ -46,7 +46,7 @@ export async function searchRoutes(app: FastifyInstance) {
     title: z.string().min(1),
     description: z.string().default(''),
     connectionId: z.string().optional(),
-    keywords: z.array(z.object({ text: z.string().min(1), mode: z.string().default('root') })).default([]),
+    keywords: z.array(z.object({ text: z.string().min(1), mode: z.string().default('root'), replyText: z.string().optional() })).default([]),
   });
   app.post('/api/searches', async (req, reply) => {
     const userId = requireUser(req, reply);
@@ -112,7 +112,7 @@ export async function searchRoutes(app: FastifyInstance) {
 
   // ── Заменить кодовые слова ──
   const kwInput = z.object({
-    keywords: z.array(z.object({ text: z.string().min(1), mode: z.string().default('root') })),
+    keywords: z.array(z.object({ text: z.string().min(1), mode: z.string().default('root'), replyText: z.string().optional() })),
   });
   app.put('/api/searches/:id/keywords', async (req, reply) => {
     const userId = requireUser(req, reply);

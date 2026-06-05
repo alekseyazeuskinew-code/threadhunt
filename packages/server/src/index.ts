@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import { env } from './env.js';
+import { db } from './db.js';
 import { agentRoutes } from './routes/agent.js';
 import { authRoutes } from './routes/auth.js';
 import { searchRoutes } from './routes/searches.js';
@@ -35,6 +36,22 @@ app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string
 });
 
 app.get('/health', async () => ({ ok: true }));
+
+// Лёгкие идемпотентные миграции схемы на старте (Postgres, ADD COLUMN IF NOT
+// EXISTS). Так аддитивные колонки появляются при деплое сами — без ручного
+// `prisma db push` и без окна, когда сгенерированный клиент уже запрашивает
+// ещё не существующую в БД колонку. Только безопасные (необнуляемые/additive) изменения.
+async function ensureSchema() {
+  const stmts = ['ALTER TABLE "Keyword" ADD COLUMN IF NOT EXISTS "replyText" TEXT'];
+  for (const sql of stmts) {
+    try {
+      await db.$executeRawUnsafe(sql);
+    } catch (e) {
+      app.log.error({ err: e }, `ensureSchema: не удалось выполнить ${sql}`);
+    }
+  }
+}
+await ensureSchema();
 
 // Дашборд (cookie-сессия).
 await app.register(authRoutes);

@@ -214,29 +214,56 @@ function AutomationTab({
   );
 }
 
+type KwRow = { text: string; mode: string; replyText: string };
+
 function KeywordsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
-  const [value, setValue] = useState(s.keywords.map((k) => k.text).join(', '));
+  const [list, setList] = useState<KwRow[]>(
+    s.keywords.length ? s.keywords.map((k) => ({ text: k.text, mode: k.mode || 'root', replyText: k.replyText || '' })) : [{ text: '', mode: 'root', replyText: '' }],
+  );
   const [saved, setSaved] = useState(false);
+  const set = (i: number, patch: Partial<KwRow>) => setList((l) => l.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
   async function save() {
     await api.put(`/api/searches/${s.id}/keywords`, {
-      keywords: value.split(',').map((t) => t.trim()).filter(Boolean).map((text) => ({ text, mode: 'root' })),
+      keywords: list
+        .filter((r) => r.text.trim())
+        .map((r) => ({ text: r.text.trim(), mode: r.mode || 'root', replyText: r.replyText.trim() || undefined })),
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     reload();
   }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted">
-        Сообщения с этими словами в директе ловятся автоматически. Ищется по корню: «монтаж» поймает и «монтажёр».
+        Сообщения с этими словами в директе ловятся автоматически (по корню: «монтаж» поймает и «монтажёр»). Можно задать
+        <b> свой ответ под каждое слово</b> — если оставить пустым, отправится общий шаблон из вкладки «Отбивка».
       </p>
-      <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="монтаж, монтажёр, video editor" />
-      <div className="flex flex-wrap gap-2">
-        {value.split(',').map((t) => t.trim()).filter(Boolean).map((t, i) => (
-          <Badge key={i} tone="accent">{t}</Badge>
-        ))}
+
+      {list.map((r, i) => (
+        <div key={i} className="rounded-2xl border border-line bg-panel p-3">
+          <div className="flex items-center gap-2">
+            <Input className="flex-1" value={r.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="монтаж" />
+            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
+              <Trash2 size={18} />
+            </button>
+          </div>
+          <Textarea
+            className="mt-2"
+            value={r.replyText}
+            onChange={(e) => set(i, { replyText: e.target.value })}
+            placeholder="Свой ответ под это слово (необязательно). Пусто → общий шаблон."
+          />
+        </div>
+      ))}
+
+      <div className="flex gap-2">
+        <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '', mode: 'root', replyText: '' }])}>
+          <Plus size={16} /> Добавить слово
+        </Button>
+        <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
       </div>
-      <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
     </div>
   );
 }

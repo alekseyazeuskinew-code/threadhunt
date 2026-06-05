@@ -60,7 +60,7 @@ export async function agentRoutes(app: FastifyInstance) {
     const rules: AgentSearchRule[] = searches.map((s) => ({
       searchId: s.id,
       title: s.title,
-      keywords: s.keywords.map((k) => ({ text: k.text, mode: k.mode as any })),
+      keywords: s.keywords.map((k) => ({ text: k.text, mode: k.mode as any, replyText: k.replyText ?? undefined })),
       replyTemplates: s.replyTemplates.map((t) => ({ id: t.id, text: t.text })),
       rotation: (s.publishConfig?.rotation as 'sequential' | 'random') ?? 'sequential',
       alreadyReplied: s.leads.map((l) => l.fromUserKey),
