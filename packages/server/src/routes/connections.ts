@@ -11,7 +11,7 @@ import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
 import { encrypt, hashToken } from '../crypto.js';
 import { whoami } from '../threads/publisher.js';
-import { seatLimit } from '@threadhunt/shared';
+import { seatLimit } from '../seats.js';
 
 export async function connectionRoutes(app: FastifyInstance) {
   const requireUser = (req: FastifyRequest, reply: FastifyReply): string | null => {
