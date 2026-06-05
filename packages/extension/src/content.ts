@@ -26,10 +26,23 @@ const SECTIONS = [
   { url: '/messages/', label: 'main' },
 ] as const;
 
-type Chat = { id: string; href: string; name: string; section: string };
+// preview — текст строки чата в списке (имя + последнее сообщение). В Запросах/Скрытых
+// само сообщение видно ТОЛЬКО здесь (чат до приёма сообщений не показывает), поэтому
+// кодовое слово ищем в preview, не открывая чат (D.12 хендоффа — бережёт лимиты).
+// matched — для Запросов/Скрытых: совпадение, найденное по preview ещё на сборе.
+type Chat = {
+  id: string;
+  href: string;
+  name: string;
+  section: string;
+  preview: string;
+  matched?: { keyword: string; searchId: string };
+};
 
 interface Sweep {
-  phase: 'collect' | 'process';
+  // warmup — открыть /messages/ перед заходом в Запросы (без прогрева /messages/requests
+  // падает с ошибкой, D.10 хендоффа).
+  phase: 'warmup' | 'collect' | 'process';
   sectionIdx: number;
   seenIds: string[];
   chats: Chat[];
@@ -64,7 +77,9 @@ function withinWorkingHours(wh: { enabled: boolean; from: string; to: string }):
 const SWEEP_KEY = 'sweep';
 const LAST_SWEEP_KEY = 'lastSweepAt';
 const TEST_RESULT_KEY = 'th_test_result'; // результат тест-прохода (для popup), в storage.local
-const COOLDOWN_MS = 60_000; // не чаще раза в минуту начинать новый обход
+// Антибан: проходы делают много навигаций (разделы + чаты), частые заходы ловят
+// HTTP 429 (D.15 хендоффа). Поэтому новый обход — не чаще раза в 30 минут.
+const COOLDOWN_MS = 30 * 60_000;
 
 async function getSweep(): Promise<Sweep | null> {
   const s = await chrome.storage.session.get(SWEEP_KEY);
@@ -100,8 +115,10 @@ function collectChats(section: string): Chat[] {
     const id = (href.match(/\/t\/(\d+)/) || [])[1];
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    const name = (a.innerText || '').split('\n')[0].trim();
-    out.push({ id, href, name, section });
+    const raw = a.innerText || '';
+    const name = raw.split('\n')[0].trim();
+    const preview = raw.replace(/\s+/g, ' ').trim(); // вся строка чата: имя + превью сообщения
+    out.push({ id, href, name, preview, section });
   }
   return out;
 }
@@ -154,32 +171,57 @@ const ACCEPT_RX =
   /(accept|accetta|aceptar|aceitar|accepter|akzeptier|allow|consenti|permett|permitir|autoriser|zulassen|unhide|mostra|unblock|onayla|kabul|akcept|прийн|дозвол|принять|разреш|показать|разблок|қабыл|рұқсат|рұқсат бер)/i;
 const DECLINE_RX =
   /(decline|delete|reject|block|remove|rifiuta|elimina|rechazar|recusar|refuser|ablehnen|löschen|supprimer|eliminar|engelle|reddet|sil|відхил|видалити|заблок|отклон|удалить|удали|жою|бас тарт)/i;
+// «OK / Понятно / Продолжить» — кнопка инфо-окна «How message requests work»,
+// которое всплывает ПОВЕРХ «Accept» и перехватывает клики (D.13 хендоффа).
+const CONFIRM_RX =
+  /^(ok|okay|got it|continue|next|confirm|done|conferma|continua|continuar|continuer|weiter|fortfahren|aceptar|entendido|понятно|продолжить|далее|хорошо|подтвердить|зрозуміло|продовжити|далі|tamam|anladım|devam|jatka|fortsätt|확인|계속|确定|继续|了解|わかりました|続行|түсінікті|жалғастыру)$/i;
 
 function isFilled(el: HTMLElement): boolean {
   const bg = getComputedStyle(el).backgroundColor;
   return !!bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
 }
 
-async function acceptRequestIfNeeded(): Promise<void> {
-  const buttons = [...document.querySelectorAll<HTMLElement>('[role="button"], button')].filter((b) => {
+function visibleButtons(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('[role="button"], button')].filter((b) => {
     const t = (b.innerText || '').trim();
     return b.offsetParent !== null && t.length > 0 && t.length < 24; // видимая, короткая подпись
   });
+}
 
-  // 1) явная «принять» по словам, но не «отклонить»
+// Закрыть всплывающее инфо-окно (OK/Понятно/Продолжить), если оно есть. Возвращает true, если кликнули.
+function clickConfirm(): boolean {
+  const b = visibleButtons().find((x) => CONFIRM_RX.test((x.innerText || '').trim()));
+  if (b) { b.click(); return true; }
+  return false;
+}
+
+// Нажать «Принять»: по словам (не «отклонить») или фолбэк — главная залитая кнопка.
+function clickAccept(): boolean {
+  const buttons = visibleButtons();
   let target = buttons.find((b) => ACCEPT_RX.test(b.innerText) && !DECLINE_RX.test(b.innerText));
+  if (!target) target = buttons.find((b) => !DECLINE_RX.test(b.innerText) && !CONFIRM_RX.test(b.innerText) && isFilled(b));
+  if (target) { target.click(); return true; }
+  return false;
+}
 
-  // 2) фолбэк: главная залитая кнопка, не «отклонить» (в баннере запроса это «Принять»)
-  if (!target) {
-    target = buttons.find((b) => !DECLINE_RX.test(b.innerText) && isFilled(b));
+// На «Запросах»/«Скрытых» перед ответом нужно принять диалог. Порядок критичен
+// (D.13 хендоффа): СНАЧАЛА закрыть инфо-окно «How message requests work» (OK),
+// ПОТОМ нажать «Accept». Окна появляются с задержкой → пробуем в цикле. После
+// приёма иногда всплывает ещё одно подтверждение — закрываем и его.
+async function acceptRequestIfNeeded(): Promise<void> {
+  let accepted = false;
+  for (let i = 0; i < 8 && !accepted; i++) {
+    clickConfirm(); // закрыть OK-окно, если перекрывает
+    if (clickAccept()) accepted = true;
+    else await sleep(1100);
   }
-
-  if (target) {
-    target.click();
-    await sleep(1500);
+  if (accepted) {
+    await sleep(1400);
+    clickConfirm(); // пост-приёмное подтверждение, если есть
+    await sleep(1600);
   }
-  // Если не нашли — ничего страшного: попробуем ответить как есть (в некоторых
-  // языках/версиях «принятие» не требуется). При поломке см. discover-dm.js.
+  // Если принять не удалось — попробуем ответить как есть (в части языков/версий
+  // приём не требуется). При поломке вёрстки чинить здесь (см. хендофф D.13).
 }
 
 async function sendReply(text: string): Promise<boolean> {
@@ -224,7 +266,7 @@ async function step() {
     if (last && Date.now() - last < COOLDOWN_MS) return;
 
     sweep = {
-      phase: 'collect',
+      phase: 'warmup',
       sectionIdx: 0,
       seenIds: [],
       chats: [],
@@ -237,9 +279,21 @@ async function step() {
       maxDialogs: lim?.maxDialogs ?? 40,
       repliesLeft: lim?.repliesRemainingToday ?? 40,
       sent: 0,
-      expectPath: SECTIONS[0].url,
+      expectPath: '/messages/', // прогрев перед заходом в Запросы (D.10)
       guard: 0,
     };
+    await setSweep(sweep);
+    navigate('/messages/');
+    return;
+  }
+
+  // Прогрев: мы на /messages/ — теперь можно безопасно идти в Запросы (D.10).
+  if (sweep.phase === 'warmup') {
+    await sleep(2500);
+    sweep.phase = 'collect';
+    sweep.sectionIdx = 0;
+    sweep.expectPath = SECTIONS[0].url;
+    sweep.guard = 0;
     await setSweep(sweep);
     navigate(SECTIONS[0].url);
     return;
@@ -261,10 +315,31 @@ async function step() {
     const seen = new Set(sweep.seenIds);
     const repliedKeys = new Set(sweep.repliedKeys);
     for (const c of collectChats(sec.label)) {
-      if (sweep.chats.length >= sweep.maxDialogs) break; // лимит читаемых диалогов за проход
       if (seen.has(c.id) || repliedKeys.has(c.id)) continue;
       seen.add(c.id);
-      sweep.chats.push(c);
+
+      if (c.section !== 'main') {
+        // Запросы/Скрытые: сообщение видно только в превью — матчим здесь, чат НЕ
+        // открываем (D.12: до приёма сообщений в чате нет, плюс бережём лимит 429).
+        sweep.scanned = (sweep.scanned || 0) + 1; // осмотрели превью
+        const m = matchKeyword(c.preview, sweep.keywords);
+        if (!m) continue; // незнакомец без кодового слова — пропускаем
+        const kw = sweep.keywords.find((k) => k.text === m)!;
+        c.matched = { keyword: m, searchId: kw.searchId };
+        if (sweep.dryRun) {
+          // ТЕСТ: совпадение засчитано по превью — открывать/принимать не нужно.
+          const tpl = sweep.replyBySearch[kw.searchId];
+          if (tpl)
+            sweep.events.push({ searchId: kw.searchId, fromUserKey: c.id, fromUsername: c.name, matchedKeyword: m, templateId: tpl.id, sent: false, section: c.section, at: new Date().toISOString() });
+          continue; // в список на открытие НЕ добавляем
+        }
+        if (sweep.chats.length >= sweep.maxDialogs) continue; // лимит открытий за проход
+        sweep.chats.push(c); // реальный проход: откроем, чтобы принять и ответить
+      } else {
+        // Основной директ: нужно открыть чат, чтобы прочитать последнее сообщение и направление.
+        if (sweep.chats.length >= sweep.maxDialogs) continue;
+        sweep.chats.push(c);
+      }
     }
     sweep.seenIds = [...seen];
     sweep.sectionIdx++;
@@ -290,37 +365,58 @@ async function step() {
   if (sweep.phase === 'process') {
     const chat = sweep.chats[sweep.processIdx];
     await sleep(2500);
-    sweep.scanned = (sweep.scanned || 0) + 1;
-    // В «Запросах»/«Скрытых» диалог не принят → последнее сообщение всегда входящее.
-    const last = readLastMessage(chat.section !== 'main');
 
-    if (last && last.incoming) {
-      const matched = matchKeyword(last.text, sweep.keywords);
-      if (matched) {
-        const kw = sweep.keywords.find((k) => k.text === matched)!;
-        const tpl = sweep.replyBySearch[kw.searchId];
-        if (tpl) {
-          // ТЕСТ: совпадение найдено — фиксируем, но НЕ принимаем запрос и НЕ отправляем ответ.
-          let sent = false;
-          if (!sweep.dryRun) {
-            if (chat.section !== 'main') await acceptRequestIfNeeded();
-            sent = await sendReply(tpl.text);
-            if (sent) sweep.sent++;
-          }
-          sweep.events.push({
-            searchId: kw.searchId,
-            fromUserKey: chat.id,
-            fromUsername: chat.name,
-            matchedKeyword: matched,
-            templateId: tpl.id,
-            sent,
-            section: chat.section,
-            at: new Date().toISOString(),
-          });
-          if (!sweep.dryRun) {
-            await sleep(sweep.minDelayMs); // анти-бан пауза
-            // достигли дневного лимита сообщений — заканчиваем проход
-            if (sweep.sent >= sweep.repliesLeft) return finishSweep(sweep);
+    if (chat.section !== 'main' && chat.matched) {
+      // Запрос/Скрытый, уже совпавший по превью на сборе (в тесте их тут нет —
+      // они засчитаны без открытия). Реальный проход: принять диалог и ответить.
+      const kw = chat.matched;
+      const tpl = sweep.replyBySearch[kw.searchId];
+      if (tpl) {
+        await acceptRequestIfNeeded(); // закрыть OK-окно → Accept → пост-подтверждение (D.13)
+        const sent = await sendReply(tpl.text);
+        if (sent) sweep.sent++;
+        sweep.events.push({
+          searchId: kw.searchId,
+          fromUserKey: chat.id,
+          fromUsername: chat.name,
+          matchedKeyword: kw.keyword,
+          templateId: tpl.id,
+          sent,
+          section: chat.section,
+          at: new Date().toISOString(),
+        });
+        await sleep(sweep.minDelayMs); // анти-бан пауза
+        if (sweep.sent >= sweep.repliesLeft) return finishSweep(sweep);
+      }
+    } else {
+      // Основной директ: открыть, прочитать последнее сообщение, проверить направление.
+      sweep.scanned = (sweep.scanned || 0) + 1;
+      const last = readLastMessage(false);
+      if (last && last.incoming) {
+        const matched = matchKeyword(last.text, sweep.keywords);
+        if (matched) {
+          const kw = sweep.keywords.find((k) => k.text === matched)!;
+          const tpl = sweep.replyBySearch[kw.searchId];
+          if (tpl) {
+            let sent = false;
+            if (!sweep.dryRun) {
+              sent = await sendReply(tpl.text);
+              if (sent) sweep.sent++;
+            }
+            sweep.events.push({
+              searchId: kw.searchId,
+              fromUserKey: chat.id,
+              fromUsername: chat.name,
+              matchedKeyword: matched,
+              templateId: tpl.id,
+              sent,
+              section: chat.section,
+              at: new Date().toISOString(),
+            });
+            if (!sweep.dryRun) {
+              await sleep(sweep.minDelayMs); // анти-бан пауза
+              if (sweep.sent >= sweep.repliesLeft) return finishSweep(sweep);
+            }
           }
         }
       }
@@ -364,7 +460,7 @@ async function startTestSweep(): Promise<{ ok: boolean; reason?: string }> {
 
   await chrome.storage.local.set({ [TEST_RESULT_KEY]: { scanned: 0, matched: 0, at: new Date().toISOString(), done: false } });
   const sweep: Sweep = {
-    phase: 'collect',
+    phase: 'warmup',
     sectionIdx: 0,
     seenIds: [],
     chats: [],
@@ -377,13 +473,13 @@ async function startTestSweep(): Promise<{ ok: boolean; reason?: string }> {
     maxDialogs: tasks?.limits?.maxDialogs ?? 40,
     repliesLeft: 0,
     sent: 0,
-    expectPath: SECTIONS[0].url,
+    expectPath: '/messages/', // прогрев перед Запросами (D.10)
     guard: 0,
     dryRun: true,
     scanned: 0,
   };
   await setSweep(sweep);
-  navigate(SECTIONS[0].url);
+  navigate('/messages/'); // прогрев, дальше автомат сам пойдёт в Запросы
   return { ok: true };
 }
 
