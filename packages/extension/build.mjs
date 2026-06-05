@@ -18,6 +18,7 @@ const builds = [
 function copyStatic() {
   cpSync('manifest.json', 'dist/manifest.json');
   cpSync('popup.html', 'dist/popup.html');
+  cpSync('icons', 'dist/icons', { recursive: true });
 }
 
 if (watch) {

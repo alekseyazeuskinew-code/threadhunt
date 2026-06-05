@@ -22,3 +22,6 @@ packages/extension/dist/
 # системное
 .DS_Store
 *.log
+
+# артефакт сборки расширения
+packages/extension/threadhunt-extension.zip

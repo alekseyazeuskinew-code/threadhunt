@@ -8,8 +8,14 @@
     "https://www.threads.com/*",
     "https://www.threads.net/*",
     "http://localhost:3010/*",
+    "https://threadhuntserver-production.up.railway.app/*",
     "https://api.threadhunt.app/*"
   ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
@@ -21,13 +27,22 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["http://localhost:3000/*", "https://app.threadhunt.app/*"],
+      "matches": [
+        "http://localhost:3000/*",
+        "https://serene-seahorse-a5102e.netlify.app/*",
+        "https://app.threadhunt.app/*"
+      ],
       "js": ["src/pair.js"],
       "run_at": "document_idle"
     }
   ],
   "action": {
     "default_title": "Threadhunt",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   }
 }
