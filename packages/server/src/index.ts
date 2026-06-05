@@ -42,7 +42,10 @@ app.get('/health', async () => ({ ok: true }));
 // `prisma db push` и без окна, когда сгенерированный клиент уже запрашивает
 // ещё не существующую в БД колонку. Только безопасные (необнуляемые/additive) изменения.
 async function ensureSchema() {
-  const stmts = ['ALTER TABLE "Keyword" ADD COLUMN IF NOT EXISTS "replyText" TEXT'];
+  const stmts = [
+    'ALTER TABLE "Keyword" ADD COLUMN IF NOT EXISTS "replyText" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "acceptedDataUseAt" TIMESTAMP',
+  ];
   for (const sql of stmts) {
     try {
       await db.$executeRawUnsafe(sql);

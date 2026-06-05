@@ -20,11 +20,14 @@ export async function authRoutes(app: FastifyInstance) {
     const { email, password } = parsed.data;
     const exists = await db.user.findUnique({ where: { email } });
     if (exists) return reply.code(409).send({ error: 'Такой email уже зарегистрирован' });
+    // Согласие на обезличенную аналитику — необязательное (opt-in), пишем дату если дано.
+    const acceptDataUse = (req.body as any)?.acceptDataUse === true;
     const user = await db.user.create({
       data: {
         email,
         passwordHash: await hashPassword(password),
         acceptedTermsAt: new Date(),
+        acceptedDataUseAt: acceptDataUse ? new Date() : null,
         subscription: { create: {} },
       },
     });

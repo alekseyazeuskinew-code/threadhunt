@@ -24,6 +24,7 @@ model User {
   plan         String    @default("FREE") // FREE | PRO | VIP
   role         String    @default("USER") // USER | ADMIN
   acceptedTermsAt DateTime? // когда принял условия (риск Threads-аккаунта на пользователе)
+  acceptedDataUseAt DateTime? // согласие на обезличенную аналитику для улучшения сервиса (opt-in)
   createdAt    DateTime  @default(now())
 
   connections  ThreadsConnection[]

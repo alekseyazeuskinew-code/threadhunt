@@ -12,6 +12,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [accept, setAccept] = useState(false);
+  const [acceptDataUse, setAcceptDataUse] = useState(true); // opt-in по умолчанию, можно снять
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const isSignup = mode === 'signup';
@@ -25,7 +26,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
     setError('');
     setLoading(true);
     try {
-      await api.post(isSignup ? '/api/auth/signup' : '/api/auth/login', { email, password, acceptTerms: accept });
+      await api.post(isSignup ? '/api/auth/signup' : '/api/auth/login', { email, password, acceptTerms: accept, acceptDataUse });
       router.push(isSignup ? '/onboarding' : '/');
     } catch (err: any) {
       setError(err.message);
@@ -72,6 +73,21 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
                     политику конфиденциальности
                   </Link>
                   , понимаю, что автоматизация Threads — на моей ответственности.
+                </span>
+              </label>
+            )}
+            {isSignup && (
+              <label className="flex items-start gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={acceptDataUse}
+                  onChange={(e) => setAcceptDataUse(e.target.checked)}
+                  className="mt-0.5 accent-accent"
+                />
+                <span>
+                  Согласен, что Threadhunt использует <b>обезличенные и агрегированные</b> данные о работе моих поисков
+                  (объёмы, конверсии, отклик постов) для улучшения сервиса и отраслевых бенчмарков. Персональные данные
+                  кандидатов для этого не используются. Необязательно.
                 </span>
               </label>
             )}
