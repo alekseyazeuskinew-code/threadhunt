@@ -16,13 +16,13 @@ import { GoalPlanner } from '@/components/search/GoalPlanner';
 import { type Flow, defaultFlow, FLOW_TEMPLATES } from '@/lib/flow';
 import { TIMEZONES, zonedToUtc } from '@/lib/timezones';
 
-type TabKey = 'keywords' | 'replies' | 'posts' | 'ads' | 'goal' | 'onboarding' | 'leads';
+type TabKey = 'automation' | 'keywords' | 'replies' | 'posts' | 'ads' | 'goal' | 'onboarding' | 'leads';
 
 // Деталь поиска как переиспользуемая панель: и в split-view (справа), и как deep-link.
 // onChanged — чтобы левый список обновился при смене статуса/контента.
 export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: () => void }) {
   const [s, setS] = useState<SearchDetail | null>(null);
-  const [tab, setTab] = useState<TabKey>('keywords');
+  const [tab, setTab] = useState<TabKey>('automation');
 
   async function load() {
     setS(await api.get<SearchDetail>(`/api/searches/${id}`));
@@ -69,6 +69,7 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
             active={tab}
             onChange={(k) => setTab(k as TabKey)}
             tabs={[
+              { key: 'automation', label: 'Автоматизация' },
               { key: 'keywords', label: 'Кодовые слова', count: s.keywords.length },
               { key: 'replies', label: 'Отбивка', count: s.replyTemplates.length },
               { key: 'posts', label: 'Посты', count: s.postTemplates.length },
@@ -82,6 +83,7 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
       </header>
 
       <div className="max-w-3xl p-6">
+        {tab === 'automation' && <AutomationTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} goTo={setTab} />}
         {tab === 'keywords' && <KeywordsTab s={s} reload={reload} />}
         {tab === 'replies' && <RepliesTab s={s} reload={reload} />}
         {tab === 'posts' && <PostsTab s={s} reload={reload} />}
@@ -89,6 +91,124 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
         {tab === 'goal' && <GoalPlanner searchId={s.id} onRewrite={() => setTab('posts')} />}
         {tab === 'onboarding' && <OnboardingTab s={s} reload={reload} />}
         {tab === 'leads' && <LeadsTab id={id} />}
+      </div>
+    </div>
+  );
+}
+
+// Сводная вкладка: вся автоматизация поиска в одном окне — отбивка в директе,
+// автопостинг и (скоро) отбивка в комментариях. Детальная настройка остаётся в
+// соответствующих под-вкладках; сюда вынесены главные переключатели и параметры.
+function AutomationTab({
+  s,
+  reload,
+  status,
+  onToggleSearch,
+  goTo,
+}: {
+  s: SearchDetail;
+  reload: () => void;
+  status: string;
+  onToggleSearch: () => void;
+  goTo: (t: TabKey) => void;
+}) {
+  const [cfg, setCfg] = useState(s.publishConfig ?? { enabled: false, intervalMinutes: 240, maxPerDay: 5, rotation: 'sequential' as const });
+  const [saved, setSaved] = useState(false);
+  const hours = Math.floor((cfg.intervalMinutes || 0) / 60);
+  const mins = (cfg.intervalMinutes || 0) % 60;
+
+  async function saveAutopost() {
+    await api.patch(`/api/searches/${s.id}/publish-config`, cfg);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+    reload();
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* ── Отбивка в директе ── */}
+      <div className="rounded-2xl border border-line bg-panel p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-medium">Отбивка в директе</div>
+            <div className="text-sm text-muted">Бот сам отвечает в Threads на сообщения с кодовыми словами.</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`text-sm font-medium ${status === 'ACTIVE' ? 'text-success' : 'text-muted'}`}>{status === 'ACTIVE' ? 'Включена' : 'Выключена'}</span>
+            <Toggle checked={status === 'ACTIVE'} onChange={onToggleSearch} />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-sm">
+          <button onClick={() => goTo('keywords')} className="rounded-full bg-bg px-3 py-1.5 hover:bg-panel-2">
+            Кодовые слова: <b>{s.keywords.length}</b> →
+          </button>
+          <button onClick={() => goTo('replies')} className="rounded-full bg-bg px-3 py-1.5 hover:bg-panel-2">
+            Шаблоны ответов: <b>{s.replyTemplates.length}</b> →
+          </button>
+        </div>
+      </div>
+
+      {/* ── Автопостинг ── */}
+      <div className="rounded-2xl border border-line bg-panel p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-medium">Автопостинг приманок</div>
+            <div className="text-sm text-muted">Бот сам публикует посты-приманки по расписанию (Threads API).</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`text-sm font-medium ${cfg.enabled ? 'text-success' : 'text-muted'}`}>{cfg.enabled ? 'Включён' : 'Выключен'}</span>
+            <Toggle checked={cfg.enabled} onChange={(v) => setCfg({ ...cfg, enabled: v })} />
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-muted">
+          <label className="flex items-center gap-2">
+            раз в
+            <Input type="number" min={0} className="w-16" value={hours} onChange={(e) => setCfg({ ...cfg, intervalMinutes: Math.max(0, +e.target.value) * 60 + mins })} />
+            ч
+            <Input type="number" min={0} max={59} className="w-16" value={mins} onChange={(e) => setCfg({ ...cfg, intervalMinutes: hours * 60 + Math.max(0, Math.min(59, +e.target.value)) })} />
+            мин
+          </label>
+          <label className="flex items-center gap-2">
+            не больше
+            <Input type="number" min={1} className="w-16" value={cfg.maxPerDay} onChange={(e) => setCfg({ ...cfg, maxPerDay: +e.target.value })} />
+            в день
+          </label>
+        </div>
+        {(cfg.intervalMinutes < 60 || cfg.maxPerDay > 10) && (
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-warning">
+            <ShieldAlert size={13} /> Слишком частый постинг повышает риск ограничений. Безопасно: раз в 2–4 ч, до 5–10 в день.
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button onClick={saveAutopost}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+          <Button variant="ghost" onClick={() => goTo('posts')}>
+            Шаблоны постов и тест-публикация →
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Отбивка в комментариях (скоро) ── */}
+      <div className="rounded-2xl border border-dashed border-line bg-panel p-4 opacity-90">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 font-medium">
+              Отбивка в комментариях <Badge tone="neutral">скоро</Badge>
+            </div>
+            <div className="text-sm text-muted">Бот будет отвечать под постами — на все комментарии или только с кодовым словом.</div>
+          </div>
+          <Toggle checked={false} onChange={() => {}} disabled />
+        </div>
+        <div className="mt-3 space-y-2 text-sm text-muted">
+          <label className="flex items-center gap-2">
+            <input type="radio" disabled checked readOnly /> только с кодовым словом
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" disabled readOnly /> на все комментарии
+          </label>
+        </div>
+        <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
+          Появится после одобрения отдельного доступа в Meta (threads_read_replies / threads_manage_replies). Настройки сохранятся заранее.
+        </p>
       </div>
     </div>
   );
