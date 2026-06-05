@@ -181,7 +181,7 @@ export default function ConnectionsPage() {
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
-              <Button onClick={() => (window.location.href = `${AGENT_API}/api/threads/oauth/start`)}>
+              <Button onClick={() => (window.location.href = `/api/threads/oauth/start`)}>
                 <Send size={15} /> Войти через Threads
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setAddingApi((v) => !v)}>
@@ -243,7 +243,7 @@ export default function ConnectionsPage() {
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
-              <Button onClick={() => (window.location.href = `${AGENT_API}/api/meta/oauth/start`)}>
+              <Button onClick={() => (window.location.href = `/api/meta/oauth/start`)}>
                 <Megaphone size={15} /> Войти через Meta
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setAddingMeta((v) => !v)}>
