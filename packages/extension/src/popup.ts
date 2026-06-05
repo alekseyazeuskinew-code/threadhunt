@@ -6,7 +6,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 async function refresh() {
   const { api, token } = await chrome.storage.local.get(['api', 'token']);
-  ($('api') as HTMLInputElement).value = api || 'http://localhost:3001';
+  ($('api') as HTMLInputElement).value = api || 'https://threadhuntserver-production.up.railway.app';
   ($('token') as HTMLInputElement).value = token || '';
   const connected = !!token;
   $('dot').classList.toggle('on', connected);

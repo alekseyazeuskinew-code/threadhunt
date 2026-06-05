@@ -172,13 +172,27 @@ export default function ConnectionsPage() {
               <a href={STORE_URL} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
                 Поставь его
               </a>{' '}
-              и нажми «Подключить браузер» ещё раз — подключится само. Или вставь этот код в попап расширения:
+              и нажми «Подключить браузер» ещё раз — подключится само. Или впиши в попап расширения <b>оба</b> поля:
             </p>
-            <div className="mt-2 flex items-center gap-2 rounded-xl border border-line bg-bg p-3 font-mono text-sm">
-              <span className="flex-1 break-all">{manualToken}</span>
-              <button onClick={() => manualToken && navigator.clipboard.writeText(manualToken)} className="text-muted hover:text-accent-ink">
-                <Copy size={16} />
-              </button>
+            <div className="mt-2 space-y-2">
+              <div>
+                <div className="mb-1 text-xs text-muted">Адрес сервера</div>
+                <div className="flex items-center gap-2 rounded-xl border border-line bg-bg p-3 font-mono text-sm">
+                  <span className="flex-1 break-all">{AGENT_API}</span>
+                  <button onClick={() => navigator.clipboard.writeText(AGENT_API)} className="text-muted hover:text-accent-ink">
+                    <Copy size={16} />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-muted">Код спаривания</div>
+                <div className="flex items-center gap-2 rounded-xl border border-line bg-bg p-3 font-mono text-sm">
+                  <span className="flex-1 break-all">{manualToken}</span>
+                  <button onClick={() => manualToken && navigator.clipboard.writeText(manualToken)} className="text-muted hover:text-accent-ink">
+                    <Copy size={16} />
+                  </button>
+                </div>
+              </div>
             </div>
           </InlinePanel>
 

@@ -7,7 +7,7 @@
 
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
-const DEFAULT_API = 'http://localhost:3001';
+const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
 const VERSION = '0.1.0';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
