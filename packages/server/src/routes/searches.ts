@@ -9,6 +9,7 @@ import { generatePosts, generateReplies, type BrandVoice } from '../ai/generate.
 import { aiLimitFor, today } from '../ai/limits.js';
 import { decrypt } from '../crypto.js';
 import { whoami } from '../threads/publisher.js';
+import { resolveConnection } from '../threads/resolve.js';
 
 export async function searchRoutes(app: FastifyInstance) {
   // Хелпер: вернуть userId или null (и сразу ответить 401 при null — через requireUser).
@@ -319,8 +320,10 @@ export async function searchRoutes(app: FastifyInstance) {
     const cfg = search.publishConfig;
     const checks: { label: string; ok: boolean; detail?: string }[] = [];
 
-    const hasConn = !!search.connection?.accessTokenEnc;
-    checks.push({ label: 'Threads-аккаунт подключён', ok: hasConn, detail: search.connection?.username ? `@${search.connection.username}` : 'нет подключения' });
+    // Подключение: явно привязанное к поиску или аккаунт пользователя по умолчанию.
+    const conn = await resolveConnection(search);
+    const hasConn = !!conn?.accessTokenEnc;
+    checks.push({ label: 'Threads-аккаунт подключён', ok: hasConn, detail: conn?.username ? `@${conn.username}` : 'нет подключения' });
 
     const hasTpl = search.postTemplates.length > 0;
     checks.push({ label: 'Есть шаблоны постов', ok: hasTpl, detail: `${search.postTemplates.length} шт.` });
@@ -339,7 +342,7 @@ export async function searchRoutes(app: FastifyInstance) {
     let tokenDetail = 'не проверялся';
     if (hasConn) {
       try {
-        const me = await whoami(decrypt(search.connection!.accessTokenEnc!));
+        const me = await whoami(decrypt(conn!.accessTokenEnc!));
         tokenOk = true;
         tokenDetail = me?.username ? `токен валиден · @${me.username}` : 'токен валиден';
       } catch (e: any) {
@@ -364,7 +367,7 @@ export async function searchRoutes(app: FastifyInstance) {
     }
 
     const ready = hasConn && hasTpl && tokenOk;
-    return { ready, dryRun: true, connection: search.connection?.username ?? null, checks, wouldPost };
+    return { ready, dryRun: true, connection: conn?.username ?? null, checks, wouldPost };
   });
 
   // ── Автопланировщик целей найма ──

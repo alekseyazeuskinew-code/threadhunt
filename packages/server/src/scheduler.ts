@@ -8,6 +8,7 @@
 import { db } from './db.js';
 import { decrypt } from './crypto.js';
 import { publishPost, type MediaType } from './threads/publisher.js';
+import { resolveConnection } from './threads/resolve.js';
 
 let running = false;
 
@@ -54,16 +55,18 @@ async function publishForSearch(searchId: string) {
     where: { id: searchId },
     include: { postTemplates: { orderBy: { order: 'asc' } }, publishConfig: true, connection: true },
   });
-  if (!search?.connection?.accessTokenEnc || !search.postTemplates.length || !search.publishConfig) return;
+  if (!search || !search.postTemplates.length || !search.publishConfig) return;
+  const conn = await resolveConnection(search);
+  if (!conn?.accessTokenEnc) return;
 
   const cfg = search.publishConfig;
   let idx = cfg.nextIndex || 0;
   if (cfg.rotation === 'random') idx = Math.floor(Math.random() * search.postTemplates.length);
   const tpl = search.postTemplates[idx % search.postTemplates.length];
 
-  const token = decrypt(search.connection.accessTokenEnc);
+  const token = decrypt(conn.accessTokenEnc);
   try {
-    const res = await publishPost(token, search.connection.threadsUserId, {
+    const res = await publishPost(token, conn.threadsUserId, {
       text: tpl.text,
       mediaUrl: tpl.mediaUrl ?? undefined,
       mediaType: (tpl.mediaType as MediaType) ?? '',
