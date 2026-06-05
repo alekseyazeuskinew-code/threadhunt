@@ -296,6 +296,19 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Статистика отправок drip-цепочки: сколько писем ушло по каждому шагу.
+  app.get('/api/admin/email-sequences/:id/stats', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const id = (req.params as any).id as string;
+    const [rows, started] = await Promise.all([
+      db.emailDrip.groupBy({ by: ['stepIndex'], where: { sequenceId: id }, _count: { id: true } }),
+      db.emailDrip.findMany({ where: { sequenceId: id }, distinct: ['userId'], select: { userId: true } }),
+    ]);
+    const perStep: Record<number, number> = {};
+    for (const r of rows) perStep[r.stepIndex] = r._count.id;
+    return { perStep, started: started.length };
+  });
+
   // Тест-отправка одного письма (рендер блоков → HTML → Resend). По умолчанию — себе.
   app.post('/api/admin/email-test', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;

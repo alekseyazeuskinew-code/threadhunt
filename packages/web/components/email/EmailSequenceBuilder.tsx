@@ -28,6 +28,15 @@ export function EmailSequenceBuilder() {
   const [saved, setSaved] = useState(false);
   const [drag, setDrag] = useState<{ stepId: string; index: number } | null>(null);
   const [testMsg, setTestMsg] = useState<{ stepId: string; ok: boolean; text: string } | null>(null);
+  const [stats, setStats] = useState<{ perStep: Record<number, number>; started: number } | null>(null);
+
+  async function selectSeq(sq: EmailSequence) {
+    setSeq(sq);
+    setStats(null);
+    try {
+      setStats(await api.get<{ perStep: Record<number, number>; started: number }>(`/api/admin/email-sequences/${sq.id}/stats`));
+    } catch {}
+  }
 
   async function testStep(st: EmailStep) {
     setTestMsg({ stepId: st.id, ok: true, text: 'Отправляю…' });
@@ -131,7 +140,7 @@ export function EmailSequenceBuilder() {
             list.map((sq) => (
               <button
                 key={sq.id}
-                onClick={() => setSeq(sq)}
+                onClick={() => selectSeq(sq)}
                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm ${seq?.id === sq.id ? 'bg-accent-soft text-accent-ink' : 'hover:bg-panel-2'}`}
               >
                 <span className="truncate">
@@ -206,6 +215,7 @@ export function EmailSequenceBuilder() {
                     Письмо · <span className="font-normal text-muted">{delayLabel(st.delayHours, i === 0)}</span>
                   </div>
                   <div className="flex items-center gap-1">
+                    <span className="mr-1 text-xs text-muted">отправлено: {stats?.perStep?.[i] ?? 0}</span>
                     <button onClick={() => moveStep(i, -1)} disabled={i === 0} className="rounded p-1 text-muted hover:bg-panel-2 disabled:opacity-30"><ArrowUp size={15} /></button>
                     <button onClick={() => moveStep(i, 1)} disabled={i === seq.steps.length - 1} className="rounded p-1 text-muted hover:bg-panel-2 disabled:opacity-30"><ArrowDown size={15} /></button>
                     <button onClick={() => removeStep(st.id)} className="rounded p-1 text-muted hover:text-danger"><Trash2 size={15} /></button>
