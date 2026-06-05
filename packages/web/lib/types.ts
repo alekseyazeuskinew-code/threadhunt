@@ -332,6 +332,17 @@ export interface AdminStats {
   payingUsers: number;
 }
 
+export interface AdminAnalytics {
+  totalLeads: number;
+  totalHired: number;
+  convToHire: number; // % лид → наём
+  totalPosts: number;
+  leadsPerPost: number;
+  funnel: Record<string, number>; // NEW|CONTACTED|SCREENING|HIRED|BENCH|REJECTED
+  bySection: Record<string, number>; // requests|hidden|main
+  byProfession: { title: string; leads: number; hired: number; conv: number }[];
+}
+
 export interface Limits {
   replyDelaySec: number;
   maxRepliesPerDay: number;

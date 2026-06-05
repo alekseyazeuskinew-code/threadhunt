@@ -49,6 +49,59 @@ export async function adminRoutes(app: FastifyInstance) {
     return { users, new7, searches, leads, posts, byPlan, aiToday: aiToday._sum.count || 0, subs, mrr, payingUsers };
   });
 
+  // Аналитика найма по всему сервису: воронка стадий, конверсии по профессиям
+  // (= названию поиска), откуда приходят лиды и грубая отдача постов. Источник —
+  // обезличенные агрегаты (без персональных данных кандидатов).
+  app.get('/api/admin/analytics', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const [funnelRaw, sectionRaw, leadsBySearch, hiredBySearch, searches, totalLeads, totalHired, totalPosts] = await Promise.all([
+      db.lead.groupBy({ by: ['stage'], _count: true }),
+      db.lead.groupBy({ by: ['section'], _count: true }),
+      db.lead.groupBy({ by: ['searchId'], _count: true }),
+      db.lead.groupBy({ by: ['searchId'], where: { stage: 'HIRED' }, _count: true }),
+      db.search.findMany({ select: { id: true, title: true } }),
+      db.lead.count(),
+      db.lead.count({ where: { stage: 'HIRED' } }),
+      db.publishedPost.count({ where: { ok: true } }),
+    ]);
+
+    const funnel: Record<string, number> = { NEW: 0, CONTACTED: 0, SCREENING: 0, HIRED: 0, BENCH: 0, REJECTED: 0 };
+    for (const r of funnelRaw) funnel[r.stage] = (funnel[r.stage] || 0) + r._count;
+
+    const bySection: Record<string, number> = {};
+    for (const r of sectionRaw) {
+      const k = r.section || 'main';
+      bySection[k] = (bySection[k] || 0) + r._count;
+    }
+
+    const titleById = new Map(searches.map((s) => [s.id, (s.title || '—').trim() || '—']));
+    const leadsByTitle: Record<string, number> = {};
+    const hiredByTitle: Record<string, number> = {};
+    for (const r of leadsBySearch) {
+      const t = titleById.get(r.searchId) || '—';
+      leadsByTitle[t] = (leadsByTitle[t] || 0) + r._count;
+    }
+    for (const r of hiredBySearch) {
+      const t = titleById.get(r.searchId) || '—';
+      hiredByTitle[t] = (hiredByTitle[t] || 0) + r._count;
+    }
+    const byProfession = Object.entries(leadsByTitle)
+      .map(([title, leads]) => ({ title, leads, hired: hiredByTitle[title] || 0, conv: leads ? Math.round(((hiredByTitle[title] || 0) / leads) * 100) : 0 }))
+      .sort((a, b) => b.leads - a.leads)
+      .slice(0, 12);
+
+    return {
+      totalLeads,
+      totalHired,
+      convToHire: totalLeads ? Math.round((totalHired / totalLeads) * 100) : 0,
+      totalPosts,
+      leadsPerPost: totalPosts ? Math.round((totalLeads / totalPosts) * 10) / 10 : 0,
+      funnel,
+      bySection,
+      byProfession,
+    };
+  });
+
   // Все зарегистрированные аккаунты со статистикой.
   app.get('/api/admin/users', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
