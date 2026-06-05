@@ -113,6 +113,21 @@ export function GettingStarted({ signals }: { signals: Signals }) {
         </span>
       </button>
 
+      {/* Прогресс-бар (виден всегда) — визуальный прогресс повышает доведение онбординга. */}
+      <div className="mt-3 flex items-center gap-3">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-panel-2">
+          <div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${(doneCount / STEPS.length) * 100}%` }} />
+        </div>
+        <span className="shrink-0 text-xs tabular-nums text-muted">{Math.round((doneCount / STEPS.length) * 100)}%</span>
+      </div>
+      {!allDone && (
+        <p className="mt-1.5 text-xs text-muted">
+          {signals.leadsTotal > 0
+            ? '🎉 Первый кандидат уже пойман! Заверши настройку, чтобы поток не прерывался.'
+            : 'Цель — поймать первого кандидата в директе. Это пара минут настройки.'}
+        </p>
+      )}
+
       {open && (
         <div className="mt-5">
           {STEPS.map((st, i) => {
