@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { width: 300px; margin: 0; padding: 16px; background: #0b0b0f; color: #ededf2;
+             font-family: -apple-system, system-ui, sans-serif; font-size: 14px; }
+      h1 { font-size: 15px; margin: 0 0 12px; }
+      .row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+      .dot { width: 8px; height: 8px; border-radius: 999px; background: #8a8a99; }
+      .dot.on { background: #c6f24e; }
+      input { width: 100%; box-sizing: border-box; padding: 9px; margin: 6px 0; border-radius: 10px;
+              border: 1px solid #26262f; background: #14141a; color: #ededf2; }
+      button { width: 100%; padding: 10px; border: 0; border-radius: 999px; background: #c6f24e;
+               color: #0b0b0f; font-weight: 600; cursor: pointer; }
+      button.ghost { background: transparent; color: #ededf2; border: 1px solid #26262f; }
+      button:disabled { opacity: .6; cursor: default; }
+      .muted { color: #8a8a99; font-size: 12px; }
+      .accent { color: #c6f24e; }
+      hr { border: 0; border-top: 1px solid #26262f; margin: 14px 0; }
+      .res { margin-top: 10px; padding: 10px; border-radius: 10px; background: #14141a; font-size: 13px; line-height: 1.45; }
+    </style>
+  </head>
+  <body>
+    <h1>⟋⟋ threadhunt</h1>
+    <div class="row"><span class="dot" id="dot"></span><span id="status" class="muted">не подключено</span></div>
+    <input id="api" placeholder="Адрес сервера (https://…)" />
+    <input id="token" placeholder="Код спаривания (thd_…)" />
+    <button id="save">Подключить</button>
+    <p class="muted" id="hint" style="margin-top:10px">
+      Код спаривания возьми в кабинете Threadhunt → Подключения → «Подключить браузер».
+    </p>
+
+    <hr />
+    <button id="test" class="ghost">🧪 Тест прохода (без отправки)</button>
+    <p class="muted" style="margin-top:8px">
+      Откройте Threads → Сообщения и нажмите — расширение пройдёт по директу и покажет, на сколько диалогов ответило бы. Ничего не отправляется.
+    </p>
+    <div id="testres" class="res" style="display:none"></div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

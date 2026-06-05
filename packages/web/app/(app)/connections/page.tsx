@@ -1,0 +1,370 @@
+'use client';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone } from 'lucide-react';
+import { api } from '@/lib/api';
+import type { Connection, Device, MetaConnection } from '@/lib/types';
+import { PageHeader } from '@/components/PageHeader';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
+import { SafetyNotice } from '@/components/SafetyNotice';
+import { SectionAnchors } from '@/components/SectionNav';
+import { cn } from '@/lib/cn';
+
+const AGENT_API = process.env.NEXT_PUBLIC_AGENT_API || 'http://localhost:3010';
+const STORE_URL = process.env.NEXT_PUBLIC_EXT_STORE_URL || '#';
+
+export default function ConnectionsPage() {
+  const [conns, setConns] = useState<Connection[] | null>(null);
+  const [devices, setDevices] = useState<Device[] | null>(null);
+  const [extPresent, setExtPresent] = useState(false);
+  const [manualToken, setManualToken] = useState<string | null>(null); // инлайн-фолбэк, не попап
+  const [addingApi, setAddingApi] = useState(false); // инлайн-форма Threads API
+  const [meta, setMeta] = useState<MetaConnection | null>(null);
+  const [addingMeta, setAddingMeta] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const loadConns = () => api.get<Connection[]>('/api/connections').then(setConns).catch(() => setConns([]));
+  const loadDevices = () => api.get<Device[]>('/api/devices').then(setDevices).catch(() => setDevices([]));
+  const loadMeta = () => api.get<MetaConnection>('/api/meta/connection').then(setMeta).catch(() => setMeta({ connected: false }));
+
+  useEffect(() => {
+    loadConns();
+    loadDevices();
+    loadMeta();
+    // Результат возврата из OAuth (?threads=… / ?meta=…)
+    const q = new URLSearchParams(window.location.search);
+    const NOTE: Record<string, { ok: boolean; text: string }> = {
+      'threads:connected': { ok: true, text: 'Threads подключён через OAuth ✓' },
+      'threads:error': { ok: false, text: 'Не удалось подключить Threads. Попробуйте ещё раз или вставьте токен вручную.' },
+      'threads:unconfigured': { ok: false, text: 'Вход через Threads ещё не настроен (приложение на модерации Meta). Пока используйте ручной токен.' },
+      'meta:connected': { ok: true, text: 'Рекламный кабинет Meta подключён ✓' },
+      'meta:error': { ok: false, text: 'Не удалось подключить Meta. Попробуйте ещё раз или укажите кабинет вручную.' },
+      'meta:unconfigured': { ok: false, text: 'Вход через Meta ещё не настроен (приложение на модерации). Пока укажите кабинет вручную.' },
+    };
+    const key = q.get('threads') ? `threads:${q.get('threads')}` : q.get('meta') ? `meta:${q.get('meta')}` : '';
+    if (NOTE[key]) {
+      setNotice(NOTE[key]);
+      window.history.replaceState({}, '', '/connections');
+    }
+    const onMsg = (e: MessageEvent) => {
+      if (e.source !== window) return;
+      if (e.data?.source === 'threadhunt-present') setExtPresent(true);
+      if (e.data?.source === 'threadhunt-paired') {
+        setManualToken(null);
+        setTimeout(loadDevices, 400);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  async function connectBrowser() {
+    const { token } = await api.post<{ token: string }>('/api/devices', {});
+    if (extPresent) {
+      window.postMessage({ source: 'threadhunt-pair', token, api: AGENT_API }, location.origin);
+      setTimeout(loadDevices, 600);
+    } else {
+      setManualToken(token);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader title="Подключения" subtitle="Расширение — для отбивки в директе. Threads API — для автопостинга (опционально)." />
+
+      <div className="space-y-6 p-8">
+        {notice && (
+          <div className={`rounded-xl border px-4 py-3 text-sm ${notice.ok ? 'border-success/30 bg-success/5 text-success' : 'border-warning/30 bg-warning/5 text-warning'}`}>
+            {notice.text}
+          </div>
+        )}
+
+        <SafetyNotice />
+
+        <SectionAnchors
+          items={[
+            { id: 'sec-ext', title: 'Расширение' },
+            { id: 'sec-api', title: 'Threads API' },
+            { id: 'sec-meta', title: 'Meta Ads' },
+          ]}
+        />
+
+        {/* ── Секция 1: Расширение (ядро, без Meta) ── */}
+        <Card id="sec-ext" className="scroll-mt-16">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-base font-semibold">
+                <Chrome size={18} /> Браузер для отбивки
+              </div>
+              <p className="mt-1 max-w-xl text-sm text-muted">
+                Работает в твоём браузере, где ты уже залогинен в Threads. Никакого Meta не нужно — поставь расширение и
+                подключи браузер в один клик.
+              </p>
+            </div>
+            <Button onClick={connectBrowser}>
+              <Plug size={16} /> Подключить браузер
+            </Button>
+          </div>
+
+          <div className="mt-3 text-xs">
+            {extPresent ? (
+              <span className="inline-flex items-center gap-1 text-success">
+                <Check size={13} /> расширение установлено
+              </span>
+            ) : (
+              <span className="text-muted">
+                Расширение не найдено.{' '}
+                <a href={STORE_URL} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
+                  Установить
+                </a>
+              </span>
+            )}
+          </div>
+
+          {/* Инлайн-фолбэк с кодом (если расширение не стоит) — без попапа */}
+          <InlinePanel open={!!manualToken} onClose={() => setManualToken(null)}>
+            <p className="text-sm text-muted">
+              Похоже, расширение ещё не установлено.{' '}
+              <a href={STORE_URL} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
+                Поставь его
+              </a>{' '}
+              и нажми «Подключить браузер» ещё раз — подключится само. Или вставь этот код в попап расширения:
+            </p>
+            <div className="mt-2 flex items-center gap-2 rounded-xl border border-line bg-bg p-3 font-mono text-sm">
+              <span className="flex-1 break-all">{manualToken}</span>
+              <button onClick={() => manualToken && navigator.clipboard.writeText(manualToken)} className="text-muted hover:text-accent-ink">
+                <Copy size={16} />
+              </button>
+            </div>
+          </InlinePanel>
+
+          <div className="mt-4 space-y-2">
+            {devices === null ? (
+              <div className="text-sm text-muted">Загрузка…</div>
+            ) : devices.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-line p-4 text-sm text-muted">Браузер ещё не подключён.</div>
+            ) : (
+              devices.map((d) => (
+                <div key={d.id} className="flex items-center justify-between rounded-xl bg-bg px-3 py-2.5 text-sm">
+                  <span>{d.label || 'Браузер'}</span>
+                  <div className="flex items-center gap-3">
+                    <Badge tone={d.online ? 'success' : 'neutral'}>{d.online ? '● онлайн' : '○ оффлайн'}</Badge>
+                    <button onClick={() => api.del(`/api/devices/${d.id}`).then(loadDevices)} className="text-muted hover:text-danger">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* ── Секция 2: Threads API (опционально) ── */}
+        <Card id="sec-api" className="scroll-mt-16">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-base font-semibold">
+                <Send size={17} /> Threads API · автопостинг
+              </div>
+              <p className="mt-1 max-w-xl text-sm text-muted">
+                Опционально — чтобы бот сам публиковал посты-приманки. Для отбивки в директе НЕ требуется.
+              </p>
+              <p className="mt-2 inline-flex max-w-xl items-start gap-1.5 rounded-lg bg-warning/5 px-2.5 py-1.5 text-xs text-warning">
+                <span>⏳</span>
+                <span>
+                  Прямой вход через Threads (в один клик) скоро: приложение на модерации у Meta. Пока подключайте по
+                  токену API — это временно.
+                </span>
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <Button onClick={() => (window.location.href = `${AGENT_API}/api/threads/oauth/start`)}>
+                <Send size={15} /> Войти через Threads
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setAddingApi((v) => !v)}>
+                {addingApi ? <X size={15} /> : <Plug size={15} />} {addingApi ? 'Свернуть' : 'по токену'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Инлайн-форма подключения токена (вместо попапа) */}
+          <InlinePanel open={addingApi} onClose={() => setAddingApi(false)}>
+            <ApiTokenForm
+              onAdded={() => {
+                setAddingApi(false);
+                loadConns();
+              }}
+            />
+          </InlinePanel>
+
+          <div className="mt-4 space-y-2">
+            {conns === null ? (
+              <div className="text-sm text-muted">Загрузка…</div>
+            ) : conns.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-line p-4 text-sm text-muted">
+                Аккаунт для автопостинга не подключён.
+              </div>
+            ) : (
+              conns.map((c) => (
+                <div key={c.id} className="flex items-center justify-between rounded-xl bg-bg px-3 py-2.5">
+                  <div>
+                    <div className="font-medium">@{c.username}</div>
+                    <div className="text-xs text-muted">{c.searches} поисков</div>
+                  </div>
+                  <button onClick={() => api.del(`/api/connections/${c.id}`).then(loadConns)} className="text-muted hover:text-danger">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* ── Секция 3: Meta Ads (реклама, опционально) ── */}
+        <Card id="sec-meta" className="scroll-mt-16">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-base font-semibold">
+                <Megaphone size={17} /> Meta Ads · рекламные кампании
+              </div>
+              <p className="mt-1 max-w-xl text-sm text-muted">
+                Чтобы запускать готовые связки лидгена на директ из{' '}
+                <Link href="/campaigns" className="text-accent-ink hover:underline">раздела «Кампании»</Link>. Для отбивки в директе НЕ требуется.
+              </p>
+              <p className="mt-2 inline-flex max-w-xl items-start gap-1.5 rounded-lg bg-warning/5 px-2.5 py-1.5 text-xs text-warning">
+                <span>⏳</span>
+                <span>
+                  Прямой запуск рекламы и авторизация через Meta скоро: приложение на модерации. Пока можно указать рекламный
+                  кабинет — связки соберутся заранее и запустятся сразу после одобрения.
+                </span>
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <Button onClick={() => (window.location.href = `${AGENT_API}/api/meta/oauth/start`)}>
+                <Megaphone size={15} /> Войти через Meta
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setAddingMeta((v) => !v)}>
+                {addingMeta ? <X size={15} /> : <Plug size={15} />} {addingMeta ? 'Свернуть' : meta?.connected ? 'Изменить вручную' : 'вручную (act_…)'}
+              </Button>
+            </div>
+          </div>
+
+          <InlinePanel open={addingMeta} onClose={() => setAddingMeta(false)}>
+            <MetaForm
+              initial={meta}
+              onSaved={() => {
+                setAddingMeta(false);
+                loadMeta();
+              }}
+            />
+          </InlinePanel>
+
+          <div className="mt-4">
+            {meta === null ? (
+              <div className="text-sm text-muted">Загрузка…</div>
+            ) : meta.connected ? (
+              <div className="flex items-center justify-between rounded-xl bg-bg px-3 py-2.5">
+                <div>
+                  <div className="font-medium">{meta.businessName || 'Рекламный кабинет'}</div>
+                  <div className="text-xs text-muted">{meta.adAccountId} · {meta.status === 'active' ? 'активен' : 'на модерации Meta'}</div>
+                </div>
+                <button onClick={() => api.del('/api/meta/connection').then(loadMeta)} className="text-muted hover:text-danger">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-line p-4 text-sm text-muted">Рекламный кабинет Meta не подключён.</div>
+            )}
+          </div>
+        </Card>
+      </div>
+    </>
+  );
+}
+
+function MetaForm({ initial, onSaved }: { initial: MetaConnection | null; onSaved: () => void }) {
+  const [adAccountId, setAdAccountId] = useState(initial?.adAccountId || '');
+  const [businessName, setBusinessName] = useState(initial?.businessName || '');
+  const [token, setToken] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  async function save() {
+    setError('');
+    setLoading(true);
+    try {
+      await api.post('/api/meta/connection', { adAccountId: adAccountId.trim(), businessName: businessName.trim(), accessToken: token.trim() || undefined });
+      onSaved();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted">
+        Укажите ID рекламного аккаунта Meta (формат <span className="font-mono">act_XXXXXXXX</span>). Токен Marketing API — по
+        желанию (для реального запуска после одобрения).
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input value={adAccountId} onChange={(e) => setAdAccountId(e.target.value)} placeholder="act_1234567890" />
+        <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Название бизнеса (необязательно)" />
+      </div>
+      <Input value={token} onChange={(e) => setToken(e.target.value)} placeholder="Токен Marketing API (необязательно)" />
+      <div className="flex items-center gap-2">
+        <Button onClick={save} disabled={!adAccountId.trim() || loading}>
+          {loading ? 'Сохраняю…' : 'Сохранить'}
+        </Button>
+        {error && <div className="text-sm text-danger">{error}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Универсальная инлайн-панель (раскрывается на месте вместо модального окна).
+function InlinePanel({ open, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className={cn('overflow-hidden transition-all duration-300', open ? 'mt-4 max-h-[460px] opacity-100' : 'max-h-0 opacity-0')}>
+      <div className="rounded-xl border border-accent/30 bg-bg p-4">{children}</div>
+    </div>
+  );
+}
+
+function ApiTokenForm({ onAdded }: { onAdded: () => void }) {
+  const [token, setToken] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  async function add() {
+    setError('');
+    setLoading(true);
+    try {
+      await api.post('/api/connections', { accessToken: token.trim() });
+      setToken('');
+      onAdded();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted">
+        Вставь долгоживущий токен Threads API. Не знаешь, где взять?{' '}
+        <Link href="/setup/threads" className="inline-flex items-center gap-1 text-accent-ink hover:underline">
+          Пошаговая инструкция <ArrowRight size={13} />
+        </Link>
+      </p>
+      <div className="flex items-center gap-2">
+        <Input value={token} onChange={(e) => setToken(e.target.value)} placeholder="THQVJ…" />
+        <Button onClick={add} disabled={!token || loading}>
+          {loading ? 'Проверяю…' : 'Подключить'}
+        </Button>
+      </div>
+      {error && <div className="text-sm text-danger">{error}</div>}
+    </div>
+  );
+}

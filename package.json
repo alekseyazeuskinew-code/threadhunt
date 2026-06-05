@@ -1,0 +1,15 @@
+{
+  "name": "threadhunt",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Threadhunt — SaaS для найма через Threads: авто-постинг + авто-отбивка в директе по кодовым словам",
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "db:migrate": "pnpm --filter @threadhunt/server prisma migrate dev",
+    "db:studio": "pnpm --filter @threadhunt/server prisma studio",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Threadhunt — авто-отбивка Threads",
+  "version": "0.1.0",
+  "description": "Авто-отбивка в директе Threads по кодовым словам. Работает в вашем браузере под вашей сессией.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://www.threads.com/*",
+    "https://www.threads.net/*",
+    "http://localhost:3010/*",
+    "https://api.threadhunt.app/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.threads.com/*", "https://www.threads.net/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://localhost:3000/*", "https://app.threadhunt.app/*"],
+      "js": ["src/pair.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Threadhunt",
+    "default_popup": "popup.html"
+  }
+}

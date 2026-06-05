@@ -1,0 +1,17 @@
+# Локальная инфраструктура для разработки: только Postgres (если хочешь вместо SQLite).
+# Redis больше не нужен — планировщик автопостинга работает внутри API.
+# Запуск: pnpm infra:up   (остановить: pnpm infra:down)
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: threadhunt
+      POSTGRES_PASSWORD: threadhunt
+      POSTGRES_DB: threadhunt
+    ports:
+      - "5432:5432"
+    volumes:
+      - threadhunt_pg:/var/lib/postgresql/data
+
+volumes:
+  threadhunt_pg:

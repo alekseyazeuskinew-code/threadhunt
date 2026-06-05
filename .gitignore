@@ -1,0 +1,24 @@
+# зависимости
+node_modules/
+.pnpm-store/
+
+# секреты и окружение — НИКОГДА не коммитим
+.env
+.env.*
+!.env.example
+*-firebase-adminsdk-*.json
+*service-account*.json
+
+# локальная БД
+*.db
+*.db-journal
+packages/server/prisma/dev.db*
+
+# сборки
+dist/
+.next/
+packages/extension/dist/
+
+# системное
+.DS_Store
+*.log

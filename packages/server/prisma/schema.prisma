@@ -1,0 +1,418 @@
+// Threadhunt — модель данных. Мультиарендность: почти у каждой сущности есть userId,
+// и все запросы фильтруются по текущему пользователю.
+//
+// Для локального превью используется SQLite (ноль зависимостей, без Docker).
+// В проде — Postgres: поменяй provider на "postgresql" и DATABASE_URL.
+// Статусы хранятся строками (а не enum), чтобы схема работала на обоих движках.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Аккаунты ─────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String?
+  name         String?
+  plan         String    @default("FREE") // FREE | PRO | VIP
+  role         String    @default("USER") // USER | ADMIN
+  acceptedTermsAt DateTime? // когда принял условия (риск Threads-аккаунта на пользователе)
+  createdAt    DateTime  @default(now())
+
+  connections  ThreadsConnection[]
+  searches     Search[]
+  leads        Lead[]
+  devices      Device[]
+  subscription Subscription?
+  brandProfile BrandProfile?
+  aiUsage      AiUsage[]
+  limits       Limits?
+  ownedTeam    Membership[] @relation("WorkspaceOwner")
+  memberOf     Membership[] @relation("WorkspaceMember")
+  flowTemplates FlowTemplate[]
+  metaConnection MetaConnection?
+  adCampaigns    AdCampaign[]
+}
+
+// Участник рабочего пространства (командный доступ с ограниченными правами).
+model Membership {
+  id        String   @id @default(cuid())
+  ownerId   String // владелец пространства (чьи данные)
+  owner     User     @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  email     String // приглашённый email
+  memberId  String? // связанный пользователь (когда зарегистрируется/войдёт)
+  member    User?    @relation("WorkspaceMember", fields: [memberId], references: [id])
+  role      String   @default("MANAGER") // MANAGER (ведёт лиды) | VIEWER (только чтение)
+  createdAt DateTime @default(now())
+
+  @@unique([ownerId, email])
+  @@index([memberId])
+  @@index([email])
+}
+
+// Лимиты авто-отбивки (защита Threads-аккаунта). На аккаунт пользователя.
+// Расширение получает их в задачах и строго соблюдает.
+model Limits {
+  id                  String  @id @default(cuid())
+  userId              String  @unique
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replyDelaySec       Int     @default(8) // пауза между ответами, сек
+  maxRepliesPerDay    Int     @default(40) // максимум отправленных сообщений в день
+  maxDialogsPerSweep  Int     @default(40) // максимум прочитываемых диалогов за проход
+  workingHoursEnabled Boolean @default(false) // отвечать только в рабочие часы
+  activeFrom          String  @default("09:00") // HH:MM
+  activeTo            String  @default("21:00") // HH:MM
+}
+
+// Учёт расхода ИИ — по пользователю и дню (для лимитов по тарифам).
+model AiUsage {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day    String // YYYY-MM-DD
+  count  Int    @default(0)
+
+  @@unique([userId, day])
+  @@index([userId])
+}
+
+// «Голос бренда» — персонализация ИИ под конкретного клиента (его критерии/стиль).
+// Это и есть «обучение под себя» без файнтюна: пользователь задаёт тон/фишки/пример,
+// и они подставляются во все генерации. См. ai/generate.ts.
+model BrandProfile {
+  id        String @id @default(cuid())
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // ── Рабочее пространство / организация ──
+  companyName String @default("") // название компании/проекта
+  niche       String @default("") // ниша (напр. «продюсерский центр», «онлайн-школа»)
+  social      String @default("") // соцсеть/ссылка профиля
+  about       String @default("") // короткое описание команды
+  // ── Голос бренда (для ИИ) ──
+  tone      String @default("") // напр. «на ты, дружелюбно, с лёгким юмором»
+  audience  String @default("") // кого ищем / кто аудитория
+  perks     String @default("") // чем привлекаем (плюсы работы)
+  signature String @default("") // как заканчивать / куда вести
+  sample    String @default("") // пример удачного поста — референс стиля
+  avoid     String @default("") // что НЕ использовать (стоп-слова/клише)
+}
+
+// Подключённый Threads-аккаунт клиента.
+// Для постинга — OAuth-токен (шифруется на уровне приложения).
+// Для отбивки — к нему привязывается Device (расширение).
+model ThreadsConnection {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadsUserId  String
+  username       String
+  // accessToken хранится ЗАШИФРОВАННЫМ (AES-256-GCM), не отдаётся в API.
+  accessTokenEnc String?
+  tokenExpiresAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  devices  Device[]
+  searches Search[]
+
+  @@unique([userId, threadsUserId])
+  @@index([userId])
+}
+
+// Подключение рекламного кабинета Meta (для авто-кампаний лидгена на директ).
+// На MVP — ручной ввод; реальный запуск через Marketing API ждёт App Review Meta,
+// поэтому status по умолчанию «pending» (на модерации). OAuth добавится тем же интерфейсом.
+model MetaConnection {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adAccountId    String   @default("") // act_XXXXXXXX
+  businessName   String   @default("")
+  metaUserId     String? // app-scoped user id Meta (для deauthorize/удаления данных)
+  accessTokenEnc String? // зашифрован (AES-256-GCM), не отдаётся в API
+  status         String   @default("pending") // pending (на модерации) | active
+  createdAt      DateTime @default(now())
+}
+
+// Рекламная кампания: предсобранная «связка» (креатив+копирайт+аудитория) под роль.
+// Лидген на директ → кодовое слово ловит расширение → автоответ → онбординг.
+// Запуск в Ads Manager пока недоступен (модерация Meta) — кампании живут как черновики.
+model AdCampaign {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  searchId String
+  search   Search @relation(fields: [searchId], references: [id], onDelete: Cascade)
+
+  name      String
+  bundleKey String @default("") // ключ пресета из библиотеки связок
+  status    String @default("draft") // draft | pending_review | active | paused
+  objective String @default("messages") // лидген на директ
+
+  dailyBudget Int    @default(500) // дневной бюджет (целое, в валюте)
+  currency    String @default("RUB")
+  geo         String @default("") // гео-таргет (текстом)
+  ageMin      Int    @default(18)
+  ageMax      Int    @default(45)
+  interests   String @default("") // детальный таргетинг (интересы)
+
+  creativeHeadline String  @default("")
+  creativeText     String  @default("")
+  mediaUrl         String?
+  mediaType        String? // image | video
+  codeWord         String  @default("") // кодовое слово для автоответа в директе
+  ctaLabel         String  @default("Написать в директ")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([searchId])
+}
+
+// Экземпляр расширения у клиента (исполнитель отбивки).
+// Привязан к аккаунту пользователя. Официальное Threads-подключение НЕ требуется
+// (отбивка работает в браузере клиента под его сессией, без Meta).
+model Device {
+  id              String             @id @default(cuid())
+  userId          String
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId    String?
+  connection      ThreadsConnection? @relation(fields: [connectionId], references: [id])
+  // device-token хранится как хеш; отзываемый.
+  tokenHash       String             @unique
+  label           String?
+  version         String?
+  lastHeartbeat   DateTime?
+  threadsLoggedIn Boolean            @default(false)
+  createdAt       DateTime           @default(now())
+
+  @@index([userId])
+}
+
+// ───────────────────────── Ядро: гибкий «поиск сотрудника» ─────────────────────────
+
+model Search {
+  id           String             @id @default(cuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId String?
+  connection   ThreadsConnection? @relation(fields: [connectionId], references: [id])
+
+  title       String // напр. «Видеомонтажёр», «UI-дизайнер»
+  description String   @default("") // вводные для ИИ и для себя
+  status      String   @default("ACTIVE") // ACTIVE | PAUSED
+  createdAt   DateTime @default(now())
+
+  // ── Онбординг кандидата (публичная пошаговая ссылка) ──
+  obEnabled    Boolean @default(false)
+  obConditions String  @default("") // условия участия (legacy/быстрый режим)
+  obTestTask   String  @default("") // тестовое задание (legacy)
+  obNda        String  @default("") // текст NDA (legacy)
+  obFlow       String? // JSON конструктора: страницы + блоки (приоритетнее legacy-полей)
+  // Дедлайн сдачи тестового
+  obDeadlineMode String  @default("none") // none | relative | fixed
+  obDeadlineHours Int    @default(48) // для relative: часов с момента старта
+  obDeadlineAt   DateTime? // для fixed: абсолютный момент (UTC)
+  obTimezone     String  @default("") // IANA-зона для показа кандидату (пусто = его локальная)
+
+  // ── Автопланировщик целей найма ──
+  goalEnabled    Boolean   @default(false)
+  goalHires      Int       @default(0) // сколько человек нужно нанять
+  goalConversion Int       @default(10) // ожидаемая конверсия лид→найм, %
+  goalDueAt      DateTime? // к какой дате
+  goalStartedAt  DateTime? // когда цель поставлена (отсчёт прогресса)
+
+  keywords       Keyword[]
+  replyTemplates ReplyTemplate[]
+  postTemplates  PostTemplate[]
+  publishConfig  PublishConfig?
+  commentRules   CommentRule[]
+  leads          Lead[]
+  publishedPosts PublishedPost[]
+  adCampaigns    AdCampaign[]
+
+  @@index([userId])
+}
+
+model Keyword {
+  id       String @id @default(cuid())
+  searchId String
+  search   Search @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  text     String
+  mode     String @default("root") // root | word | exact
+
+  @@index([searchId])
+}
+
+model ReplyTemplate {
+  id             String @id @default(cuid())
+  searchId       String
+  search         Search @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  text           String
+  redirectTarget String @default("") // напр. Telegram @username или URL
+  source         String @default("manual") // manual | ai
+  order          Int    @default(0)
+
+  leads Lead[]
+
+  @@index([searchId])
+}
+
+model PostTemplate {
+  id        String  @id @default(cuid())
+  searchId  String
+  search    Search  @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  text      String
+  // Медиа по ПУБЛИЧНОЙ ссылке (требование Threads API): image_url / video_url.
+  mediaUrl  String? // публичный URL картинки/видео
+  mediaType String? // image | video | null (только текст)
+  source    String  @default("manual") // manual | ai
+  order     Int     @default(0)
+
+  @@index([searchId])
+}
+
+// Расписание авто-постинга (перенос логики из server.js).
+model PublishConfig {
+  id              String  @id @default(cuid())
+  searchId        String  @unique
+  search          Search  @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  enabled         Boolean @default(false)
+  intervalMinutes Int     @default(240)
+  maxPerDay       Int     @default(5)
+  rotation        String  @default("sequential") // sequential | random
+  nextIndex       Int     @default(0)
+}
+
+// Правило отбивки в комментариях (этап 3).
+model CommentRule {
+  id        String  @id @default(cuid())
+  searchId  String
+  search    Search  @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  enabled   Boolean @default(false)
+  replyText String  @default("")
+
+  @@index([searchId])
+}
+
+// ───────────────────────── Лиды (ценный выхлоп) ─────────────────────────
+
+model Lead {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  searchId        String
+  search          Search         @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  fromUserKey     String // стабильный ключ (id чата) для дедупа
+  fromUsername    String?
+  matchedKeyword  String
+  section         String? // requests | hidden | main — откуда пришёл лид
+  replyTemplateId String?
+  replyTemplate   ReplyTemplate? @relation(fields: [replyTemplateId], references: [id])
+  status          String         @default("REPLIED") // REPLIED | FAILED | MANUAL — ответил ли бот
+  // Стадия найма (канбан-пайплайн): NEW | CONTACTED | SCREENING | HIRED | BENCH | REJECTED
+  stage           String         @default("NEW")
+  rating          Int            @default(0) // 0..5 — субъективная оценка кандидата
+  createdAt       DateTime       @default(now())
+
+  // ── Поля жизненного цикла (CRM) ──
+  contact          String? // куда увели кандидата (Telegram и т.п.)
+  conditionsSentAt DateTime? // отправлены условия
+  testSentAt       DateTime? // выдано тестовое
+  testDeadlineAt   DateTime? // дедлайн по тестовому (обычно +1–2 ч)
+  testSubmittedUrl String? // ссылка на сданное тестовое
+  testSubmittedAt  DateTime? // когда сдал
+  decisionReason   String? // причина отказа/решения
+  role             String? // роль при найме
+  rate             String? // ставка/оплата (свободный текст)
+  startedAt        DateTime? // дата старта работы
+  nextTouchAt      DateTime? // следующее касание (для резерва)
+
+  // ── Онбординг по уникальной ссылке ──
+  onboardToken       String?   @unique // токен публичной ссылки
+  candidateName      String?
+  candidateContact   String? // что кандидат сам оставил (TG/почта)
+  candidatePortfolio String?
+  consentAt          DateTime? // согласие на обработку данных
+  ndaAcceptedAt      DateTime?
+  obStep             Int       @default(0) // прогресс по шагам (аналитика воронки)
+  candidateResponses String? // JSON ответов кандидата по блокам конструктора
+
+  comments LeadComment[]
+
+  @@unique([searchId, fromUserKey]) // дедуп по человеку в рамках поиска
+  @@index([userId])
+  @@index([stage])
+}
+
+// Комментарии/заметки по кандидату — лента в карточке пайплайна.
+model LeadComment {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  body      String
+  author    String   @default("Вы")
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+}
+
+model PublishedPost {
+  id            String   @id @default(cuid())
+  searchId      String
+  search        Search   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  threadsPostId String?
+  permalink     String?
+  text          String
+  mediaType     String? // text | image | video
+  mediaUrl      String? // ссылка на медиа для превью в истории
+  ok            Boolean  @default(true)
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([searchId])
+}
+
+// ───────────────────────── ИИ и биллинг ─────────────────────────
+
+model AiJob {
+  id        String   @id @default(cuid())
+  searchId  String
+  kind      String // posts | replies
+  status    String   @default("queued") // queued | running | done | failed
+  result    String? // JSON-строка (массив вариантов) — SQLite не поддерживает Json-тип
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([searchId])
+}
+
+// Сохранённый шаблон онбординг-флоу (библиотека под разные роли).
+model FlowTemplate {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  flow      String // JSON конструктора
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  status               String    @default("inactive")
+  plan                 String    @default("FREE")
+  currentPeriodEnd     DateTime?
+}

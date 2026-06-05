@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Палитра «Lime-заряд» — тёмная (по умолчанию). См. BRAND.md
+   accent      — лаймовая ЗАЛИВКА (кнопки, чипы) — одинакова в обеих темах (бренд)
+   on-accent   — текст НА лайме (тёмный — читаемо в обеих темах)
+   accent-ink  — акцент как ТЕКСТ/иконка/ссылка (читаемый в каждой теме) */
+:root {
+  --bg: #0b0b0f;
+  --panel: #14141a;
+  --panel-2: #1c1c24;
+  --border: #26262f;
+  --text: #ededf2;
+  --muted: #8a8a99;
+  --accent: #c6f24e;
+  --accent-press: #b2de3c;
+  --accent-soft: rgba(198, 242, 78, 0.12);
+  --on-accent: #0b0b0f;
+  --accent-ink: #c6f24e;
+  --success: #4ade80;
+  --danger: #fb7185;
+  --warning: #fbbf24;
+}
+
+/* Светлая тема — тёплый чистый фон, лайм-акцент сохранён (заливка лаймовая,
+   а акцент-текст темнеет до читаемого глубокого лайма). */
+:root[data-theme='light'] {
+  --bg: #fafaf7;
+  --panel: #ffffff;
+  --panel-2: #f2f2ec;
+  --border: #e7e7df;
+  --text: #16161c;
+  --muted: #6e6e78;
+  --accent: #b8e840;        /* лайм-заливка, чуть глубже для белого фона */
+  --accent-press: #a7d62f;
+  --accent-soft: rgba(132, 178, 30, 0.16);
+  --on-accent: #14210a;     /* тёмный текст на лайме */
+  --accent-ink: #4d7a0a;    /* акцент-текст/ссылки — читаемый глубокий лайм */
+  --success: #15a34a;
+  --danger: #e11d48;
+  --warning: #b45309;
+}
+
+@layer base {
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-inter), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 {
+    font-family: var(--font-space), system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--panel-2); border-radius: 999px; }
+}
+
+/* Минималистичные анимации появления. Тихо отключаются при reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes th-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes th-fade-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes th-pop {
+    from { opacity: 0; transform: translateY(8px) scale(0.985); }
+    to { opacity: 1; transform: none; }
+  }
+  .anim-fade { animation: th-fade-in 0.25s ease-out both; }
+  .anim-up { animation: th-fade-up 0.28s ease-out both; }
+  .anim-pop { animation: th-pop 0.2s ease-out both; }
+}
