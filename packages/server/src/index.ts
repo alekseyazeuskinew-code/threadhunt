@@ -51,6 +51,8 @@ async function ensureSchema() {
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "acceptedDataUseAt" TIMESTAMP',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "extraSeats" INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "webhookUrl" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "webhookSecret" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "webhookEvents" TEXT',
     // Лист ожидания с лендинга (создаётся на старте — без отдельной миграции).
     `CREATE TABLE IF NOT EXISTS "WaitlistEntry" (
       "id" TEXT PRIMARY KEY,

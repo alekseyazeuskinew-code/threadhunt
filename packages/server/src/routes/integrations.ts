@@ -20,17 +20,36 @@ export async function integrationRoutes(app: FastifyInstance) {
   app.get('/api/integrations', async (req, reply) => {
     const userId = requireUser(req, reply);
     if (!userId) return;
-    const user = await db.user.findUnique({ where: { id: userId }, select: { webhookUrl: true } });
-    return { webhookUrl: user?.webhookUrl || '' };
+    const user = await db.user.findUnique({ where: { id: userId }, select: { webhookUrl: true, webhookSecret: true, webhookEvents: true } });
+    return {
+      webhookUrl: user?.webhookUrl || '',
+      webhookSecret: user?.webhookSecret || '',
+      webhookEvents: (user?.webhookEvents || '').split(',').map((s) => s.trim()).filter(Boolean),
+    };
   });
 
-  const schema = z.object({ webhookUrl: z.string().url().or(z.literal('')) });
+  const ALL_EVENTS = ['lead.created', 'candidate.response', 'candidate.completed'];
+  const schema = z.object({
+    webhookUrl: z.string().url().or(z.literal('')),
+    webhookSecret: z.string().max(200).optional(),
+    webhookEvents: z.array(z.enum(['lead.created', 'candidate.response', 'candidate.completed'])).optional(),
+  });
   app.patch('/api/integrations', async (req, reply) => {
     const userId = requireUser(req, reply);
     if (!userId) return;
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Укажите корректный URL (https://…) или оставьте пустым' });
-    await db.user.update({ where: { id: userId }, data: { webhookUrl: parsed.data.webhookUrl || null } });
+    // пусто или все события выбраны → храним null (= слать все)
+    const ev = parsed.data.webhookEvents;
+    const events = ev && ev.length && ev.length < ALL_EVENTS.length ? ev.join(',') : null;
+    await db.user.update({
+      where: { id: userId },
+      data: {
+        webhookUrl: parsed.data.webhookUrl || null,
+        webhookSecret: (parsed.data.webhookSecret || '').trim() || null,
+        webhookEvents: events,
+      },
+    });
     return { ok: true };
   });
 

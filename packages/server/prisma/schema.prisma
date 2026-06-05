@@ -27,6 +27,8 @@ model User {
   acceptedDataUseAt DateTime? // согласие на обезличенную аналитику для улучшения сервиса (opt-in)
   extraSeats   Int       @default(0) // докупленные доп-места (аккаунты сверх тарифа); со Stripe — автоматически
   webhookUrl   String?   // исходящий вебхук: новый лид / ответы анкеты POST-ятся сюда (Zapier/Make/Telegram/Sheets)
+  webhookSecret String?  // отправляется в заголовке X-Threadhunt-Secret для проверки подлинности
+  webhookEvents String?  // CSV выбранных событий (пусто = все): lead.created,candidate.response,candidate.completed
   createdAt    DateTime  @default(now())
 
   connections  ThreadsConnection[]

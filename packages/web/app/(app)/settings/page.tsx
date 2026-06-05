@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Wand2, User as UserIcon, KeyRound, Building2, Webhook } from 'lucide-react';
+import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { BrandProfile, Me } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -130,7 +130,7 @@ function AccountCard() {
   const [savedName, setSavedName] = useState(false);
   const [cur, setCur] = useState('');
   const [nw, setNw] = useState('');
-  const [pwMsg, setPwMsg] = useState('');
+  const [pw, setPw] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     api.get<Me>('/api/auth/me').then((m) => {
@@ -145,14 +145,15 @@ function AccountCard() {
     setTimeout(() => setSavedName(false), 1500);
   }
   async function changePw() {
-    setPwMsg('');
+    setPw(null);
     try {
       await api.post('/api/auth/change-password', { currentPassword: cur, newPassword: nw });
       setCur('');
       setNw('');
-      setPwMsg('Пароль обновлён ✓');
+      setPw({ ok: true, text: 'Готово! Пароль обновлён' });
+      setTimeout(() => setPw(null), 4000);
     } catch (e: any) {
-      setPwMsg(e.message);
+      setPw({ ok: false, text: e.message });
     }
   }
 
@@ -184,11 +185,18 @@ function AccountCard() {
             <Input type="password" value={cur} onChange={(e) => setCur(e.target.value)} placeholder="Текущий пароль" />
             <Input type="password" value={nw} onChange={(e) => setNw(e.target.value)} placeholder="Новый пароль (от 8)" />
           </div>
-          <div className="mt-3 flex items-center gap-3">
+          <div className="mt-3 flex flex-wrap items-center gap-3">
             <Button variant="ghost" onClick={changePw} disabled={!cur || nw.length < 8}>
               Обновить пароль
             </Button>
-            {pwMsg && <span className={pwMsg.includes('✓') ? 'text-sm text-success' : 'text-sm text-danger'}>{pwMsg}</span>}
+            {pw &&
+              (pw.ok ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1.5 text-sm font-medium text-success ring-1 ring-success/20 transition-all">
+                  <CheckCircle2 size={16} /> {pw.text}
+                </span>
+              ) : (
+                <span className="text-sm text-danger">{pw.text}</span>
+              ))}
           </div>
         </div>
       </div>
@@ -210,20 +218,39 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 // Интеграции: исходящий вебхук — новый лид и ответы анкеты уходят на URL клиента
 // (Zapier/Make/n8n → Telegram, Google Sheets, Excel Online).
+const WEBHOOK_EVENTS: { key: string; label: string }[] = [
+  { key: 'lead.created', label: 'Новый лид (поймано кодовое слово)' },
+  { key: 'candidate.response', label: 'Ответ в анкете (каждый шаг)' },
+  { key: 'candidate.completed', label: 'Анкета завершена' },
+];
+
 function IntegrationsCard() {
   const [url, setUrl] = useState('');
+  const [secret, setSecret] = useState('');
+  const [events, setEvents] = useState<string[]>([]); // пусто = все события
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.get<{ webhookUrl: string }>('/api/integrations').then((d) => setUrl(d.webhookUrl || '')).catch(() => {});
+    api
+      .get<{ webhookUrl: string; webhookSecret: string; webhookEvents: string[] }>('/api/integrations')
+      .then((d) => {
+        setUrl(d.webhookUrl || '');
+        setSecret(d.webhookSecret || '');
+        setEvents(d.webhookEvents || []);
+      })
+      .catch(() => {});
   }, []);
+
+  const toggleEvent = (k: string) => setEvents((e) => (e.includes(k) ? e.filter((x) => x !== k) : [...e, k]));
+  const genSecret = () => setSecret('whsec_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
 
   async function save() {
     setTest(null);
     try {
-      await api.patch('/api/integrations', { webhookUrl: url.trim() });
+      // пусто = все события (на сервере null)
+      await api.patch('/api/integrations', { webhookUrl: url.trim(), webhookSecret: secret.trim(), webhookEvents: events });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } catch (e: any) {
@@ -249,13 +276,34 @@ function IntegrationsCard() {
         <Webhook size={18} className="text-accent-ink" /> Интеграции
       </div>
       <p className="mb-4 text-sm text-muted">
-        Вебхук: на <b>новый лид</b> и на <b>ответы анкеты</b> мы шлём POST с данными на твой URL. Подключи его в
-        Zapier / Make / n8n — и получай кандидатов и их ответы прямо в <b>Telegram</b>, <b>Google Sheets</b>,{' '}
-        <b>Excel Online</b> или своей CRM.
+        Вебхук: мы шлём POST с данными на твой URL по выбранным событиям. Подключи его в Zapier / Make / n8n — и получай
+        кандидатов и ответы анкет прямо в <b>Telegram</b>, <b>Google Sheets</b>, <b>Excel Online</b> или своей CRM.
       </p>
-      <Field label="URL вебхука" hint="https://… (endpoint Zapier/Make/Telegram-бота)">
-        <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://hooks.zapier.com/…" />
-      </Field>
+      <div className="space-y-4">
+        <Field label="URL вебхука" hint="https://… (endpoint Zapier/Make/Telegram-бота)">
+          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://hooks.zapier.com/…" />
+        </Field>
+
+        <Field label="Какие события слать" hint="не выбрано ни одного = слать все">
+          <div className="space-y-1.5">
+            {WEBHOOK_EVENTS.map((ev) => (
+              <label key={ev.key} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={events.length === 0 || events.includes(ev.key)} onChange={() => toggleEvent(ev.key)} className="accent-accent" />
+                <span>{ev.label}</span>
+                <span className="font-mono text-xs text-muted">{ev.key}</span>
+              </label>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Секрет подписи" hint="придёт в заголовке X-Threadhunt-Secret — чтобы получатель проверил подлинность">
+          <div className="flex items-center gap-2">
+            <Input value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="необязательно" className="flex-1 font-mono" />
+            <Button variant="ghost" size="sm" onClick={genSecret} type="button">Сгенерировать</Button>
+          </div>
+        </Field>
+      </div>
+
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
         <Button variant="ghost" onClick={runTest} disabled={busy || !url.trim()}>
@@ -264,9 +312,8 @@ function IntegrationsCard() {
         {test && <span className={`text-sm ${test.ok ? 'text-success' : 'text-danger'}`}>{test.text}</span>}
       </div>
       <div className="mt-4 rounded-xl bg-bg p-3 text-xs text-muted">
-        Формат: <span className="font-mono">{'{ event, at, data }'}</span>. События: <span className="font-mono">lead.created</span>,{' '}
-        <span className="font-mono">candidate.response</span>, <span className="font-mono">candidate.completed</span>. Лиды также
-        можно выгрузить в CSV на странице «Лиды».
+        Тело: <span className="font-mono">{'{ event, at, data }'}</span>. Заголовки: <span className="font-mono">X-Threadhunt-Event</span>
+        {' '}и <span className="font-mono">X-Threadhunt-Secret</span> (если задан секрет). Лиды также выгружаются в CSV на странице «Лиды».
       </div>
     </Card>
   );
