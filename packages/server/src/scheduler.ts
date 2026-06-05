@@ -50,14 +50,20 @@ async function tick() {
   }
 }
 
-async function publishForSearch(searchId: string) {
+// Опубликовать один пост за поиск (следующий по ротации). Вызывается и
+// планировщиком по расписанию, и вручную с кнопки «Опубликовать сейчас».
+// Возвращает результат, чтобы UI мог показать ссылку или ошибку.
+export type PublishResult = { ok: boolean; permalink?: string | null; error?: string };
+
+export async function publishForSearch(searchId: string): Promise<PublishResult> {
   const search = await db.search.findUnique({
     where: { id: searchId },
     include: { postTemplates: { orderBy: { order: 'asc' } }, publishConfig: true, connection: true },
   });
-  if (!search || !search.postTemplates.length || !search.publishConfig) return;
+  if (!search || !search.postTemplates.length) return { ok: false, error: 'Нет шаблонов постов' };
+  if (!search.publishConfig) return { ok: false, error: 'Нет настроек публикации' };
   const conn = await resolveConnection(search);
-  if (!conn?.accessTokenEnc) return;
+  if (!conn?.accessTokenEnc) return { ok: false, error: 'Нет подключённого Threads-аккаунта' };
 
   const cfg = search.publishConfig;
   let idx = cfg.nextIndex || 0;
@@ -74,13 +80,16 @@ async function publishForSearch(searchId: string) {
     await db.publishedPost.create({
       data: { searchId, threadsPostId: res.id, permalink: res.permalink, text: tpl.text.slice(0, 500), mediaType: res.mediaType, mediaUrl: tpl.mediaUrl ?? null, ok: true },
     });
-  } catch (err: any) {
-    await db.publishedPost.create({
-      data: { searchId, text: tpl.text.slice(0, 500), ok: false, error: String(err?.message || err) },
+    await db.publishConfig.update({
+      where: { id: cfg.id },
+      data: { nextIndex: (idx + 1) % search.postTemplates.length },
     });
+    return { ok: true, permalink: res.permalink };
+  } catch (err: any) {
+    const error = String(err?.message || err);
+    await db.publishedPost.create({
+      data: { searchId, text: tpl.text.slice(0, 500), ok: false, error },
+    });
+    return { ok: false, error };
   }
-  await db.publishConfig.update({
-    where: { id: cfg.id },
-    data: { nextIndex: (idx + 1) % search.postTemplates.length },
-  });
 }

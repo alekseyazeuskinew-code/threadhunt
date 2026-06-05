@@ -10,6 +10,7 @@ import { aiLimitFor, today } from '../ai/limits.js';
 import { decrypt } from '../crypto.js';
 import { whoami } from '../threads/publisher.js';
 import { resolveConnection } from '../threads/resolve.js';
+import { publishForSearch } from '../scheduler.js';
 
 export async function searchRoutes(app: FastifyInstance) {
   // Хелпер: вернуть userId или null (и сразу ответить 401 при null — через requireUser).
@@ -368,6 +369,20 @@ export async function searchRoutes(app: FastifyInstance) {
 
     const ready = hasConn && hasTpl && tokenOk;
     return { ready, dryRun: true, connection: conn?.username ?? null, checks, wouldPost };
+  });
+
+  // ── Реальная публикация по кнопке («Опубликовать сейчас») ──
+  // В отличие от test-publish, реально постит один пост (следующий по ротации)
+  // через ту же логику, что и планировщик. Удобно для проверки и скринкаста.
+  app.post('/api/searches/:id/publish-now', async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    const search = await db.search.findFirst({ where: { id, userId }, select: { id: true } });
+    if (!search) return reply.code(404).send({ error: 'not found' });
+    const result = await publishForSearch(id);
+    if (!result.ok) return reply.code(400).send({ error: result.error || 'Не удалось опубликовать' });
+    return result; // { ok: true, permalink }
   });
 
   // ── Автопланировщик целей найма ──

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, Lead, SearchStats, TestPublishResult } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -187,6 +187,8 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [genMsg, setGenMsg] = useState('');
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<TestPublishResult | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState<{ ok: boolean; permalink?: string | null; error?: string } | null>(null);
   const set = (i: number, patch: Partial<PostTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
 
   async function runTest() {
@@ -198,6 +200,22 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
       setTest({ ready: false, dryRun: true, connection: null, checks: [{ label: 'Ошибка теста', ok: false, detail: e.message }], wouldPost: null });
     } finally {
       setTesting(false);
+    }
+  }
+
+  // Реальная публикация одного поста по кнопке (для проверки/скринкаста).
+  async function runPublishNow() {
+    if (!window.confirm('Опубликовать реальный пост в Threads от твоего аккаунта прямо сейчас?')) return;
+    setPublishing(true);
+    setPublished(null);
+    try {
+      const res = await api.post<{ ok: boolean; permalink?: string | null }>(`/api/searches/${s.id}/publish-now`, {});
+      setPublished(res);
+      reload();
+    } catch (e: any) {
+      setPublished({ ok: false, error: e.message });
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -268,10 +286,32 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
               <div className="font-medium">Тест публикации</div>
               <div className="text-xs text-muted">Проверит подключение, токен и шаблоны — ничего не публикуя.</div>
             </div>
-            <Button variant="ghost" size="sm" onClick={runTest} disabled={testing}>
-              <FlaskConical size={14} /> {testing ? 'Проверяю…' : 'Запустить тест'}
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={runTest} disabled={testing || publishing}>
+                <FlaskConical size={14} /> {testing ? 'Проверяю…' : 'Запустить тест'}
+              </Button>
+              <Button size="sm" onClick={runPublishNow} disabled={publishing || testing}>
+                <Send size={14} /> {publishing ? 'Публикую…' : 'Опубликовать сейчас'}
+              </Button>
+            </div>
           </div>
+
+          {published && (
+            <div className={`mt-3 rounded-xl border p-3 text-sm ${published.ok ? 'border-success/30 bg-success/5' : 'border-danger/30 bg-danger/5'}`}>
+              {published.ok ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-success">✓ Опубликовано в Threads</span>
+                  {published.permalink && (
+                    <a href={published.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent-ink hover:underline">
+                      Открыть пост <ExternalLink size={13} />
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <span className="text-danger">⚠ Не удалось опубликовать: {published.error}</span>
+              )}
+            </div>
+          )}
           {test && (
             <div className={`mt-3 rounded-xl border p-3 ${test.ready ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}>
               <div className="mb-2 text-sm font-medium">
