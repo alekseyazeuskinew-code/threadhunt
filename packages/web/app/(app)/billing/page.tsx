@@ -115,8 +115,9 @@ function PlanCard({ plan, period, currency, current }: { plan: Plan; period: 'mo
         </div>
       )}
 
-      <Button className="mt-6 w-full" variant={plan.highlight ? 'primary' : 'ghost'} disabled={current}>
-        {current ? 'Активен' : free ? 'Остаться на Free' : annual ? 'Оформить на год' : 'Оформить'}
+      {/* Оплата подключится через Stripe — пока кнопка оформления неактивна, чтобы не быть «мёртвой». */}
+      <Button className="mt-6 w-full" variant={plan.highlight ? 'primary' : 'ghost'} disabled={current || !free}>
+        {current ? 'Активен' : free ? 'Остаться на Free' : 'Оплата скоро (Stripe)'}
       </Button>
     </div>
   );

@@ -4,7 +4,8 @@ import { Badge } from './ui/Badge';
 const sectionLabel: Record<string, string> = { requests: 'Запросы', hidden: 'Скрытые', main: 'Основной' };
 
 // Таблица лидов — используется и в детали поиска, и на странице «Лиды».
-export function LeadTable({ leads, showSearch }: { leads: Lead[]; showSearch: boolean }) {
+// onSelect (опц.) делает строки кликабельными — чтобы из списка открывать карточку лида.
+export function LeadTable({ leads, showSearch, onSelect }: { leads: Lead[]; showSearch: boolean; onSelect?: (id: string) => void }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-line">
       <table className="w-full text-sm">
@@ -20,7 +21,11 @@ export function LeadTable({ leads, showSearch }: { leads: Lead[]; showSearch: bo
         </thead>
         <tbody>
           {leads.map((l) => (
-            <tr key={l.id} className="border-t border-line">
+            <tr
+              key={l.id}
+              onClick={onSelect ? () => onSelect(l.id) : undefined}
+              className={`border-t border-line ${onSelect ? 'cursor-pointer hover:bg-panel-2' : ''}`}
+            >
               <td className="px-4 py-3">{l.fromUsername || '—'}</td>
               <td className="px-4 py-3 font-mono text-xs text-accent-ink">{l.matchedKeyword}</td>
               {showSearch && <td className="px-4 py-3 text-muted">{l.search?.title}</td>}

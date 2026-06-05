@@ -163,7 +163,7 @@ function OnboardLink({ leadId, obStep, contact }: { leadId: string; obStep: numb
     <div className="rounded-xl border border-line bg-bg p-3">
       <div className="mb-1.5 flex items-center justify-between">
         <span className="text-xs text-muted">Онбординг-ссылка</span>
-        {obStep > 0 && <span className="text-xs text-accent-ink">прошёл {Math.min(obStep, 4)}/4 шага</span>}
+        {obStep > 0 && <span className="text-xs text-accent-ink">пройдено шагов: {obStep}</span>}
       </div>
       {contact && <div className="mb-2 text-xs text-muted">Оставил контакт: {contact}</div>}
       <div className="flex items-center gap-2">

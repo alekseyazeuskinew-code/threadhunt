@@ -161,7 +161,7 @@ export default function ConnectionsPage() {
                 <Check size={13} /> расширение установлено
               </span>
             ) : (
-              <span className="text-muted">Расширение не найдено — скачай и установи за 5 шагов ниже.</span>
+              <span className="text-muted">Расширение не найдено — скачай и установи за 7 шагов ниже.</span>
             )}
           </div>
 

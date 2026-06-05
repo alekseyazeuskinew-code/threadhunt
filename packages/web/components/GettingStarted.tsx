@@ -159,7 +159,7 @@ export function GettingStarted({ signals }: { signals: Signals }) {
                   {!done && (
                     <Link
                       href={st.href}
-                      className={`mt-2 inline-flex items-center gap-1 text-sm font-medium ${current ? 'text-accent-ink hover:underline' : 'text-muted hover:text-fg'}`}
+                      className={`mt-2 inline-flex items-center gap-1 text-sm font-medium ${current ? 'text-accent-ink hover:underline' : 'text-muted hover:text-text'}`}
                     >
                       {st.cta} <ArrowRight size={14} />
                     </Link>

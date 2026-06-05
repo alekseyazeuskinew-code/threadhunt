@@ -9,7 +9,7 @@ const nextConfig = {
   // Монорепо: фиксируем корень трассировки, чтобы Next не путал его с домашней папкой.
   outputFileTracingRoot: join(__dirname, '../../'),
   async rewrites() {
-    // Проксируем /api/* на бэкенд (Fastify на :3001) в деве.
+    // Проксируем /api/* на бэкенд (Fastify на :3010) в деве.
     const api = process.env.API_ORIGIN || 'http://localhost:3010';
     return [{ source: '/api/:path*', destination: `${api}/api/:path*` }];
   },

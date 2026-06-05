@@ -72,7 +72,7 @@ const STEPS: { title: string; body: React.ReactNode; link?: { href: string; labe
         <Link href="/connections" className="text-accent-ink hover:underline">
           Подключения
         </Link>{' '}
-        → секция «Threads API» → <b>Подключить Threads</b> → вставь токен. Мы проверим его и сохраним зашифрованным.
+        → секция «Threads API» → <b>по токену</b> → вставь токен. Мы проверим его и сохраним зашифрованным.
         Дальше включишь автопостинг в любом поиске.
       </>
     ),

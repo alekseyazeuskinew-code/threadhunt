@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, Lead, SearchStats, TestPublishResult } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -14,6 +14,7 @@ import { FlowBuilder } from '@/components/search/FlowBuilder';
 import { CampaignsManager } from '@/components/campaigns/CampaignsManager';
 import { GoalPlanner } from '@/components/search/GoalPlanner';
 import { type Flow, defaultFlow, FLOW_TEMPLATES } from '@/lib/flow';
+import { FlowPreview } from '@/components/onboarding/FlowRenderer';
 import { TIMEZONES, zonedToUtc } from '@/lib/timezones';
 
 type TabKey = 'automation' | 'keywords' | 'replies' | 'posts' | 'ads' | 'goal' | 'onboarding' | 'leads';
@@ -543,6 +544,7 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
 // Онбординг: конструктор страниц/блоков публичной ссылки кандидата.
 function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [enabled, setEnabled] = useState(s.obEnabled);
+  const [showPreview, setShowPreview] = useState(false);
   const [flow, setFlow] = useState<Flow>(() => {
     try {
       if (s.obFlow) {
@@ -570,7 +572,7 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
       obEnabled: enabled,
       obFlow: JSON.stringify(flow),
       obDeadlineMode: dlMode,
-      obDeadlineHours: Math.max(1, hours),
+      obDeadlineHours: Math.min(720, Math.max(1, hours)), // сервер принимает максимум 30 дней (720ч)
       obDeadlineAt,
       obTimezone: tz,
     });
@@ -596,7 +598,12 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
               Собери страницы и блоки, по которым пройдёт кандидат. Ссылку выдашь из карточки во вкладке «Лиды».
             </div>
           </div>
-          <Toggle checked={enabled} onChange={setEnabled} />
+          <div className="flex shrink-0 items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={() => setShowPreview(true)}>
+              <Eye size={15} /> Предпросмотр
+            </Button>
+            <Toggle checked={enabled} onChange={setEnabled} />
+          </div>
         </div>
       </div>
 
@@ -672,6 +679,18 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
       </div>
 
       <OnboardingFunnelBlock id={s.id} />
+
+      {showPreview && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onClick={() => setShowPreview(false)}>
+          <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between text-sm text-white/90">
+              <span>Предпросмотр онбординга</span>
+              <button onClick={() => setShowPreview(false)} className="rounded-full bg-white/10 px-3 py-1 hover:bg-white/20">Закрыть ✕</button>
+            </div>
+            <FlowPreview flow={flow} role={s.title} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

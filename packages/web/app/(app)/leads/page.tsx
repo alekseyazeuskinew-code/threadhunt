@@ -75,7 +75,7 @@ export default function CandidatesPage() {
             </Button>
           </div>
         ) : view === 'list' ? (
-          <LeadTable leads={leads} showSearch />
+          <LeadTable leads={leads} showSearch onSelect={setOpenId} />
         ) : (
           <div className="flex gap-3 overflow-x-auto pb-4">
             {STAGES.map((col) => {
