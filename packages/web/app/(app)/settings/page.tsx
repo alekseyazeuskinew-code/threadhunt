@@ -243,7 +243,13 @@ function IntegrationsCard() {
       .catch(() => {});
   }, []);
 
-  const toggleEvent = (k: string) => setEvents((e) => (e.includes(k) ? e.filter((x) => x !== k) : [...e, k]));
+  const toggleEvent = (k: string) =>
+    setEvents((e) => {
+      // Пустой массив отображается как «все выбраны» — материализуем полный список,
+      // чтобы снятие одной галочки убирало именно её, а не оставляло только её.
+      const base = e.length === 0 ? WEBHOOK_EVENTS.map((x) => x.key) : e;
+      return base.includes(k) ? base.filter((x) => x !== k) : [...base, k];
+    });
   const genSecret = () => setSecret('whsec_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
 
   async function save() {

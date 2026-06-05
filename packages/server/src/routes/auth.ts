@@ -76,7 +76,10 @@ export async function authRoutes(app: FastifyInstance) {
     if (!user?.passwordHash || !(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) {
       return reply.code(403).send({ error: 'Текущий пароль неверный' });
     }
-    await db.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(parsed.data.newPassword) } });
+    await db.user.update({
+      where: { id: userId },
+      data: { passwordHash: await hashPassword(parsed.data.newPassword), resetTokenHash: null, resetTokenExpiresAt: null },
+    });
     return { ok: true };
   });
 
@@ -95,7 +98,9 @@ export async function authRoutes(app: FastifyInstance) {
         data: { resetTokenHash: hashToken(token), resetTokenExpiresAt: new Date(Date.now() + 60 * 60_000) }, // 1 час
       });
       const link = `${env.WEB_ORIGIN}/reset?token=${token}`;
-      await sendEmail({
+      // НЕ блокируем ответ отправкой письма — иначе по времени ответа можно
+      // отличить существующий email от несуществующего (enumeration).
+      void sendEmail({
         to: user.email,
         subject: 'Сброс пароля — Threadhunt',
         html: renderEmailHtml([

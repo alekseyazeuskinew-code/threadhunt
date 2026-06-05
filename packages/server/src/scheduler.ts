@@ -25,7 +25,7 @@ export function startScheduler() {
 // Drip email-цепочек для новых пользователей: каждому подходящему юзеру шлём
 // следующий неотправленный шаг, когда подошёл его срок (delayHours от якоря:
 // для шага 0 — регистрация, дальше — отправка предыдущего шага). Один шаг на
-// юзepа за тик, с общим бюджетом писем (бережём rate-limit Resend).
+// юзера за тик, с общим бюджетом писем (бережём rate-limit Resend).
 async function dripTick() {
   if (dripRunning) return;
   dripRunning = true;
@@ -66,8 +66,10 @@ async function dripTick() {
         if (r.ok) {
           await db.emailDrip.create({ data: { userId: rec.key, sequenceId: seq.id, stepIndex: nextIdx } });
           budget--;
+        } else if (r.error && r.error.includes('RESEND_API_KEY')) {
+          return; // провайдер не настроен — выходим, не долбим
         } else {
-          return; // провайдер не настроен/ошибка — не долбим, попробуем в следующий тик
+          continue; // конкретный адрес не принят — пропускаем, не блокируем остальных
         }
       }
     }
