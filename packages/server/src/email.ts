@@ -29,7 +29,7 @@ const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g,
 export function renderEmailHtml(blocks: any[]): string {
   const body = (blocks || [])
     .map((b) => {
-      const al = b?.align === 'center' ? 'center' : 'left';
+      const al = b?.align === 'center' ? 'center' : b?.align === 'right' ? 'right' : 'left';
       switch (b?.type) {
         case 'heading':
           return `<h1 style="font-size:22px;font-weight:700;margin:0 0 12px;text-align:${al};color:#111">${esc(b.text)}</h1>`;
@@ -37,8 +37,13 @@ export function renderEmailHtml(blocks: any[]): string {
           return `<p style="font-size:15px;line-height:1.6;margin:0 0 12px;text-align:${al};color:#333;white-space:pre-wrap">${esc(b.text)}</p>`;
         case 'button':
           return `<div style="text-align:${al};margin:16px 0"><a href="${esc(b.url)}" style="display:inline-block;background:#c6f24e;color:#0b0b0f;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:10px;font-size:15px">${esc(b.text || 'Открыть')}</a></div>`;
-        case 'image':
-          return b?.url ? `<img src="${esc(b.url)}" alt="" style="max-width:100%;border-radius:10px;margin:8px 0"/>` : '';
+        case 'image': {
+          if (!b?.url) return '';
+          const w = b.width === 'half' ? '50%' : b.width === 'small' ? '30%' : '100%';
+          const img = `<img src="${esc(b.url)}" alt="" style="width:${w};border-radius:10px;margin:8px 0"/>`;
+          const inner = b.linkUrl ? `<a href="${esc(b.linkUrl)}">${img}</a>` : img;
+          return `<div style="text-align:${al}">${inner}</div>`;
+        }
         case 'divider':
           return `<hr style="border:none;border-top:1px solid #eee;margin:16px 0"/>`;
         default:

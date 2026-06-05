@@ -9,7 +9,9 @@ export interface EmailBlock {
   type: EmailBlockType;
   text?: string; // heading / text / подпись кнопки
   url?: string; // button (ссылка) / image (картинка)
-  align?: 'left' | 'center';
+  align?: 'left' | 'center' | 'right';
+  width?: 'full' | 'half' | 'small'; // image: ширина (100% / 50% / 30%)
+  linkUrl?: string; // image: куда ведёт клик по картинке (необязательно)
 }
 
 export interface EmailStep {
@@ -44,7 +46,7 @@ export function newBlock(type: EmailBlockType): EmailBlock {
   if (type === 'heading') return { ...base, text: 'Заголовок письма' };
   if (type === 'text') return { ...base, text: 'Текст письма. Расскажи, что важно для нового пользователя.' };
   if (type === 'button') return { ...base, text: 'Открыть Threadhunt', url: 'https://serene-seahorse-a5102e.netlify.app', align: 'center' };
-  if (type === 'image') return { ...base, url: '' };
+  if (type === 'image') return { ...base, url: '', width: 'full', align: 'center' };
   return base; // divider / spacer
 }
 

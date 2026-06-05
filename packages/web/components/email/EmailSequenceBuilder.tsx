@@ -138,17 +138,27 @@ export function EmailSequenceBuilder() {
             <div className="rounded-xl border border-dashed border-line p-4 text-sm text-muted">Цепочек пока нет.</div>
           ) : (
             list.map((sq) => (
-              <button
+              <div
                 key={sq.id}
-                onClick={() => selectSeq(sq)}
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm ${seq?.id === sq.id ? 'bg-accent-soft text-accent-ink' : 'hover:bg-panel-2'}`}
+                className={`group flex items-center gap-1 rounded-xl pr-1 text-sm ${seq?.id === sq.id ? 'bg-accent-soft text-accent-ink' : 'hover:bg-panel-2'}`}
               >
-                <span className="truncate">
-                  <Mail size={13} className="mr-1.5 inline" />
-                  {sq.name}
-                </span>
-                <span className={`shrink-0 text-xs ${sq.enabled ? 'text-success' : 'text-muted'}`}>{sq.enabled ? '● вкл' : '○ выкл'}</span>
-              </button>
+                <button onClick={() => selectSeq(sq)} className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left">
+                  <span className="truncate">
+                    <Mail size={13} className="mr-1.5 inline" />
+                    {sq.name}
+                  </span>
+                  <span className={`ml-2 shrink-0 text-xs ${sq.enabled ? 'text-success' : 'text-muted'}`}>{sq.enabled ? '● вкл' : '○ выкл'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Удалить цепочку «${sq.name}»?`)) remove(sq.id);
+                  }}
+                  className="shrink-0 rounded p-1.5 text-muted opacity-0 hover:text-danger group-hover:opacity-100"
+                  title="Удалить"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -308,15 +318,31 @@ function BlockFields({ b, onChange }: { b: EmailBlock; onChange: (p: Partial<Ema
           <Input value={b.url || ''} onChange={(e) => onChange({ url: e.target.value })} placeholder="https://ссылка" />
         </>
       )}
-      {b.type === 'image' && <Input value={b.url || ''} onChange={(e) => onChange({ url: e.target.value })} placeholder="URL картинки https://…" />}
-      {(b.type === 'heading' || b.type === 'text' || b.type === 'button') && (
+      {b.type === 'image' && (
+        <>
+          <Input value={b.url || ''} onChange={(e) => onChange({ url: e.target.value })} placeholder="URL картинки https://…" />
+          <Input value={b.linkUrl || ''} onChange={(e) => onChange({ linkUrl: e.target.value })} placeholder="Ссылка по клику (необязательно)" />
+          <Select
+            size="sm"
+            value={b.width || 'full'}
+            onChange={(v) => onChange({ width: v as 'full' | 'half' | 'small' })}
+            options={[
+              { value: 'full', label: 'во всю ширину' },
+              { value: 'half', label: 'половина (50%)' },
+              { value: 'small', label: 'маленькая (30%)' },
+            ]}
+          />
+        </>
+      )}
+      {(b.type === 'heading' || b.type === 'text' || b.type === 'button' || b.type === 'image') && (
         <Select
           size="sm"
           value={b.align || 'left'}
-          onChange={(v) => onChange({ align: v as 'left' | 'center' })}
+          onChange={(v) => onChange({ align: v as 'left' | 'center' | 'right' })}
           options={[
             { value: 'left', label: 'по левому краю' },
             { value: 'center', label: 'по центру' },
+            { value: 'right', label: 'по правому краю' },
           ]}
         />
       )}
@@ -332,7 +358,7 @@ export function EmailPreview({ subject, blocks }: { subject: string; blocks: Ema
       <div className="space-y-3 p-5">
         {blocks.length === 0 && <div className="text-center text-sm text-black/40">Пустое письмо — добавь блоки.</div>}
         {blocks.map((b) => {
-          const al = b.align === 'center' ? 'text-center' : 'text-left';
+          const al = b.align === 'center' ? 'text-center' : b.align === 'right' ? 'text-right' : 'text-left';
           if (b.type === 'heading') return <div key={b.id} className={`text-lg font-bold ${al}`}>{b.text}</div>;
           if (b.type === 'text') return <p key={b.id} className={`whitespace-pre-wrap text-sm leading-relaxed text-black/80 ${al}`}>{b.text}</p>;
           if (b.type === 'button')
@@ -341,7 +367,19 @@ export function EmailPreview({ subject, blocks }: { subject: string; blocks: Ema
                 <span className="inline-block rounded-lg bg-[#c6f24e] px-4 py-2 text-sm font-semibold text-[#0b0b0f]">{b.text || 'Кнопка'}</span>
               </div>
             );
-          if (b.type === 'image') return b.url ? <img key={b.id} src={b.url} alt="" className="w-full rounded-lg" /> : <div key={b.id} className="rounded-lg bg-black/5 py-8 text-center text-xs text-black/30">картинка</div>;
+          if (b.type === 'image') {
+            const w = b.width === 'half' ? '50%' : b.width === 'small' ? '30%' : '100%';
+            const img = b.url ? (
+              <img src={b.url} alt="" style={{ width: w, borderRadius: 8 }} className="inline-block" />
+            ) : (
+              <div className="inline-block rounded-lg bg-black/5 py-8 text-center text-xs text-black/30" style={{ width: w }}>картинка</div>
+            );
+            return (
+              <div key={b.id} className={al}>
+                {b.linkUrl ? <a href={b.linkUrl}>{img}</a> : img}
+              </div>
+            );
+          }
           if (b.type === 'divider') return <hr key={b.id} className="border-black/10" />;
           return <div key={b.id} className="h-4" />; // spacer
         })}
