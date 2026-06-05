@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone } from 'lucide-react';
+import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Connection, Device, MetaConnection } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -15,6 +15,10 @@ import { cn } from '@/lib/cn';
 
 const AGENT_API = process.env.NEXT_PUBLIC_AGENT_API || 'http://localhost:3010';
 const STORE_URL = process.env.NEXT_PUBLIC_EXT_STORE_URL || '#';
+// Готовый файл расширения (статика, лежит в web/public). Пока расширения нет в
+// Chrome Web Store — клиент ставит его отсюда «распакованным».
+const EXT_DOWNLOAD = '/threadhunt-extension.zip';
+const EXT_IN_STORE = STORE_URL !== '#'; // если задан NEXT_PUBLIC_EXT_STORE_URL — расширение уже в Store
 
 export default function ConnectionsPage() {
   const [conns, setConns] = useState<Connection[] | null>(null);
@@ -25,6 +29,7 @@ export default function ConnectionsPage() {
   const [meta, setMeta] = useState<MetaConnection | null>(null);
   const [addingMeta, setAddingMeta] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showGuide, setShowGuide] = useState(false); // развёрнута ли инструкция по установке
 
   const loadConns = () => api.get<Connection[]>('/api/connections').then(setConns).catch(() => setConns([]));
   const loadDevices = () => api.get<Device[]>('/api/devices').then(setDevices).catch(() => setDevices([]));
@@ -130,14 +135,35 @@ export default function ConnectionsPage() {
                 <Check size={13} /> расширение установлено
               </span>
             ) : (
-              <span className="text-muted">
-                Расширение не найдено.{' '}
-                <a href={STORE_URL} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
-                  Установить
-                </a>
-              </span>
+              <span className="text-muted">Расширение не найдено — скачай и установи за 5 шагов ниже.</span>
             )}
           </div>
+
+          {/* Скачивание файла расширения + инструкция (пока нет в Chrome Web Store) */}
+          {!extPresent && (
+            <div className="mt-4 rounded-xl border border-line bg-bg p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {EXT_IN_STORE ? (
+                  <a href={STORE_URL} target="_blank" rel="noreferrer">
+                    <Button>
+                      <Chrome size={16} /> Установить из Chrome Web Store
+                    </Button>
+                  </a>
+                ) : (
+                  <a href={EXT_DOWNLOAD} download>
+                    <Button>
+                      <Download size={16} /> Скачать расширение (.zip)
+                    </Button>
+                  </a>
+                )}
+                <Button variant="ghost" onClick={() => setShowGuide((v) => !v)}>
+                  <HelpCircle size={15} /> {showGuide ? 'Скрыть инструкцию' : 'Как установить'}
+                </Button>
+              </div>
+
+              {showGuide && <InstallGuide />}
+            </div>
+          )}
 
           {/* Инлайн-фолбэк с кодом (если расширение не стоит) — без попапа */}
           <InlinePanel open={!!manualToken} onClose={() => setManualToken(null)}>
@@ -297,6 +323,35 @@ export default function ConnectionsPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+// Пошаговая инструкция: как поставить расширение «распакованным» и привязать его.
+function InstallGuide() {
+  const steps = [
+    <>Нажми <b>«Скачать расширение (.zip)»</b> выше и <b>распакуй архив</b> в постоянную папку (например в «Документы»). Не оставляй в «Загрузках» — если папку удалить, расширение слетит.</>,
+    <>Открой в браузере страницу <span className="font-mono">chrome://extensions</span> (скопируй и вставь в адресную строку).</>,
+    <>Включи вверху справа тумблер <b>«Режим разработчика»</b> (Developer mode).</>,
+    <>Нажми <b>«Загрузить распакованное»</b> (Load unpacked) и выбери распакованную папку (где лежит файл <span className="font-mono">manifest.json</span>).</>,
+    <>Нажми на «пазл» 🧩 в панели браузера и <b>закрепи</b> иконку Threadhunt, чтобы была под рукой.</>,
+    <>Вернись сюда и нажми <b>«Подключить браузер»</b> — код привяжется сам. Если попросит код вручную — скопируй его здесь и вставь в окне расширения.</>,
+    <>Открой <b>Threads → Сообщения</b> (директ), залогинься, если ещё не — и отбивка заработает по твоим кодовым словам.</>,
+  ];
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <div className="mb-2 text-sm font-medium">Установка за 7 шагов</div>
+      <ol className="space-y-2.5">
+        {steps.map((s, i) => (
+          <li key={i} className="flex gap-3 text-sm">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-on-accent">{i + 1}</span>
+            <span className="flex-1 leading-relaxed">{s}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
+        Браузер может при запуске показывать предупреждение «Отключить расширения в режиме разработчика» — просто закрой его, расширение продолжит работать. Это временно, пока расширение не появится в Chrome Web Store (тогда установка будет в один клик).
+      </p>
+    </div>
   );
 }
 

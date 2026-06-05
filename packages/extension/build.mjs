@@ -1,7 +1,8 @@
 // Сборка расширения через esbuild: бандлит TS + workspace-импорты (@threadhunt/shared).
 // background/popup — ESM, content-script — IIFE (MV3 content-scripts не модули).
 import esbuild from 'esbuild';
-import { cpSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const watch = process.argv.includes('--watch');
 mkdirSync('dist/src', { recursive: true });
@@ -21,6 +22,17 @@ function copyStatic() {
   cpSync('icons', 'dist/icons', { recursive: true });
 }
 
+// Упаковать dist/ в zip (manifest.json в корне) и положить копию в web/public,
+// откуда кабинет даёт клиентам кнопку «Скачать расширение». Так файл для
+// скачивания всегда соответствует свежей сборке.
+function packZip() {
+  const zip = 'threadhunt-extension.zip';
+  rmSync(zip, { force: true });
+  execSync(`cd dist && zip -r -q -X ../${zip} .`, { stdio: 'inherit' });
+  cpSync(zip, '../web/public/threadhunt-extension.zip');
+  console.log('📦 Собран threadhunt-extension.zip и скопирован в web/public');
+}
+
 if (watch) {
   for (const b of builds) {
     const ctx = await esbuild.context(b);
@@ -31,5 +43,6 @@ if (watch) {
 } else {
   await Promise.all(builds.map((b) => esbuild.build(b)));
   copyStatic();
+  packZip();
   console.log('✅ Собрано в dist/ — загрузи как unpacked в chrome://extensions');
 }
