@@ -180,7 +180,12 @@ export default function AdminPage() {
               <Stat label="MRR (оценка)" value={`${growth.revenue.mrr.toLocaleString('ru-RU')} ₽`} accent />
               <Stat label="ARR (оценка)" value={`${growth.revenue.arr.toLocaleString('ru-RU')} ₽`} />
               <Stat label="ARPU" value={`${growth.revenue.arpu.toLocaleString('ru-RU')} ₽`} hint="на платящего" />
-              <Stat label="Активных за 7д (WAU)" value={growth.engagement.wau} />
+              <Stat label="WAU (7д)" value={growth.engagement.wau} />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Stat label="DAU (сегодня)" value={growth.engagement.dau} />
+              <Stat label="MAU (30д)" value={growth.engagement.mau} />
+              <Stat label="Липкость DAU/MAU" value={`${growth.engagement.stickiness}%`} accent hint="≥40% — сильно" />
             </div>
 
             {/* Воронка активации (PLG) */}

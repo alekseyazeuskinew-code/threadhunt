@@ -30,7 +30,7 @@ async function dripTick() {
   if (dripRunning) return;
   dripRunning = true;
   try {
-    const seqs = await db.emailSequence.findMany({ where: { enabled: true, audience: 'new_users' } });
+    const seqs = await db.emailSequence.findMany({ where: { enabled: true } }); // обе аудитории
     let budget = 20; // максимум писем за один проход
     for (const seq of seqs) {
       let steps: { delayHours?: number; subject?: string; blocks?: unknown[] }[] = [];
@@ -40,22 +40,31 @@ async function dripTick() {
         continue;
       }
       if (!steps.length) continue;
-      // Кандидаты — юзеры, зарегистрированные не раньше создания цепочки (не бластим старых).
-      const users = await db.user.findMany({ where: { createdAt: { gte: seq.createdAt } }, select: { id: true, email: true, createdAt: true } });
-      for (const u of users) {
+      // Получатели: ключ дедупа (id), email, якорь (createdAt). Не бластим тех, кто
+      // появился раньше создания цепочки. Для waitlist ключ — id заявки.
+      let recipients: { key: string; email: string; createdAt: Date }[];
+      if (seq.audience === 'waitlist') {
+        const rows = await db.waitlistEntry.findMany({ where: { createdAt: { gte: seq.createdAt } }, select: { id: true, email: true, createdAt: true } });
+        recipients = rows.map((r) => ({ key: r.id, email: r.email, createdAt: r.createdAt }));
+      } else {
+        const rows = await db.user.findMany({ where: { createdAt: { gte: seq.createdAt } }, select: { id: true, email: true, createdAt: true } });
+        recipients = rows.map((r) => ({ key: r.id, email: r.email, createdAt: r.createdAt }));
+      }
+      for (const rec of recipients) {
         if (budget <= 0) return;
-        const sent = await db.emailDrip.findMany({ where: { userId: u.id, sequenceId: seq.id }, select: { stepIndex: true, sentAt: true } });
+        if (!rec.email || !rec.email.includes('@')) continue;
+        const sent = await db.emailDrip.findMany({ where: { userId: rec.key, sequenceId: seq.id }, select: { stepIndex: true, sentAt: true } });
         const sentIdx = new Set(sent.map((s) => s.stepIndex));
         let nextIdx = 0;
         while (sentIdx.has(nextIdx)) nextIdx++;
         if (nextIdx >= steps.length) continue; // вся цепочка отправлена
         const step = steps[nextIdx];
-        const anchor = nextIdx === 0 ? u.createdAt : sent.find((s) => s.stepIndex === nextIdx - 1)?.sentAt;
+        const anchor = nextIdx === 0 ? rec.createdAt : sent.find((s) => s.stepIndex === nextIdx - 1)?.sentAt;
         if (!anchor) continue;
         if (Date.now() < anchor.getTime() + (step.delayHours || 0) * 3600_000) continue; // ещё не пора
-        const r = await sendEmail({ to: u.email, subject: step.subject || 'Threadhunt', html: renderEmailHtml((step.blocks as any[]) || []) });
+        const r = await sendEmail({ to: rec.email, subject: step.subject || 'Threadhunt', html: renderEmailHtml((step.blocks as any[]) || []) });
         if (r.ok) {
-          await db.emailDrip.create({ data: { userId: u.id, sequenceId: seq.id, stepIndex: nextIdx } });
+          await db.emailDrip.create({ data: { userId: rec.key, sequenceId: seq.id, stepIndex: nextIdx } });
           budget--;
         } else {
           return; // провайдер не настроен/ошибка — не долбим, попробуем в следующий тик

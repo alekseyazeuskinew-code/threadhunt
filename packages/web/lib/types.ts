@@ -348,7 +348,7 @@ export interface AdminCosts {
 export interface AdminGrowth {
   signupsByWeek: { week: string; count: number }[];
   activation: { total: number; connected: number; withSearch: number; withLead: number; paying: number };
-  engagement: { wau: number };
+  engagement: { dau: number; wau: number; mau: number; stickiness: number };
   revenue: { mrr: number; arr: number; arpu: number; payingPct: number; churnedSubs: number };
   adoption: { autopost: number; otbivka: number; onboarding: number; campaigns: number };
   powerUsers: { email: string; leads: number; hired: number }[];

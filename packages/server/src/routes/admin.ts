@@ -201,6 +201,17 @@ export async function adminRoutes(app: FastifyInstance) {
     // активные за 7 дней (WAU): объединение тех, у кого был лид или heartbeat расширения
     const activeSet = new Set<string>([...activeDeviceRows, ...activeLeadRows].map((r) => r.userId));
 
+    // DAU (сутки) и MAU (30 дней) для липкости DAU/MAU
+    const [dDev1, dLead1, dDev30, dLead30] = await Promise.all([
+      db.device.findMany({ where: { lastHeartbeat: { gte: ago(1) } }, distinct: ['userId'], select: { userId: true } }),
+      db.lead.findMany({ where: { createdAt: { gte: ago(1) } }, distinct: ['userId'], select: { userId: true } }),
+      db.device.findMany({ where: { lastHeartbeat: { gte: ago(30) } }, distinct: ['userId'], select: { userId: true } }),
+      db.lead.findMany({ where: { createdAt: { gte: ago(30) } }, distinct: ['userId'], select: { userId: true } }),
+    ]);
+    const dau = new Set([...dDev1, ...dLead1].map((r) => r.userId)).size;
+    const mau = new Set([...dDev30, ...dLead30].map((r) => r.userId)).size;
+    const stickiness = mau ? Math.round((dau / mau) * 100) : 0;
+
     // регистрации по неделям (8 недель)
     const weeks: { week: string; count: number }[] = [];
     for (let i = 7; i >= 0; i--) {
@@ -234,7 +245,7 @@ export async function adminRoutes(app: FastifyInstance) {
         withLead,
         paying,
       },
-      engagement: { wau: activeSet.size },
+      engagement: { dau, wau: activeSet.size, mau, stickiness },
       revenue: {
         mrr,
         arr: mrr * 12,
