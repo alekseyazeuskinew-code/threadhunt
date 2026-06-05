@@ -313,6 +313,36 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true, to };
   });
 
+  // Рассылка письма по базе: лист ожидания (опц. по статусу) или зарегистрированные.
+  app.post('/api/admin/email-broadcast', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const body = (req.body as any) || {};
+    const subject = (body.subject || '').toString().slice(0, 200) || 'Threadhunt';
+    const blocks = Array.isArray(body.blocks) ? body.blocks : [];
+    const audience = body.audience === 'waitlist' ? 'waitlist' : 'new_users';
+    let recipients: string[] = [];
+    if (audience === 'waitlist') {
+      const where = body.status ? { status: String(body.status) } : {};
+      const rows = await db.waitlistEntry.findMany({ where, select: { email: true }, take: 2000 });
+      recipients = rows.map((r) => r.email);
+    } else {
+      const rows = await db.user.findMany({ select: { email: true }, take: 2000 });
+      recipients = rows.map((r) => r.email);
+    }
+    recipients = [...new Set(recipients.filter((e) => e && e.includes('@')))];
+    if (!recipients.length) return reply.code(400).send({ error: 'В выбранной аудитории нет адресов' });
+
+    const html = renderEmailHtml(blocks);
+    let sent = 0;
+    let failed = 0;
+    // Последовательно, чтобы не упереться в rate-limit Resend (~10/сек).
+    for (const to of recipients) {
+      const r = await sendEmail({ to, subject, html });
+      r.ok ? sent++ : failed++;
+    }
+    return { ok: true, total: recipients.length, sent, failed };
+  });
+
   // Все зарегистрированные аккаунты со статистикой.
   app.get('/api/admin/users', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;

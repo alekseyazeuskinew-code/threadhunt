@@ -39,6 +39,23 @@ export function EmailSequenceBuilder() {
     }
   }
 
+  async function broadcastStep(st: EmailStep) {
+    if (!seq) return;
+    const aud = seq.audience === 'waitlist' ? 'листу ожидания' : 'всем зарегистрированным';
+    if (!window.confirm(`Отправить это письмо по базе (${aud}) прямо сейчас? Это реальная рассылка.`)) return;
+    setTestMsg({ stepId: st.id, ok: true, text: 'Рассылаю…' });
+    try {
+      const r = await api.post<{ total: number; sent: number; failed: number }>('/api/admin/email-broadcast', {
+        subject: st.subject,
+        blocks: st.blocks,
+        audience: seq.audience,
+      });
+      setTestMsg({ stepId: st.id, ok: r.failed === 0, text: `Разослано: ${r.sent} из ${r.total}${r.failed ? `, ошибок ${r.failed}` : ' ✓'}` });
+    } catch (e: any) {
+      setTestMsg({ stepId: st.id, ok: false, text: e.message });
+    }
+  }
+
   const load = () => api.get<EmailSequence[]>('/api/admin/email-sequences').then(setList).catch(() => setDenied(true));
   useEffect(() => {
     load();
@@ -241,9 +258,14 @@ export function EmailSequenceBuilder() {
                   <div>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-xs font-medium text-muted">Предпросмотр</span>
-                      <button onClick={() => testStep(st)} className="rounded-full border border-line px-2.5 py-1 text-xs hover:bg-panel-2">
-                        Тест себе
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => testStep(st)} className="rounded-full border border-line px-2.5 py-1 text-xs hover:bg-panel-2">
+                          Тест себе
+                        </button>
+                        <button onClick={() => broadcastStep(st)} className="rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent-press">
+                          Отправить по базе
+                        </button>
+                      </div>
                     </div>
                     <EmailPreview subject={st.subject} blocks={st.blocks} />
                     {testMsg?.stepId === st.id && <div className={`mt-2 text-xs ${testMsg.ok ? 'text-success' : 'text-danger'}`}>{testMsg.text}</div>}
