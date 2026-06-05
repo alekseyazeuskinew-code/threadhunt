@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AdminStats, AdminUser, AdminAnalytics } from '@/lib/types';
+import type { AdminStats, AdminUser, AdminAnalytics, AdminGrowth, WaitlistEntry } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
 import { Stat } from '@/components/ui/Stat';
 import { Card } from '@/components/ui/Card';
@@ -11,19 +11,23 @@ import { Select } from '@/components/ui/Select';
 export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
+  const [growth, setGrowth] = useState<AdminGrowth | null>(null);
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [waitlist, setWaitlist] = useState<WaitlistEntry[] | null>(null);
   const [denied, setDenied] = useState(false);
 
   function load() {
     api.get<AdminStats>('/api/admin/stats').then(setStats).catch(() => setDenied(true));
     api.get<AdminAnalytics>('/api/admin/analytics').then(setAnalytics).catch(() => {});
+    api.get<AdminGrowth>('/api/admin/growth').then(setGrowth).catch(() => {});
     api.get<AdminUser[]>('/api/admin/users').then(setUsers).catch(() => setDenied(true));
+    api.get<WaitlistEntry[]>('/api/admin/waitlist').then(setWaitlist).catch(() => {});
   }
   useEffect(() => {
     load();
   }, []);
 
-  async function update(id: string, data: { plan?: string; role?: string; subStatus?: string }) {
+  async function update(id: string, data: { plan?: string; role?: string; subStatus?: string; extraSeats?: number }) {
     setUsers((prev) =>
       prev!.map((u) =>
         u.id === id
@@ -31,12 +35,22 @@ export default function AdminPage() {
               ...u,
               ...(data.plan ? { plan: data.plan } : {}),
               ...(data.role ? { role: data.role } : {}),
+              ...(data.extraSeats !== undefined ? { extraSeats: data.extraSeats } : {}),
               ...(data.subStatus ? { subscription: { status: data.subStatus, currentPeriodEnd: u.subscription?.currentPeriodEnd ?? null } } : {}),
             } as AdminUser)
           : u,
       ),
     );
     await api.patch(`/api/admin/users/${id}`, data);
+  }
+
+  async function setWaitStatus(id: string, status: string) {
+    setWaitlist((prev) => prev!.map((w) => (w.id === id ? { ...w, status: status as WaitlistEntry['status'] } : w)));
+    await api.patch(`/api/admin/waitlist/${id}`, { status });
+  }
+  async function removeWait(id: string) {
+    setWaitlist((prev) => prev!.filter((w) => w.id !== id));
+    await api.del(`/api/admin/waitlist/${id}`);
   }
 
   if (denied) {
@@ -59,6 +73,62 @@ export default function AdminPage() {
           <Stat label="Лидов всего" value={stats?.leads ?? '—'} />
           <Stat label="ИИ-генераций сегодня" value={stats?.aiToday ?? '—'} hint="по всему сервису" />
         </div>
+
+        {/* Лист ожидания (заявки с лендинга) */}
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold">Лист ожидания</div>
+              <div className="text-xs text-muted">Заявки с лендинга на ранний доступ.{waitlist ? ` Всего: ${waitlist.length}` : ''}</div>
+            </div>
+            <a href="/api/admin/waitlist.csv" className="shrink-0 rounded-full border border-line px-3 py-1.5 text-sm text-text hover:bg-panel-2">Экспорт CSV</a>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-line">
+            <table className="w-full text-sm">
+              <thead className="bg-panel text-left text-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Email</th>
+                  <th className="px-3 py-2 font-medium">Имя</th>
+                  <th className="px-3 py-2 font-medium">Источник</th>
+                  <th className="px-3 py-2 font-medium">Дата</th>
+                  <th className="px-3 py-2 font-medium">Статус</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {waitlist === null ? (
+                  <tr><td className="px-3 py-3 text-muted" colSpan={6}>Загрузка…</td></tr>
+                ) : waitlist.length === 0 ? (
+                  <tr><td className="px-3 py-3 text-muted" colSpan={6}>Пока никто не записался.</td></tr>
+                ) : (
+                  waitlist.map((w) => (
+                    <tr key={w.id} className="border-t border-line">
+                      <td className="px-3 py-2">{w.email}</td>
+                      <td className="px-3 py-2 text-muted">{w.name || '—'}</td>
+                      <td className="px-3 py-2 text-muted">{w.source || '—'}</td>
+                      <td className="px-3 py-2 text-muted">{new Date(w.createdAt).toLocaleDateString('ru-RU')}</td>
+                      <td className="px-3 py-2">
+                        <Select
+                          size="sm"
+                          value={w.status}
+                          onChange={(v) => setWaitStatus(w.id, v)}
+                          options={[
+                            { value: 'new', label: 'новый' },
+                            { value: 'invited', label: 'приглашён' },
+                            { value: 'converted', label: 'оплатил' },
+                          ]}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => removeWait(w.id)} className="text-muted hover:text-danger" title="Удалить">✕</button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
 
         {stats && (
           <Card>
@@ -86,6 +156,86 @@ export default function AdminPage() {
               Суммы — оценка по назначенным тарифам. Точные платежи, продления и отмены подтянутся после подключения Stripe
               (вебхуки обновят статусы автоматически).
             </p>
+          </Card>
+        )}
+
+        {/* Рост и здоровье SaaS */}
+        {growth && (
+          <Card>
+            <div className="mb-1 text-base font-semibold">Рост и здоровье продукта</div>
+            <p className="mb-3 text-xs text-muted">Актуальный SaaS-набор: воронка активации (ведущий индикатор удержания), рост, активные, выручка, adoption.</p>
+
+            {/* Выручка / ключевые KPI */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Stat label="MRR (оценка)" value={`${growth.revenue.mrr.toLocaleString('ru-RU')} ₽`} accent />
+              <Stat label="ARR (оценка)" value={`${growth.revenue.arr.toLocaleString('ru-RU')} ₽`} />
+              <Stat label="ARPU" value={`${growth.revenue.arpu.toLocaleString('ru-RU')} ₽`} hint="на платящего" />
+              <Stat label="Активных за 7д (WAU)" value={growth.engagement.wau} />
+            </div>
+
+            {/* Воронка активации (PLG) */}
+            <div className="mt-5 text-sm font-medium">Воронка активации</div>
+            <div className="mt-2 space-y-1.5">
+              {[
+                { label: 'Зарегистрировались', v: growth.activation.total },
+                { label: 'Подключили аккаунт', v: growth.activation.connected },
+                { label: 'Создали поиск', v: growth.activation.withSearch },
+                { label: 'Получили лид (aha)', v: growth.activation.withLead },
+                { label: 'Платят', v: growth.activation.paying },
+              ].map((row, i) => {
+                const pct = growth.activation.total ? Math.round((row.v / growth.activation.total) * 100) : 0;
+                return (
+                  <div key={i} className="flex items-center gap-3 text-sm">
+                    <span className="w-44 shrink-0 text-muted">{row.label}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-bg">
+                      <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-20 shrink-0 text-right tabular-nums">{row.v} · {pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-2 text-xs text-muted">
+              Конверсия в оплату: <b>{growth.revenue.payingPct}%</b> · отток (отменены/просрочка): <b>{growth.revenue.churnedSubs}</b>
+            </div>
+
+            {/* Регистрации по неделям */}
+            <div className="mt-5 text-sm font-medium">Регистрации по неделям</div>
+            <div className="mt-2 flex items-end gap-1.5" style={{ height: 64 }}>
+              {(() => {
+                const max = Math.max(1, ...growth.signupsByWeek.map((w) => w.count));
+                return growth.signupsByWeek.map((w, i) => (
+                  <div key={i} className="flex flex-1 flex-col items-center justify-end gap-1">
+                    <div className="w-full rounded-t bg-accent" style={{ height: `${(w.count / max) * 48}px` }} title={`${w.count}`} />
+                    <span className="text-[10px] text-muted">{w.count}</span>
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* Adoption фич */}
+            <div className="mt-5 flex flex-wrap gap-4 text-sm">
+              <span className="text-muted">Используют:</span>
+              <span>отбивку: <b>{growth.adoption.otbivka}</b></span>
+              <span>автопостинг: <b>{growth.adoption.autopost}</b></span>
+              <span>онбординг: <b>{growth.adoption.onboarding}</b></span>
+              <span>кампании: <b>{growth.adoption.campaigns}</b></span>
+            </div>
+
+            {/* Power users */}
+            {growth.powerUsers.length > 0 && (
+              <div className="mt-5">
+                <div className="text-sm font-medium">Power users (по лидам)</div>
+                <div className="mt-2 space-y-1 text-sm">
+                  {growth.powerUsers.map((p, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-lg bg-bg px-3 py-1.5">
+                      <span className="truncate">{p.email}</span>
+                      <span className="shrink-0 text-muted tabular-nums">{p.leads} лидов · {p.hired} найм.</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Card>
         )}
 
@@ -171,13 +321,14 @@ export default function AdminPage() {
                 <th className="px-4 py-3 font-medium">Подкл.</th>
                 <th className="px-4 py-3 font-medium">Регистрация</th>
                 <th className="px-4 py-3 font-medium">Тариф</th>
+                <th className="px-4 py-3 font-medium">Доп-места</th>
                 <th className="px-4 py-3 font-medium">Подписка</th>
                 <th className="px-4 py-3 font-medium">Роль</th>
               </tr>
             </thead>
             <tbody>
               {users === null ? (
-                <tr><td className="px-4 py-4 text-muted" colSpan={8}>Загрузка…</td></tr>
+                <tr><td className="px-4 py-4 text-muted" colSpan={9}>Загрузка…</td></tr>
               ) : (
                 users.map((u) => (
                   <tr key={u.id} className="border-t border-line">
@@ -199,6 +350,15 @@ export default function AdminPage() {
                           { value: 'PRO', label: 'PRO' },
                           { value: 'VIP', label: 'VIP' },
                         ]}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        min={0}
+                        value={u.extraSeats ?? 0}
+                        onChange={(e) => update(u.id, { extraSeats: Math.max(0, +e.target.value) })}
+                        className="w-16 rounded-lg border border-line bg-bg px-2 py-1 text-sm"
                       />
                     </td>
                     <td className="px-4 py-3">

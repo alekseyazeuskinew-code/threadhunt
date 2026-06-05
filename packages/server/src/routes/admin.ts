@@ -102,6 +102,110 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
+  // Рост и здоровье SaaS (актуальный набор: PLG-воронка активации — ведущий
+  // индикатор удержания, рост регистраций, активные пользователи, выручка и
+  // adoption фич). Всё — обезличенные агрегаты по всему сервису.
+  app.get('/api/admin/growth', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const now = Date.now();
+    const ago = (days: number) => new Date(now - days * 86_400_000);
+    const since8w = ago(56);
+
+    const distinctUsers = async (model: 'device' | 'threadsConnection' | 'search' | 'lead', where: any = {}) =>
+      ((await (db as any)[model].findMany({ where, distinct: ['userId'], select: { userId: true } })) as { userId: string }[]).length;
+
+    const [
+      totalUsers,
+      paying,
+      signupRows,
+      connectedDev,
+      connectedConn,
+      withSearch,
+      withLead,
+      byPlanRaw,
+      subsRaw,
+      activeDeviceRows,
+      activeLeadRows,
+      autopostSearches,
+      onboardingSearches,
+      campaignUserRows,
+      leadsByUser,
+      hiredByUser,
+      usersForEmail,
+    ] = await Promise.all([
+      db.user.count(),
+      db.user.count({ where: { plan: { not: 'FREE' } } }),
+      db.user.findMany({ where: { createdAt: { gte: since8w } }, select: { createdAt: true } }),
+      distinctUsers('device'),
+      distinctUsers('threadsConnection'),
+      distinctUsers('search'),
+      distinctUsers('lead'),
+      db.user.groupBy({ by: ['plan'], _count: true }),
+      db.subscription.groupBy({ by: ['status'], _count: true }),
+      db.device.findMany({ where: { lastHeartbeat: { gte: ago(7) } }, distinct: ['userId'], select: { userId: true } }),
+      db.lead.findMany({ where: { createdAt: { gte: ago(7) } }, distinct: ['userId'], select: { userId: true } }),
+      db.publishConfig.count({ where: { enabled: true } }),
+      db.search.count({ where: { obEnabled: true } }),
+      db.adCampaign.findMany({ distinct: ['userId'], select: { userId: true } }),
+      db.lead.groupBy({ by: ['userId'], _count: { id: true }, orderBy: { _count: { id: 'desc' } }, take: 8 }),
+      db.lead.groupBy({ by: ['userId'], where: { stage: 'HIRED' }, _count: { id: true } }),
+      db.user.findMany({ select: { id: true, email: true } }),
+    ]);
+
+    // активные за 7 дней (WAU): объединение тех, у кого был лид или heartbeat расширения
+    const activeSet = new Set<string>([...activeDeviceRows, ...activeLeadRows].map((r) => r.userId));
+
+    // регистрации по неделям (8 недель)
+    const weeks: { week: string; count: number }[] = [];
+    for (let i = 7; i >= 0; i--) {
+      const start = now - (i + 1) * 7 * 86_400_000;
+      const end = now - i * 7 * 86_400_000;
+      const count = signupRows.filter((u) => {
+        const t = u.createdAt.getTime();
+        return t >= start && t < end;
+      }).length;
+      weeks.push({ week: `${i === 0 ? 'эта' : i} нед.`, count });
+    }
+
+    const byPlan: Record<string, number> = { FREE: 0, PRO: 0, VIP: 0 };
+    for (const r of byPlanRaw) byPlan[r.plan] = r._count;
+    const subs: Record<string, number> = {};
+    for (const r of subsRaw) subs[r.status] = r._count;
+    const PRICE_RUB: Record<string, number> = { PRO: 1490, VIP: 4900 };
+    const mrr = byPlan.PRO * PRICE_RUB.PRO + byPlan.VIP * PRICE_RUB.VIP;
+
+    const emailById = new Map(usersForEmail.map((u) => [u.id, u.email]));
+    const hiredMap: Record<string, number> = {};
+    for (const r of hiredByUser) hiredMap[r.userId] = r._count.id;
+    const powerUsers = leadsByUser.map((r) => ({ email: emailById.get(r.userId) || '—', leads: r._count.id, hired: hiredMap[r.userId] || 0 }));
+
+    return {
+      signupsByWeek: weeks,
+      activation: {
+        total: totalUsers,
+        connected: Math.max(connectedDev, connectedConn), // подключил хотя бы один аккаунт
+        withSearch,
+        withLead,
+        paying,
+      },
+      engagement: { wau: activeSet.size },
+      revenue: {
+        mrr,
+        arr: mrr * 12,
+        arpu: paying ? Math.round(mrr / paying) : 0,
+        payingPct: totalUsers ? Math.round((paying / totalUsers) * 100) : 0,
+        churnedSubs: (subs.canceled || 0) + (subs.past_due || 0),
+      },
+      adoption: {
+        autopost: autopostSearches,
+        otbivka: connectedDev,
+        onboarding: onboardingSearches,
+        campaigns: campaignUserRows.length,
+      },
+      powerUsers,
+    };
+  });
+
   // Все зарегистрированные аккаунты со статистикой.
   app.get('/api/admin/users', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
@@ -113,6 +217,7 @@ export async function adminRoutes(app: FastifyInstance) {
         name: true,
         plan: true,
         role: true,
+        extraSeats: true,
         createdAt: true,
         _count: { select: { searches: true, leads: true, connections: true, devices: true } },
         subscription: { select: { status: true, currentPeriodEnd: true } },
@@ -127,14 +232,19 @@ export async function adminRoutes(app: FastifyInstance) {
     plan: z.enum(['FREE', 'PRO', 'VIP']).optional(),
     role: z.enum(['USER', 'ADMIN']).optional(),
     subStatus: z.enum(['active', 'past_due', 'canceled', 'paused', 'inactive']).optional(),
+    extraSeats: z.number().int().min(0).max(100).optional(), // выдать доп-места вручную (до Stripe)
   });
   app.patch('/api/admin/users/:id', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
     const id = (req.params as any).id as string;
     const parsed = patchSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
-    const { plan, role, subStatus } = parsed.data;
-    if (plan || role) await db.user.update({ where: { id }, data: { ...(plan ? { plan } : {}), ...(role ? { role } : {}) } });
+    const { plan, role, subStatus, extraSeats } = parsed.data;
+    if (plan || role || extraSeats !== undefined)
+      await db.user.update({
+        where: { id },
+        data: { ...(plan ? { plan } : {}), ...(role ? { role } : {}), ...(extraSeats !== undefined ? { extraSeats } : {}) },
+      });
     if (subStatus) {
       await db.subscription.upsert({
         where: { userId: id },

@@ -25,6 +25,7 @@ model User {
   role         String    @default("USER") // USER | ADMIN
   acceptedTermsAt DateTime? // когда принял условия (риск Threads-аккаунта на пользователе)
   acceptedDataUseAt DateTime? // согласие на обезличенную аналитику для улучшения сервиса (opt-in)
+  extraSeats   Int       @default(0) // докупленные доп-места (аккаунты сверх тарифа); со Stripe — автоматически
   createdAt    DateTime  @default(now())
 
   connections  ThreadsConnection[]
@@ -417,4 +418,14 @@ model Subscription {
   status               String    @default("inactive")
   plan                 String    @default("FREE")
   currentPeriodEnd     DateTime?
+}
+
+// Заявки с лендинга (лист ожидания / ранний доступ). Не привязаны к аккаунту.
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  source    String?  // landing | referral | ...
+  status    String   @default("new") // new | invited | converted
+  createdAt DateTime @default(now())
 }

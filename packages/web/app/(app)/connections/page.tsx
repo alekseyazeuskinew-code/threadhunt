@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { Connection, Device, MetaConnection } from '@/lib/types';
+import type { Connection, Device, MetaConnection, AccountQuota } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -30,15 +30,18 @@ export default function ConnectionsPage() {
   const [addingMeta, setAddingMeta] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [showGuide, setShowGuide] = useState(false); // развёрнута ли инструкция по установке
+  const [quota, setQuota] = useState<AccountQuota | null>(null);
 
   const loadConns = () => api.get<Connection[]>('/api/connections').then(setConns).catch(() => setConns([]));
   const loadDevices = () => api.get<Device[]>('/api/devices').then(setDevices).catch(() => setDevices([]));
   const loadMeta = () => api.get<MetaConnection>('/api/meta/connection').then(setMeta).catch(() => setMeta({ connected: false }));
+  const loadQuota = () => api.get<AccountQuota>('/api/account/quota').then(setQuota).catch(() => {});
 
   useEffect(() => {
     loadConns();
     loadDevices();
     loadMeta();
+    loadQuota();
     // Результат возврата из OAuth (?threads=… / ?meta=…)
     const q = new URLSearchParams(window.location.search);
     const NOTE: Record<string, { ok: boolean; text: string }> = {
@@ -67,12 +70,18 @@ export default function ConnectionsPage() {
   }, []);
 
   async function connectBrowser() {
-    const { token } = await api.post<{ token: string }>('/api/devices', {});
-    if (extPresent) {
-      window.postMessage({ source: 'threadhunt-pair', token, api: AGENT_API }, location.origin);
-      setTimeout(loadDevices, 600);
-    } else {
-      setManualToken(token);
+    try {
+      const { token } = await api.post<{ token: string }>('/api/devices', {});
+      if (extPresent) {
+        window.postMessage({ source: 'threadhunt-pair', token, api: AGENT_API }, location.origin);
+        setTimeout(loadDevices, 600);
+      } else {
+        setManualToken(token);
+      }
+      loadQuota();
+    } catch (e: any) {
+      // Лимит мест: апселл — апгрейд тарифа или доп-место.
+      setNotice({ ok: false, text: e?.message || 'Не удалось подключить аккаунт.' });
     }
   }
 
@@ -123,8 +132,25 @@ export default function ConnectionsPage() {
                 Работает в твоём браузере, где ты уже залогинен в Threads. Никакого Meta не нужно — поставь расширение и
                 подключи браузер в один клик.
               </p>
+              {quota && (
+                <div className="mt-2 text-xs">
+                  <span className="text-muted">Аккаунтов (мест): </span>
+                  <b className={quota.used >= quota.limit ? 'text-warning' : 'text-text'}>
+                    {quota.used} из {quota.limit}
+                  </b>
+                  {quota.extraSeats > 0 && <span className="text-muted"> · +{quota.extraSeats} доп.</span>}
+                  {quota.used >= quota.limit && (
+                    <>
+                      {' '}
+                      <Link href="/billing" className="text-accent-ink hover:underline">
+                        добавить место →
+                      </Link>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
-            <Button onClick={connectBrowser}>
+            <Button onClick={connectBrowser} disabled={!!quota && quota.used >= quota.limit}>
               <Plug size={16} /> Подключить браузер
             </Button>
           </div>
@@ -207,7 +233,7 @@ export default function ConnectionsPage() {
                   <span>{d.label || 'Браузер'}</span>
                   <div className="flex items-center gap-3">
                     <Badge tone={d.online ? 'success' : 'neutral'}>{d.online ? '● онлайн' : '○ оффлайн'}</Badge>
-                    <button onClick={() => api.del(`/api/devices/${d.id}`).then(loadDevices)} className="text-muted hover:text-danger">
+                    <button onClick={() => api.del(`/api/devices/${d.id}`).then(() => { loadDevices(); loadQuota(); })} className="text-muted hover:text-danger">
                       <Trash2 size={15} />
                     </button>
                   </div>

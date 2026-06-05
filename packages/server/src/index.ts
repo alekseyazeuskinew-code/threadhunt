@@ -19,11 +19,14 @@ import { onboardingRoutes } from './routes/onboarding.js';
 import { workspaceRoutes } from './routes/workspace.js';
 import { campaignRoutes } from './routes/campaigns.js';
 import { oauthRoutes } from './routes/oauth.js';
+import { waitlistRoutes } from './routes/waitlist.js';
 import { startScheduler } from './scheduler.js';
 
 const app = Fastify({ logger: true });
 
-await app.register(cors, { origin: [env.WEB_ORIGIN], credentials: true });
+// Разрешённые источники: основной дашборд + доп. (домен лендинга для /api/waitlist).
+const corsOrigins = [env.WEB_ORIGIN, ...(env.EXTRA_ORIGINS ? env.EXTRA_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean) : [])];
+await app.register(cors, { origin: corsOrigins, credentials: true });
 await app.register(cookie, { secret: env.SESSION_SECRET });
 
 // Парсер form-urlencoded — Meta шлёт signed_request (deauthorize/data-deletion) в этом формате.
@@ -45,6 +48,16 @@ async function ensureSchema() {
   const stmts = [
     'ALTER TABLE "Keyword" ADD COLUMN IF NOT EXISTS "replyText" TEXT',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "acceptedDataUseAt" TIMESTAMP',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "extraSeats" INTEGER NOT NULL DEFAULT 0',
+    // Лист ожидания с лендинга (создаётся на старте — без отдельной миграции).
+    `CREATE TABLE IF NOT EXISTS "WaitlistEntry" (
+      "id" TEXT PRIMARY KEY,
+      "email" TEXT NOT NULL UNIQUE,
+      "name" TEXT,
+      "source" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'new',
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
   ];
   for (const sql of stmts) {
     try {
@@ -70,6 +83,7 @@ await app.register(onboardingRoutes);
 await app.register(workspaceRoutes);
 await app.register(campaignRoutes);
 await app.register(oauthRoutes);
+await app.register(waitlistRoutes);
 // Расширение (device-token).
 await app.register(agentRoutes);
 

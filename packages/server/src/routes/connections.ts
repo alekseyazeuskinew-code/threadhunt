@@ -11,6 +11,7 @@ import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
 import { encrypt, hashToken } from '../crypto.js';
 import { whoami } from '../threads/publisher.js';
+import { seatLimit } from '@threadhunt/shared';
 
 export async function connectionRoutes(app: FastifyInstance) {
   const requireUser = (req: FastifyRequest, reply: FastifyReply): string | null => {
@@ -133,6 +134,21 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.post('/api/devices', async (req, reply) => {
     const userId = requireUser(req, reply);
     if (!userId) return;
+    // Лимит «мест» (аккаунтов) по тарифу + докупленные доп-места. Превышение —
+    // апселл: предложить апгрейд/доп-место (оплата через Stripe позже).
+    const [user, used] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { plan: true, extraSeats: true } }),
+      db.device.count({ where: { userId } }),
+    ]);
+    const limit = seatLimit(user?.plan || 'FREE', user?.extraSeats || 0);
+    if (used >= limit) {
+      return reply.code(403).send({
+        error: `Достигнут лимит подключённых аккаунтов (${used}/${limit}). Подключите доп-место или перейдите на тариф выше.`,
+        code: 'seat_limit',
+        used,
+        limit,
+      });
+    }
     const parsed = deviceInput.safeParse(req.body ?? {});
     const token = 'thd_' + randomBytes(24).toString('hex');
     await db.device.create({
@@ -140,6 +156,19 @@ export async function connectionRoutes(app: FastifyInstance) {
     });
     // token отдаём ОДИН раз — расширение получит его автоматически или вставишь вручную
     return { token };
+  });
+
+  // Квота мест (аккаунтов): сколько занято и сколько доступно по тарифу + доп-места.
+  app.get('/api/account/quota', async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+    const [user, used] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { plan: true, extraSeats: true } }),
+      db.device.count({ where: { userId } }),
+    ]);
+    const plan = user?.plan || 'FREE';
+    const extraSeats = user?.extraSeats || 0;
+    return { plan, extraSeats, used, limit: seatLimit(plan, extraSeats) };
   });
 
   app.delete('/api/devices/:id', async (req, reply) => {

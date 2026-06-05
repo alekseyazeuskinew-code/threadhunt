@@ -15,6 +15,8 @@ const schema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   PORT: z.coerce.number().default(3001),
   WEB_ORIGIN: z.string().url().default('http://localhost:3000'),
+  // Доп. источники для CORS (через запятую) — напр. домен лендинга, который шлёт заявки в /api/waitlist.
+  EXTRA_ORIGINS: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);

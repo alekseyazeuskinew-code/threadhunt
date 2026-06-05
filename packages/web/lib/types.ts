@@ -292,6 +292,7 @@ export interface AdminUser {
   name: string | null;
   plan: 'FREE' | 'PRO' | 'VIP';
   role: 'USER' | 'ADMIN';
+  extraSeats?: number;
   createdAt: string;
   _count: { searches: number; leads: number; connections: number; devices: number };
   subscription?: { status: string; currentPeriodEnd: string | null } | null;
@@ -332,6 +333,22 @@ export interface AdminStats {
   payingUsers: number;
 }
 
+export interface AccountQuota {
+  plan: 'FREE' | 'PRO' | 'VIP';
+  extraSeats: number;
+  used: number;
+  limit: number;
+}
+
+export interface AdminGrowth {
+  signupsByWeek: { week: string; count: number }[];
+  activation: { total: number; connected: number; withSearch: number; withLead: number; paying: number };
+  engagement: { wau: number };
+  revenue: { mrr: number; arr: number; arpu: number; payingPct: number; churnedSubs: number };
+  adoption: { autopost: number; otbivka: number; onboarding: number; campaigns: number };
+  powerUsers: { email: string; leads: number; hired: number }[];
+}
+
 export interface AdminAnalytics {
   totalLeads: number;
   totalHired: number;
@@ -364,4 +381,13 @@ export interface BrandProfile {
   signature: string;
   sample: string;
   avoid: string;
+}
+
+export interface WaitlistEntry {
+  id: string;
+  email: string;
+  name: string | null;
+  source: string | null;
+  status: 'new' | 'invited' | 'converted';
+  createdAt: string;
 }
