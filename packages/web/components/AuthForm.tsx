@@ -96,6 +96,13 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
               {loading ? '...' : isSignup ? 'Зарегистрироваться' : 'Войти'}
             </Button>
           </form>
+          {!isSignup && (
+            <div className="mt-3 text-center text-sm">
+              <Link href="/forgot" className="text-muted hover:text-accent-ink hover:underline">
+                Забыли пароль?
+              </Link>
+            </div>
+          )}
         </div>
         <div className="mt-4 text-center text-sm text-muted">
           {isSignup ? (

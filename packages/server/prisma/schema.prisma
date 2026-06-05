@@ -29,6 +29,8 @@ model User {
   webhookUrl   String?   // исходящий вебхук: новый лид / ответы анкеты POST-ятся сюда (Zapier/Make/Telegram/Sheets)
   webhookSecret String?  // отправляется в заголовке X-Threadhunt-Secret для проверки подлинности
   webhookEvents String?  // CSV выбранных событий (пусто = все): lead.created,candidate.response,candidate.completed
+  resetTokenHash      String?   // сброс пароля: хеш одноразового токена
+  resetTokenExpiresAt DateTime? // срок действия токена сброса
   createdAt    DateTime  @default(now())
 
   connections  ThreadsConnection[]

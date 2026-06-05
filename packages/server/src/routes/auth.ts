@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { db } from '../db.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { setSession, clearSession, getUserId } from '../auth/session.js';
+import { hashToken } from '../crypto.js';
+import { randomBytes } from 'node:crypto';
+import { sendEmail, renderEmailHtml } from '../email.js';
+import { env } from '../env.js';
 
 const creds = z.object({ email: z.string().email(), password: z.string().min(8) });
 const signupCreds = creds.extend({ acceptTerms: z.literal(true) });
@@ -73,6 +77,49 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'Текущий пароль неверный' });
     }
     await db.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(parsed.data.newPassword) } });
+    return { ok: true };
+  });
+
+  // ── Сброс пароля по email ──
+  // forgot: всегда отвечаем ok (не раскрываем, есть ли аккаунт). Если есть —
+  // создаём одноразовый токен (хеш в БД), шлём ссылку. Без RESEND_API_KEY письмо
+  // не уйдёт, но эндпоинт не падает.
+  app.post('/api/auth/forgot', async (req, reply) => {
+    const parsed = z.object({ email: z.string().email() }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Введите корректный email' });
+    const user = await db.user.findUnique({ where: { email: parsed.data.email } });
+    if (user) {
+      const token = randomBytes(32).toString('hex');
+      await db.user.update({
+        where: { id: user.id },
+        data: { resetTokenHash: hashToken(token), resetTokenExpiresAt: new Date(Date.now() + 60 * 60_000) }, // 1 час
+      });
+      const link = `${env.WEB_ORIGIN}/reset?token=${token}`;
+      await sendEmail({
+        to: user.email,
+        subject: 'Сброс пароля — Threadhunt',
+        html: renderEmailHtml([
+          { type: 'heading', text: 'Сброс пароля', align: 'left' },
+          { type: 'text', text: 'Ты запросил сброс пароля в Threadhunt. Ссылка действует 1 час. Если это не ты — просто проигнорируй письмо.', align: 'left' },
+          { type: 'button', text: 'Задать новый пароль', url: link, align: 'left' },
+        ]),
+      });
+    }
+    return { ok: true };
+  });
+
+  app.post('/api/auth/reset', async (req, reply) => {
+    const parsed = z.object({ token: z.string().min(10), newPassword: z.string().min(8) }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Пароль — от 8 символов' });
+    const user = await db.user.findFirst({
+      where: { resetTokenHash: hashToken(parsed.data.token), resetTokenExpiresAt: { gt: new Date() } },
+    });
+    if (!user) return reply.code(400).send({ error: 'Ссылка недействительна или устарела. Запроси сброс заново.' });
+    await db.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hashPassword(parsed.data.newPassword), resetTokenHash: null, resetTokenExpiresAt: null },
+    });
+    setSession(reply, user.id); // сразу залогинен
     return { ok: true };
   });
 
