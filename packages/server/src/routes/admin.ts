@@ -6,6 +6,7 @@ import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
 import { today } from '../ai/limits.js';
 import { sendEmail, renderEmailHtml } from '../email.js';
+import { generateEmail } from '../ai/generate.js';
 
 const safeParse = (s: string): unknown[] => {
   try {
@@ -318,6 +319,33 @@ export async function adminRoutes(app: FastifyInstance) {
     const perStep: Record<number, number> = {};
     for (const r of rows) perStep[r.stepIndex] = r._count.id;
     return { perStep, started: started.length };
+  });
+
+  // Генерация целого письма ИИ по кратким вводным («бриф»). Раскидывает текст по
+  // блокам конструктора (заголовок/текст/кнопка) + идея для картинки.
+  app.post('/api/admin/email-generate', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const userId = getUserId(app, req)!;
+    const body = (req.body as any) || {};
+    const brief = String(body.brief || '').trim().slice(0, 2000);
+    if (!brief) return reply.code(400).send({ error: 'Опиши вводные: о чём письмо, какая цель' });
+    const audience = body.audience === 'waitlist' ? 'waitlist' : 'new_users';
+    const ctaUrl =
+      typeof body.ctaUrl === 'string' && /^https?:\/\//.test(body.ctaUrl)
+        ? body.ctaUrl
+        : audience === 'waitlist'
+          ? 'https://thread-hunt.com'
+          : 'https://serene-seahorse-a5102e.netlify.app';
+    const out = await generateEmail({ brief, audience, ctaUrl });
+    // учёт расхода ИИ (для админ-аналитики costs)
+    if (out.source === 'ai') {
+      await db.aiUsage.upsert({
+        where: { userId_day: { userId, day: today() } },
+        create: { userId, day: today(), count: 1 },
+        update: { count: { increment: 1 } },
+      });
+    }
+    return out;
   });
 
   // Тест-отправка одного письма (рендер блоков → HTML → Resend). По умолчанию — себе.

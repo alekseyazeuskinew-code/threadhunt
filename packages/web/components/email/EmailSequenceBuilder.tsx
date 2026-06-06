@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Clock, Mail } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Clock, Mail, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -17,7 +17,16 @@ import {
   newStep,
   emptySequence,
   delayLabel,
+  eid,
 } from '@/lib/email';
+
+// Ответ ИИ-генератора письма (драфт-блоки без id).
+interface EmailGenResponse {
+  subject: string;
+  blocks: Array<{ type: EmailBlockType; text?: string; url?: string; align?: 'left' | 'center' | 'right'; width?: 'full' | 'half' | 'small' }>;
+  imageIdea?: string;
+  source: 'ai' | 'demo';
+}
 
 const BLOCK_PALETTE: EmailBlockType[] = ['heading', 'text', 'button', 'image', 'divider', 'spacer'];
 
@@ -29,6 +38,41 @@ export function EmailSequenceBuilder() {
   const [drag, setDrag] = useState<{ stepId: string; index: number } | null>(null);
   const [testMsg, setTestMsg] = useState<{ stepId: string; ok: boolean; text: string } | null>(null);
   const [stats, setStats] = useState<{ perStep: Record<number, number>; started: number } | null>(null);
+  const [genBrief, setGenBrief] = useState<Record<string, string>>({});
+  const [gen, setGen] = useState<{ stepId: string; busy: boolean; msg: string; ok: boolean; idea: string } | null>(null);
+
+  // ИИ собирает целое письмо по вводным и раскидывает по блокам выбранного шага.
+  async function generateStep(st: EmailStep) {
+    if (!seq) return;
+    const brief = (genBrief[st.id] || '').trim();
+    if (!brief) {
+      setGen({ stepId: st.id, busy: false, ok: false, msg: 'Сначала впиши вводные — о чём письмо.', idea: '' });
+      return;
+    }
+    setGen({ stepId: st.id, busy: true, ok: true, msg: 'Генерирую письмо…', idea: '' });
+    try {
+      const ctaUrl = st.blocks.find((b) => b.type === 'button')?.url || undefined;
+      const r = await api.post<EmailGenResponse>('/api/admin/email-generate', { brief, audience: seq.audience, ctaUrl });
+      const blocks: EmailBlock[] = r.blocks.map((b) => ({
+        id: eid('b'),
+        type: b.type,
+        ...(b.text !== undefined ? { text: b.text } : {}),
+        ...(b.url !== undefined ? { url: b.url } : {}),
+        align: b.align || 'left',
+        ...(b.width ? { width: b.width } : {}),
+      }));
+      patchStep(st.id, { subject: r.subject, blocks });
+      setGen({
+        stepId: st.id,
+        busy: false,
+        ok: true,
+        msg: r.source === 'ai' ? 'Готово ✓ Письмо собрано — проверь и поправь при желании.' : 'Черновик собран (ИИ-ключ не задан на сервере).',
+        idea: r.imageIdea || '',
+      });
+    } catch (e: any) {
+      setGen({ stepId: st.id, busy: false, ok: false, msg: e.message, idea: '' });
+    }
+  }
 
   async function selectSeq(sq: EmailSequence) {
     setSeq(sq);
@@ -234,6 +278,27 @@ export function EmailSequenceBuilder() {
 
                 <label className="mb-1.5 block text-sm">Тема письма</label>
                 <Input value={st.subject} onChange={(e) => patchStep(st.id, { subject: e.target.value })} placeholder="Тема" />
+
+                {/* ИИ-генератор всего письма по кратким вводным */}
+                <div className="mt-3 rounded-xl border border-accent/30 bg-accent-soft/50 p-3">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-accent-ink">
+                    <Sparkles size={13} /> Сгенерировать письмо ИИ
+                  </div>
+                  <Textarea
+                    rows={2}
+                    value={genBrief[st.id] || ''}
+                    onChange={(e) => setGenBrief((g) => ({ ...g, [st.id]: e.target.value }))}
+                    placeholder="Вводные: о чём письмо и какая цель. Напр.: «Напомни новым пользователям подключить расширение и запустить первую отбивку, тёплый бодрый тон, упомяни что это 5 минут»"
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => generateStep(st)} disabled={!!gen?.busy && gen?.stepId === st.id}>
+                      <Sparkles size={14} /> {gen?.busy && gen?.stepId === st.id ? 'Генерирую…' : 'Собрать письмо'}
+                    </Button>
+                    <span className="text-[11px] text-muted">Заполнит тему и все блоки (заголовок, текст, кнопку) + идею для картинки. Заменит текущее содержимое письма.</span>
+                  </div>
+                  {gen?.stepId === st.id && gen.msg && <div className={`mt-2 text-xs ${gen.ok ? 'text-success' : 'text-danger'}`}>{gen.msg}</div>}
+                  {gen?.stepId === st.id && gen.idea && <div className="mt-1 rounded-lg bg-bg/60 px-2.5 py-1.5 text-[11px] text-muted">💡 Идея для картинки: {gen.idea}</div>}
+                </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {/* Редактор блоков (drag-and-drop) */}

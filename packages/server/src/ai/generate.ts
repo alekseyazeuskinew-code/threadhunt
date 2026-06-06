@@ -182,6 +182,140 @@ function demoDoc(kind: DocKind, title: string): string {
   return `Тестовое задание для роли «${title}»: выполни небольшую задачу по профилю (по нашему референсу). Срок — 2 часа. Сдай ссылкой (Google Drive/облако). Оцениваем: качество, скорость, соответствие ТЗ.`;
 }
 
+// ── Генерация ЦЕЛОГО письма для email-цепочки ──
+// По кратким вводным («бриф») собираем готовое письмо и раскидываем по блокам
+// конструктора: заголовок → текст → (картинка) → кнопка. Картинку не генерим —
+// отдаём текстовую «идею», что на ней изобразить, плюс пустой блок под URL.
+export interface EmailBlockDraft {
+  type: 'heading' | 'text' | 'button' | 'image' | 'divider' | 'spacer';
+  text?: string;
+  url?: string;
+  align?: 'left' | 'center' | 'right';
+  width?: 'full' | 'half' | 'small';
+}
+export interface EmailGenInput {
+  brief: string;
+  audience: 'new_users' | 'waitlist';
+  ctaUrl: string;
+}
+export interface EmailGenOutput {
+  subject: string;
+  blocks: EmailBlockDraft[];
+  imageIdea?: string;
+  source: 'ai' | 'demo';
+}
+
+const SYSTEM_EMAIL = `Ты — копирайтер сервиса Threadhunt. Пишешь готовое email-письмо от лица продукта и раскидываешь его по блокам конструктора.
+
+ЧТО ТАКОЕ THREADHUNT: SaaS для найма через соцсеть Threads. Возможности: авто-отбивка в директе (бот сам отвечает кандидатам на кодовое слово через расширение Chrome), автопостинг постов-приманок (вакансии-«крючки» публикуются по расписанию), мини-CRM и онбординг кандидатов (условия, тестовое, NDA, дедлайны). Тон бренда: на «ты», по-человечески, тепло и бодро, без канцелярита и пафоса. Эмодзи — дозированно (0–2 на письмо).
+
+АУДИТОРИЯ:
+- new_users — уже зарегистрировались. Цель письма: помочь активироваться (подключить аккаунт Threads, поставить расширение, запустить первый поиск/отбивку), показать ценность, мягко довести до целевого действия.
+- waitlist — оставили почту в листе ожидания до запуска. Цель: прогрев, анонсы, ожидание запуска, промокод/ранний доступ.
+
+ЗАДАЧА: по вводным («бриф») напиши ОДНО письмо. Раскидай по блокам:
+- ровно 1 heading — короткий цепляющий заголовок (до ~60 символов);
+- 1–3 text — основной текст, живой, по абзацу на блок, по делу, без воды;
+- ровно 1 image — блок под картинку (url оставь пустым "" — пользователь вставит сам);
+- ровно 1 button — призыв к действию; в поле url ПОДСТАВЬ РОВНО переданный CTA-URL, в text — короткую подпись кнопки (2–4 слова);
+- divider/spacer — только если реально улучшают читаемость.
+Порядок блоков логичный (обычно: heading → text → image → text → button). Заголовок align "left", кнопку и картинку — "center".
+
+Также придумай imageIdea — короткое описание (1 предложение) того, что изобразить на картинке, чтобы письмо выглядело живо.
+
+Верни СТРОГО JSON-объект без markdown:
+{"subject":"...","blocks":[{"type":"heading","text":"...","align":"left"},{"type":"text","text":"...","align":"left"},{"type":"image","align":"center","width":"full"},{"type":"button","text":"...","url":"<CTA_URL>","align":"center"}],"imageIdea":"..."}`;
+
+export async function generateEmail(input: EmailGenInput): Promise<EmailGenOutput> {
+  if (!client) return { ...demoEmail(input), source: 'demo' };
+  try {
+    const msg = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1400,
+      system: [{ type: 'text', text: SYSTEM_EMAIL, cache_control: { type: 'ephemeral' } }],
+      messages: [
+        {
+          role: 'user',
+          content:
+            `Аудитория: ${input.audience}\n` +
+            `CTA-URL для кнопки (подставь ровно так): ${input.ctaUrl}\n` +
+            `Вводные (бриф) — о чём письмо: ${input.brief}\n` +
+            `Собери готовое письмо по блокам.`,
+        },
+      ],
+    });
+    const obj = parseJsonObject(textOf(msg));
+    const norm = obj ? normalizeEmail(obj, input.ctaUrl) : null;
+    return norm ? { ...norm, source: 'ai' } : { ...demoEmail(input), source: 'demo' };
+  } catch {
+    return { ...demoEmail(input), source: 'demo' }; // graceful
+  }
+}
+
+const BLOCK_TYPES = new Set(['heading', 'text', 'button', 'image', 'divider', 'spacer']);
+
+// Нормализуем ответ модели в безопасные блоки конструктора.
+function normalizeEmail(obj: any, ctaUrl: string): Omit<EmailGenOutput, 'source'> | null {
+  const rawBlocks = Array.isArray(obj.blocks) ? obj.blocks : [];
+  const blocks: EmailBlockDraft[] = [];
+  for (const b of rawBlocks) {
+    const type = String(b?.type || '');
+    if (!BLOCK_TYPES.has(type)) continue;
+    const blk: EmailBlockDraft = { type: type as EmailBlockDraft['type'] };
+    const align = b?.align;
+    if (align === 'left' || align === 'center' || align === 'right') blk.align = align;
+    if (type === 'heading' || type === 'text') blk.text = String(b?.text || '').slice(0, 4000);
+    if (type === 'button') {
+      blk.text = String(b?.text || 'Открыть').slice(0, 60);
+      blk.url = ctaUrl; // всегда наш URL — модель не выдумывает ссылки
+      blk.align = blk.align || 'center';
+    }
+    if (type === 'image') {
+      blk.url = '';
+      blk.width = b?.width === 'half' || b?.width === 'small' ? b.width : 'full';
+      blk.align = blk.align || 'center';
+    }
+    blocks.push(blk);
+  }
+  if (!blocks.length) return null;
+  // гарантируем наличие кнопки с CTA
+  if (!blocks.some((b) => b.type === 'button')) blocks.push({ type: 'button', text: 'Открыть Threadhunt', url: ctaUrl, align: 'center' });
+  return {
+    subject: String(obj.subject || 'Письмо от Threadhunt').slice(0, 200),
+    blocks,
+    imageIdea: obj.imageIdea ? String(obj.imageIdea).slice(0, 300) : undefined,
+  };
+}
+
+function parseJsonObject(text: string): any | null {
+  const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  const slice = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned;
+  try {
+    const o = JSON.parse(slice);
+    return o && typeof o === 'object' ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+// Демо-фолбэк (без ключа/при сбое) — осмысленная заготовка под аудиторию.
+function demoEmail(i: EmailGenInput): Omit<EmailGenOutput, 'source'> {
+  const wl = i.audience === 'waitlist';
+  const brief = i.brief.trim();
+  return {
+    subject: wl ? 'Скоро открываем Threadhunt 🚀' : 'Запусти первый наём в Threadhunt',
+    blocks: [
+      { type: 'heading', text: wl ? 'Ты в списке первых' : 'Давай настроим за 5 минут', align: 'left' },
+      { type: 'text', text: brief ? `Коротко: ${brief}` : (wl ? 'Готовим запуск — совсем скоро дадим ранний доступ и промокод. Спасибо, что с нами!' : 'Подключи аккаунт Threads и поставь расширение — и отбивка начнёт отвечать кандидатам сама.'), align: 'left' },
+      { type: 'image', url: '', width: 'full', align: 'center' },
+      { type: 'button', text: wl ? 'Открыть сайт' : 'Перейти в кабинет', url: i.ctaUrl, align: 'center' },
+    ],
+    imageIdea: wl ? 'Скриншот дашборда Threadhunt с лёгким свечением — намёк на скорый запуск.' : 'Шаги подключения: иконки Threads + расширения Chrome со стрелкой к кнопке «Запустить».',
+  };
+}
+
 function textOf(msg: any): string {
   return msg.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 }
