@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle } from 'lucide-react';
+import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Connection, Device, MetaConnection, AccountQuota } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -21,6 +21,23 @@ const STORE_URL = process.env.NEXT_PUBLIC_EXT_STORE_URL || 'https://chromewebsto
 // Chrome Web Store — клиент ставит его отсюда «распакованным».
 const EXT_DOWNLOAD = '/threadhunt-extension.zip';
 const EXT_IN_STORE = STORE_URL !== '#'; // если задан NEXT_PUBLIC_EXT_STORE_URL — расширение уже в Store
+// Версия, опубликованная в Chrome Web Store. После загрузки новой сборки в Store
+// (packages/extension/manifest.json → тот же номер) подними это значение —
+// у клиентов со старой версией появится баннер «доступно обновление».
+const LATEST_EXT_VERSION = '0.1.1';
+
+// Сравнение версий «a < b» (semver-подобно, по числовым сегментам). null/пусто = неизвестно.
+function isOlder(a: string | null | undefined, b: string): boolean {
+  if (!a) return false;
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
 
 export default function ConnectionsPage() {
   const [conns, setConns] = useState<Connection[] | null>(null);
@@ -163,8 +180,35 @@ export default function ConnectionsPage() {
                 <Check size={13} /> расширение установлено
               </span>
             ) : (
-              <span className="text-muted">Расширение не найдено — скачай и установи за 7 шагов ниже.</span>
+              <span className="text-muted">Расширение не найдено — установи его {EXT_IN_STORE ? 'из Chrome Web Store' : 'за 7 шагов'} ниже.</span>
             )}
+          </div>
+
+          {/* Баннер «доступно обновление»: хоть один подключённый браузер на старой версии */}
+          {EXT_IN_STORE && devices && devices.some((d) => isOlder(d.version, LATEST_EXT_VERSION)) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2.5 text-sm text-warning">
+              <RefreshCw size={15} className="shrink-0" />
+              <span>Доступно обновление расширения (v{LATEST_EXT_VERSION}). Обнови, чтобы получить последние улучшения и исправления.</span>
+              <a href={STORE_URL} target="_blank" rel="noreferrer" className="font-medium underline">
+                Обновить в Chrome Web Store →
+              </a>
+            </div>
+          )}
+
+          {/* Подсказка: закрепить иконку на панели (актуально всегда) */}
+          <div className="mt-2 flex items-start gap-1.5 text-xs text-muted">
+            <Pin size={13} className="mt-0.5 shrink-0" />
+            <span>
+              Совет: нажми на «пазл» <span aria-hidden>🧩</span> справа в панели браузера и <b>закрепи</b> иконку Threadhunt — так она всегда под рукой, и видно, что отбивка работает.
+              {EXT_IN_STORE && (
+                <>
+                  {' '}
+                  <a href={STORE_URL} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
+                    Открыть страницу расширения
+                  </a>
+                </>
+              )}
+            </span>
           </div>
 
           {/* Скачивание файла расширения + инструкция (пока нет в Chrome Web Store) */}
@@ -368,9 +412,16 @@ export default function ConnectionsPage() {
   );
 }
 
-// Пошаговая инструкция: как поставить расширение «распакованным» и привязать его.
+// Пошаговая инструкция установки. В Store — короткий путь в один клик; иначе —
+// «распакованным» через режим разработчика.
 function InstallGuide() {
-  const steps = [
+  const storeSteps = [
+    <>Нажми <b>«Установить из Chrome Web Store»</b> выше → на странице расширения нажми <b>«Добавить в Chrome»</b> и подтверди.</>,
+    <>Нажми на «пазл» 🧩 в панели браузера и <b>закрепи</b> иконку Threadhunt, чтобы была под рукой.</>,
+    <>Вернись сюда и нажми <b>«Подключить браузер»</b> — код привяжется сам. Если попросит код вручную — скопируй его здесь и вставь в окне расширения.</>,
+    <>Открой <b>Threads → Сообщения</b> (директ), залогинься, если ещё не — и отбивка заработает по твоим кодовым словам.</>,
+  ];
+  const devSteps = [
     <>Нажми <b>«Скачать расширение (.zip)»</b> выше и <b>распакуй архив</b> в постоянную папку (например в «Документы»). Не оставляй в «Загрузках» — если папку удалить, расширение слетит.</>,
     <>Открой в браузере страницу <span className="font-mono">chrome://extensions</span> (скопируй и вставь в адресную строку).</>,
     <>Включи вверху справа тумблер <b>«Режим разработчика»</b> (Developer mode).</>,
@@ -379,9 +430,10 @@ function InstallGuide() {
     <>Вернись сюда и нажми <b>«Подключить браузер»</b> — код привяжется сам. Если попросит код вручную — скопируй его здесь и вставь в окне расширения.</>,
     <>Открой <b>Threads → Сообщения</b> (директ), залогинься, если ещё не — и отбивка заработает по твоим кодовым словам.</>,
   ];
+  const steps = EXT_IN_STORE ? storeSteps : devSteps;
   return (
     <div className="mt-4 border-t border-line pt-4">
-      <div className="mb-2 text-sm font-medium">Установка за 7 шагов</div>
+      <div className="mb-2 text-sm font-medium">Установка за {steps.length} шага</div>
       <ol className="space-y-2.5">
         {steps.map((s, i) => (
           <li key={i} className="flex gap-3 text-sm">
@@ -390,9 +442,11 @@ function InstallGuide() {
           </li>
         ))}
       </ol>
-      <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
-        Браузер может при запуске показывать предупреждение «Отключить расширения в режиме разработчика» — просто закрой его, расширение продолжит работать. Это временно, пока расширение не появится в Chrome Web Store (тогда установка будет в один клик).
-      </p>
+      {!EXT_IN_STORE && (
+        <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
+          Браузер может при запуске показывать предупреждение «Отключить расширения в режиме разработчика» — просто закрой его, расширение продолжит работать. Это временно, пока расширение не появится в Chrome Web Store (тогда установка будет в один клик).
+        </p>
+      )}
     </div>
   );
 }
