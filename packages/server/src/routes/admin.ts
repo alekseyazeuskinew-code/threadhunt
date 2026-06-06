@@ -6,7 +6,7 @@ import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
 import { today } from '../ai/limits.js';
 import { sendEmail, renderEmailHtml } from '../email.js';
-import { generateEmail } from '../ai/generate.js';
+import { generateEmail, aiConfigured, pingAi } from '../ai/generate.js';
 import { seedDemo, clearDemo } from '../demoSeed.js';
 
 const safeParse = (s: string): unknown[] => {
@@ -394,6 +394,16 @@ export async function adminRoutes(app: FastifyInstance) {
       r.ok ? sent++ : failed++;
     }
     return { ok: true, total: recipients.length, sent, failed };
+  });
+
+  // ── Статус ИИ: настроен ли ключ (дёшево) + живой пинг (1 токен, по запросу). ──
+  app.get('/api/admin/ai-status', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    return { configured: aiConfigured() };
+  });
+  app.post('/api/admin/ai-ping', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    return await pingAi();
   });
 
   // ── Демо-данные для тура: засеять / очистить ──

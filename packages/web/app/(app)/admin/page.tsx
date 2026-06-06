@@ -22,6 +22,21 @@ export default function AdminPage() {
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoMsg, setPromoMsg] = useState('');
   const [genCount, setGenCount] = useState(20);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [aiPing, setAiPing] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [aiPinging, setAiPinging] = useState(false);
+
+  async function pingAi() {
+    setAiPinging(true);
+    setAiPing(null);
+    try {
+      setAiPing(await api.post<{ ok: boolean; error?: string }>('/api/admin/ai-ping', {}));
+    } catch (e: any) {
+      setAiPing({ ok: false, error: e.message });
+    } finally {
+      setAiPinging(false);
+    }
+  }
 
   function load() {
     api.get<AdminStats>('/api/admin/stats').then(setStats).catch(() => setDenied(true));
@@ -31,6 +46,7 @@ export default function AdminPage() {
     api.get<AdminUser[]>('/api/admin/users').then(setUsers).catch(() => setDenied(true));
     api.get<WaitlistEntry[]>('/api/admin/waitlist').then(setWaitlist).catch(() => {});
     api.get<PromoCodeRow[]>('/api/admin/promo').then(setPromo).catch(() => {});
+    api.get<{ configured: boolean }>('/api/admin/ai-status').then((r) => setAiConfigured(r.configured)).catch(() => {});
   }
   useEffect(() => {
     load();
@@ -427,6 +443,26 @@ export default function AdminPage() {
           <Card>
             <div className="mb-1 text-base font-semibold">Расходники и баланс</div>
             <p className="mb-3 text-xs text-muted">Расход ИИ и сервисы, которые надо держать пополненными. Балансы провайдеров проверяй по ссылкам — авто-чтение добавим позже.</p>
+
+            {/* Статус ИИ-ключа */}
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-bg px-3 py-2.5 text-sm">
+              <span className="font-medium">ИИ-ключ (Anthropic):</span>
+              {aiConfigured === null ? (
+                <span className="text-muted">проверяю…</span>
+              ) : aiConfigured ? (
+                <span className="text-success">● ключ задан</span>
+              ) : (
+                <span className="text-danger">○ не задан — ИИ работает в демо-режиме</span>
+              )}
+              <button onClick={pingAi} disabled={aiPinging} className="rounded-full border border-line px-3 py-1 text-xs hover:bg-panel-2 disabled:opacity-50">
+                {aiPinging ? 'Проверяю…' : 'Проверить живой вызов'}
+              </button>
+              {aiPing && (
+                <span className={aiPing.ok ? 'text-success' : 'text-danger'}>
+                  {aiPing.ok ? '✓ ключ рабочий, ответ получен' : `✗ ${aiPing.error}`}
+                </span>
+              )}
+            </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Stat label="ИИ-генераций сегодня" value={costs.ai.today} />

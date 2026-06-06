@@ -316,6 +316,20 @@ function demoEmail(i: EmailGenInput): Omit<EmailGenOutput, 'source'> {
   };
 }
 
+// Проверка ключа: настроен ли + живой ли (минимальный реальный вызов на 1 токен).
+export function aiConfigured(): boolean {
+  return !!client;
+}
+export async function pingAi(): Promise<{ ok: boolean; error?: string }> {
+  if (!client) return { ok: false, error: 'ANTHROPIC_API_KEY не задан на сервере' };
+  try {
+    await client.messages.create({ model: MODEL, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ? String(e.message).slice(0, 200) : 'ошибка вызова Anthropic' };
+  }
+}
+
 function textOf(msg: any): string {
   return msg.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
 }
