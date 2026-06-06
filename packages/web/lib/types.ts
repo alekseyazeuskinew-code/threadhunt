@@ -393,6 +393,7 @@ export interface WaitlistEntry {
   email: string;
   name: string | null;
   source: string | null;
+  utm: string | null; // JSON UTM-меток рекламы
   status: 'new' | 'invited' | 'converted';
   createdAt: string;
 }

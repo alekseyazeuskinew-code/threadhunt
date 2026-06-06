@@ -115,7 +115,20 @@ export default function AdminPage() {
                     <tr key={w.id} className="border-t border-line">
                       <td className="px-3 py-2">{w.email}</td>
                       <td className="px-3 py-2 text-muted">{w.name || '—'}</td>
-                      <td className="px-3 py-2 text-muted">{w.source || '—'}</td>
+                      <td className="px-3 py-2 text-muted">
+                        {w.source || '—'}
+                        {(() => {
+                          if (!w.utm) return null;
+                          let u: Record<string, string> = {};
+                          try {
+                            u = JSON.parse(w.utm);
+                          } catch {
+                            return null;
+                          }
+                          const parts = [u.campaign && `камп: ${u.campaign}`, u.content && `крео: ${u.content}`, u.medium && u.medium].filter(Boolean);
+                          return parts.length ? <div className="text-[11px] text-muted/70">{parts.join(' · ')}</div> : null;
+                        })()}
+                      </td>
                       <td className="px-3 py-2 text-muted">{new Date(w.createdAt).toLocaleDateString('ru-RU')}</td>
                       <td className="px-3 py-2">
                         <Select

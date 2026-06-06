@@ -430,7 +430,8 @@ model WaitlistEntry {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
-  source    String?  // landing | referral | ...
+  source    String?  // landing | utm_source (fb/ig/…) | referral
+  utm       String?  // JSON UTM-меток рекламы (source/medium/campaign/content/term + fbclid)
   status    String   @default("new") // new | invited | converted
   createdAt DateTime @default(now())
 }

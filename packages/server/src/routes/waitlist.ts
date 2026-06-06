@@ -24,18 +24,42 @@ export async function waitlistRoutes(app: FastifyInstance) {
   const intake = z.object({
     email: z.string().email(),
     name: z.string().trim().max(120).optional(),
-    source: z.string().trim().max(40).optional(),
+    source: z.string().trim().max(60).optional(),
+    utm_source: z.string().max(120).optional(),
+    utm_medium: z.string().max(120).optional(),
+    utm_campaign: z.string().max(200).optional(),
+    utm_content: z.string().max(200).optional(),
+    utm_term: z.string().max(200).optional(),
+    fbclid: z.string().max(400).optional(),
   });
   app.post('/api/waitlist', async (req, reply) => {
     const raw = (req.body || {}) as Record<string, unknown>;
-    const parsed = intake.safeParse({ email: raw.email, name: raw.name, source: raw.source });
+    const parsed = intake.safeParse({
+      email: raw.email,
+      name: raw.name,
+      source: raw.source,
+      utm_source: raw.utm_source,
+      utm_medium: raw.utm_medium,
+      utm_campaign: raw.utm_campaign,
+      utm_content: raw.utm_content,
+      utm_term: raw.utm_term,
+      fbclid: raw.fbclid,
+    });
     if (!parsed.success) return reply.code(400).send({ error: 'invalid email' });
-    const email = parsed.data.email.toLowerCase();
-    // upsert — повторная заявка не плодит дублей.
+    const d = parsed.data;
+    const email = d.email.toLowerCase();
+    // Собираем UTM-метки рекламы в JSON; source = utm_source (fb/ig/…) или 'landing'.
+    const utmObj: Record<string, string> = {};
+    for (const [k, v] of Object.entries({ source: d.utm_source, medium: d.utm_medium, campaign: d.utm_campaign, content: d.utm_content, term: d.utm_term, fbclid: d.fbclid })) {
+      if (v) utmObj[k] = v;
+    }
+    const utm = Object.keys(utmObj).length ? JSON.stringify(utmObj) : null;
+    const source = d.utm_source || d.source || 'landing';
+    // upsert — повторная заявка не плодит дублей; UTM обновляем, если пришли.
     await db.waitlistEntry.upsert({
       where: { email },
-      create: { email, name: parsed.data.name || null, source: parsed.data.source || 'landing' },
-      update: { name: parsed.data.name || undefined },
+      create: { email, name: d.name || null, source, utm },
+      update: { name: d.name || undefined, ...(utm ? { utm, source } : {}) },
     });
     return { ok: true };
   });
@@ -70,8 +94,8 @@ export async function waitlistRoutes(app: FastifyInstance) {
     if (!(await requireAdmin(req, reply))) return;
     const entries = await db.waitlistEntry.findMany({ orderBy: { createdAt: 'desc' }, take: 5000 });
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const head = ['email', 'name', 'source', 'status', 'createdAt'].join(',');
-    const rows = entries.map((e) => [e.email, e.name, e.source, e.status, e.createdAt.toISOString()].map(esc).join(','));
+    const head = ['email', 'name', 'source', 'utm', 'status', 'createdAt'].join(',');
+    const rows = entries.map((e) => [e.email, e.name, e.source, e.utm, e.status, e.createdAt.toISOString()].map(esc).join(','));
     const csv = [head, ...rows].join('\n');
     reply
       .header('Content-Type', 'text/csv; charset=utf-8')
