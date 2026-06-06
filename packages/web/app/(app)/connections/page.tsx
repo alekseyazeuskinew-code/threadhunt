@@ -14,7 +14,9 @@ import { SectionAnchors } from '@/components/SectionNav';
 import { cn } from '@/lib/cn';
 
 const AGENT_API = process.env.NEXT_PUBLIC_AGENT_API || 'http://localhost:3010';
-const STORE_URL = process.env.NEXT_PUBLIC_EXT_STORE_URL || '#';
+// Публичный листинг расширения в Chrome Web Store (опубликовано). Можно переопределить
+// переменной NEXT_PUBLIC_EXT_STORE_URL в Netlify.
+const STORE_URL = process.env.NEXT_PUBLIC_EXT_STORE_URL || 'https://chromewebstore.google.com/detail/iaeecnlkmhekpngjpngkmkmgppgfdloi';
 // Готовый файл расширения (статика, лежит в web/public). Пока расширения нет в
 // Chrome Web Store — клиент ставит его отсюда «распакованным».
 const EXT_DOWNLOAD = '/threadhunt-extension.zip';
