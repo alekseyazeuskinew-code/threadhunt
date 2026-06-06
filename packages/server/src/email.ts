@@ -25,6 +25,23 @@ export async function sendEmail({ to, subject, html }: { to: string; subject: st
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// Тёплое приветственное письмо при попадании в лист ожидания.
+export function renderWaitlistWelcomeHtml(name?: string | null, opts?: { siteUrl?: string; promoBenefit?: string }): string {
+  const site = opts?.siteUrl || 'https://thread-hunt.com';
+  const benefit = opts?.promoBenefit || '−50% на старте';
+  const hi = name && name.trim() ? `Привет, ${esc(name.trim())}!` : 'Привет!';
+  return `<div style="max-width:560px;margin:0 auto;padding:28px 24px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:#111">
+  <div style="font-size:24px;font-weight:800;letter-spacing:-0.02em">Ты в списке первых 🎉</div>
+  <p style="font-size:15px;line-height:1.65;color:#333;margin:16px 0 0">${hi} Спасибо, что поверил в нас — для нас это правда много значит. Мы небольшая команда и строим <b>Threadhunt</b>: наём через Threads на автопилоте — авто-отбивка в директе по кодовым словам и посты-приманки, которые сами приводят кандидатов.</p>
+  <p style="font-size:15px;line-height:1.65;color:#333;margin:14px 0 0">Ты среди первых, кто получит <b>ранний доступ</b> и персональный промокод <b>${esc(benefit)}</b> — раньше всех. Напомним о запуске <b>один раз</b>, без спама.</p>
+  <div style="text-align:center;margin:24px 0 8px">
+    <a href="${esc(site)}" style="display:inline-block;background:#c6f24e;color:#0b0b0f;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:12px;font-size:15px">Открыть Threadhunt</a>
+  </div>
+  <p style="font-size:13px;line-height:1.6;color:#777;margin:18px 0 0">Обнимаем и до связи 🫶<br/>Команда Threadhunt</p>
+  <div style="margin-top:22px;color:#aaa;font-size:12px;text-align:center;border-top:1px solid #eee;padding-top:14px">Ты получил это письмо, потому что оставил заявку на thread-hunt.com</div>
+</div>`;
+}
+
 // Email-безопасные семейства шрифтов (с фолбэками). Ключ хранится в блоке.
 const FONT_STACKS: Record<string, string> = {
   system: "-apple-system,Segoe UI,Roboto,Arial,sans-serif",

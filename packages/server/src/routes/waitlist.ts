@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
+import { sendEmail, renderWaitlistWelcomeHtml } from '../email.js';
 
 export async function waitlistRoutes(app: FastifyInstance) {
   async function requireAdmin(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
@@ -55,12 +56,28 @@ export async function waitlistRoutes(app: FastifyInstance) {
     }
     const utm = Object.keys(utmObj).length ? JSON.stringify(utmObj) : null;
     const source = d.utm_source || d.source || 'landing';
+    // Новая заявка или повтор? (чтобы слать приветствие только один раз)
+    const existing = await db.waitlistEntry.findUnique({ where: { email }, select: { id: true } });
     // upsert — повторная заявка не плодит дублей; UTM обновляем, если пришли.
     await db.waitlistEntry.upsert({
       where: { email },
       create: { email, name: d.name || null, source, utm },
       update: { name: d.name || undefined, ...(utm ? { utm, source } : {}) },
     });
+    // Приветствие — только НОВЫМ. Если настроена включённая drip-цепочка для листа
+    // ожидания (audience=waitlist) — отдаём приветствие ей (не дублируем). Иначе
+    // шлём дефолтное тёплое письмо сразу. Fire-and-forget: не задерживаем ответ.
+    if (!existing) {
+      void (async () => {
+        try {
+          const hasSeq = await db.emailSequence.count({ where: { enabled: true, audience: 'waitlist' } });
+          if (hasSeq > 0) return; // welcome возьмёт на себя drip-цепочка
+          await sendEmail({ to: email, subject: 'Ты в списке Threadhunt 🎉', html: renderWaitlistWelcomeHtml(d.name || null) });
+        } catch {
+          /* приветствие не критично */
+        }
+      })();
+    }
     return { ok: true };
   });
 
