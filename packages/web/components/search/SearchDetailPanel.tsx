@@ -19,6 +19,20 @@ import { TIMEZONES, zonedToUtc } from '@/lib/timezones';
 
 type TabKey = 'automation' | 'keywords' | 'replies' | 'posts' | 'ads' | 'goal' | 'onboarding' | 'leads';
 
+// Форматы/«ходы» для генерации постов — чтобы ветки заходили (разные роли цепляют
+// разные крючки). Ключи синхронны с server/ai/generate.ts POST_FORMATS.
+const POST_FORMAT_OPTIONS: { key: string; label: string; hint: string }[] = [
+  { key: 'funny', label: '😄 Смешной хук', hint: 'шутка/мем в первой строке' },
+  { key: 'provocative', label: '🔥 Провокация', hint: 'вызов, «слабо?», лёгкий троллинг' },
+  { key: 'price_low', label: '💸 Цена-якорь ↓', hint: 'низкий порог входа как крючок' },
+  { key: 'price_high', label: '💎 Цена-якорь ↑', hint: 'высокая оплата как фильтр статуса' },
+  { key: 'intrigue', label: '🤫 Интрига', hint: 'недосказанность, «детали в директе»' },
+  { key: 'story', label: '📖 История/кейс', hint: 'короткая живая история' },
+  { key: 'urgency', label: '⏳ Дефицит', hint: 'мало мест + дедлайн' },
+  { key: 'social_proof', label: '👥 Соцдоказательство', hint: '«уже собрал команду из…»' },
+  { key: 'challenge', label: '🎯 Тест-крючок', hint: 'микро-задача прямо в посте' },
+];
+
 // Деталь поиска как переиспользуемая панель: и в split-view (справа), и как deep-link.
 // onChanged — чтобы левый список обновился при смене статуса/контента.
 export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: () => void }) {
@@ -384,6 +398,7 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [saved, setSaved] = useState(false);
   const [genMsg, setGenMsg] = useState('');
   const [brief, setBrief] = useState('');
+  const [formats, setFormats] = useState<string[]>([]);
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<TestPublishResult | null>(null);
   const [publishing, setPublishing] = useState(false);
@@ -431,7 +446,12 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
     setBusy(true);
     setGenMsg('');
     try {
-      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'posts', count: 5, brief: brief.trim() || undefined });
+      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, {
+        kind: 'posts',
+        count: formats.length ? Math.max(formats.length, 5) : 5,
+        brief: brief.trim() || undefined,
+        formats: formats.length ? formats : undefined,
+      });
       setList((l) => [...l, ...(result || []).map((text) => ({ text }))]);
       if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
     } catch (e: any) {
@@ -564,6 +584,29 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
           onChange={(e) => setBrief(e.target.value)}
           placeholder="Напр.: монтажёр Reels, 15–20 роликов/нед, 500₽ за ролик, удалёнка, кодовое слово «монтаж», дедлайн пятница"
         />
+
+        {/* Форматы/ходы — чтобы ветки заходили под разные роли */}
+        <div className="mt-3">
+          <div className="mb-1.5 text-xs font-medium text-muted">Тон и ходы (можно несколько — ИИ сделает по варианту на каждый)</div>
+          <div className="flex flex-wrap gap-1.5">
+            {POST_FORMAT_OPTIONS.map((f) => {
+              const on = formats.includes(f.key);
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  title={f.hint}
+                  onClick={() => setFormats((prev) => (prev.includes(f.key) ? prev.filter((x) => x !== f.key) : [...prev, f.key]))}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${on ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line hover:bg-panel-2'}`}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1.5 text-[11px] text-muted">Не заходит «в лоб» (частая история по монтажу)? Возьми «Смешной хук», «Провокация» или «Цена-якорь» — и сравни, что даёт больше директов.</p>
+        </div>
+
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="text-xs text-muted">Тон возьмётся из «Голоса бренда» (Настройки) — добавь туда примеры своих постов.</p>
           <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
