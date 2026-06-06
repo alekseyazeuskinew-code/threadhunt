@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, Lead, SearchStats, TestPublishResult } from '@/lib/types';
@@ -32,6 +32,43 @@ const POST_FORMAT_OPTIONS: { key: string; label: string; hint: string }[] = [
   { key: 'social_proof', label: '👥 Соцдоказательство', hint: '«уже собрал команду из…»' },
   { key: 'challenge', label: '🎯 Тест-крючок', hint: 'микро-задача прямо в посте' },
 ];
+
+// Автосохранение: дебаунс-сохранение значения на сервер при изменениях. Не
+// сохраняет начальное состояние (skip на первом рендере) и не дёргает reload —
+// чтобы не сбивать ввод. Возвращает статус для индикатора. Так сгенерированные
+// текстовки и правки НЕ теряются при переходах между страницами.
+function useAutosave<T>(value: T, persist: (v: T) => Promise<void>, delay = 1000): 'idle' | 'saving' | 'saved' {
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const first = useRef(true);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const key = JSON.stringify(value);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    setStatus('saving');
+    const t = setTimeout(async () => {
+      try {
+        await persist(valueRef.current);
+        setStatus('saved');
+      } catch {
+        setStatus('idle');
+      }
+    }, delay);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return status;
+}
+
+// Маленький индикатор статуса автосохранения.
+function AutosaveBadge({ status }: { status: 'idle' | 'saving' | 'saved' }) {
+  if (status === 'saving') return <span className="text-xs text-muted">Сохраняю…</span>;
+  if (status === 'saved') return <span className="text-xs text-success">Автосохранено ✓</span>;
+  return <span className="text-xs text-muted">Автосохранение включено</span>;
+}
 
 // Деталь поиска как переиспользуемая панель: и в split-view (справа), и как deep-link.
 // onChanged — чтобы левый список обновился при смене статуса/контента.
@@ -288,12 +325,16 @@ function KeywordsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [saved, setSaved] = useState(false);
   const set = (i: number, patch: Partial<KwRow>) => setList((l) => l.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
-  async function save() {
-    await api.put(`/api/searches/${s.id}/keywords`, {
+  const persist = async () =>
+    void (await api.put(`/api/searches/${s.id}/keywords`, {
       keywords: list
         .filter((r) => r.text.trim())
         .map((r) => ({ text: r.text.trim(), mode: r.mode || 'root', replyText: r.replyText.trim() || undefined })),
-    });
+    }));
+  const autosave = useAutosave(list, persist);
+
+  async function save() {
+    await persist();
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     reload();
@@ -328,6 +369,7 @@ function KeywordsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
           <Plus size={16} /> Добавить слово
         </Button>
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+        <AutosaveBadge status={autosave} />
       </div>
     </div>
   );
@@ -340,10 +382,15 @@ function RepliesTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [genMsg, setGenMsg] = useState('');
   const set = (i: number, patch: Partial<ReplyTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
 
-  async function save() {
-    await api.put(`/api/searches/${s.id}/reply-templates`, {
+  // Автосохранение (без reload, чтобы не сбивать ввод) — генерации и правки не теряются.
+  const persist = async () =>
+    void (await api.put(`/api/searches/${s.id}/reply-templates`, {
       templates: list.filter((t) => t.text.trim()).map((t) => ({ text: t.text, redirectTarget: t.redirectTarget })),
-    });
+    }));
+  const autosave = useAutosave(list, persist);
+
+  async function save() {
+    await persist();
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     reload();
@@ -381,11 +428,12 @@ function RepliesTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
           </div>
         </div>
       ))}
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '', redirectTarget: '' }])}>
           <Plus size={16} /> Добавить
         </Button>
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+        <AutosaveBadge status={autosave} />
       </div>
     </div>
   );
@@ -433,11 +481,17 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
     }
   }
 
-  async function save() {
+  // Автосохранение (без reload) — сгенерированные посты и правки не теряются при переходах.
+  const persist = async () => {
     await api.put(`/api/searches/${s.id}/post-templates`, {
       templates: list.filter((t) => t.text.trim() || t.mediaUrl).map((t) => ({ text: t.text, mediaUrl: t.mediaUrl || '', mediaType: t.mediaType || undefined })),
     });
     await api.patch(`/api/searches/${s.id}/publish-config`, cfg);
+  };
+  const autosave = useAutosave({ list, cfg }, persist);
+
+  async function save() {
+    await persist();
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     reload();
@@ -645,11 +699,12 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
         Картинка/видео — по <b>публичной ссылке</b> (Threads сам скачивает файл по URL). Подойдёт прямая ссылка на .jpg/.png/.mp4
         (например из облака с открытым доступом). Загрузку файлов прямо в дашборд добавим позже через хранилище.
       </p>
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '' }])}>
           <Plus size={16} /> Добавить
         </Button>
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+        <AutosaveBadge status={autosave} />
       </div>
     </div>
   );
