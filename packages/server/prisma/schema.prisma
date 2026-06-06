@@ -31,6 +31,7 @@ model User {
   webhookEvents String?  // CSV выбранных событий (пусто = все): lead.created,candidate.response,candidate.completed
   resetTokenHash      String?   // сброс пароля: хеш одноразового токена
   resetTokenExpiresAt DateTime? // срок действия токена сброса
+  isDemo       Boolean   @default(false) // демо-аккаунт для тура (можно массово очистить)
   createdAt    DateTime  @default(now())
 
   connections  ThreadsConnection[]
@@ -433,6 +434,8 @@ model WaitlistEntry {
   source    String?  // landing | utm_source (fb/ig/…) | referral
   utm       String?  // JSON UTM-меток рекламы (source/medium/campaign/content/term + fbclid)
   status    String   @default("new") // new | invited | converted
+  promoCode String?  // выданный уникальный промокод (для ранних/листа ожидания)
+  isDemo    Boolean  @default(false) // демо-заявка для тура
   createdAt DateTime @default(now())
 }
 
@@ -445,8 +448,45 @@ model EmailSequence {
   audience  String   @default("new_users") // new_users | waitlist
   steps     String   @default("[]") // JSON шагов цепочки
   enabled   Boolean  @default(false)
+  isDemo    Boolean  @default(false) // демо-цепочка для тура
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Промокод запуска. Защита от повторного применения: уникальный код на человека
+// + лимит применений (по умолчанию 1) + привязка к аккаунту через PromoRedemption.
+// Stripe станет финальным валидатором (Promotion Code, max_redemptions=1); эта
+// таблица — наш источник правды и работает до подключения Stripe.
+model PromoCode {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  percentOff     Int      @default(50) // размер скидки, %
+  durationMonths Int      @default(2) // на сколько месяцев действует скидка
+  maxRedemptions Int      @default(1) // сколько раз код можно применить (глобально)
+  redeemedCount  Int      @default(0) // сколько уже применено
+  expiresAt      DateTime? // срок действия (пусто = бессрочно)
+  campaign       String   @default("early") // метка кампании (early/launch/…)
+  issuedToEmail  String? // кому выдан (email из листа ожидания)
+  isDemo         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  redemptions PromoRedemption[]
+
+  @@index([issuedToEmail])
+  @@index([campaign])
+}
+
+// Факт применения промокода аккаунтом. Уникальность (codeId,userId) + лимит
+// maxRedemptions не дают применить дважды и «на 100%».
+model PromoRedemption {
+  id        String    @id @default(cuid())
+  codeId    String
+  code      PromoCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime  @default(now())
+
+  @@unique([codeId, userId])
+  @@index([userId])
 }
 
 // Учёт отправленных шагов drip-цепочки (дедуп + расчёт, когда слать следующий).

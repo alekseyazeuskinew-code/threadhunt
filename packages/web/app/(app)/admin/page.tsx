@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AdminStats, AdminUser, AdminAnalytics, AdminGrowth, AdminCosts, WaitlistEntry } from '@/lib/types';
+import type { AdminStats, AdminUser, AdminAnalytics, AdminGrowth, AdminCosts, WaitlistEntry, PromoCodeRow } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
 import { Stat } from '@/components/ui/Stat';
 import { Card } from '@/components/ui/Card';
@@ -15,7 +15,13 @@ export default function AdminPage() {
   const [costs, setCosts] = useState<AdminCosts | null>(null);
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[] | null>(null);
+  const [promo, setPromo] = useState<PromoCodeRow[] | null>(null);
   const [denied, setDenied] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoMsg, setDemoMsg] = useState('');
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoMsg, setPromoMsg] = useState('');
+  const [genCount, setGenCount] = useState(20);
 
   function load() {
     api.get<AdminStats>('/api/admin/stats').then(setStats).catch(() => setDenied(true));
@@ -24,10 +30,74 @@ export default function AdminPage() {
     api.get<AdminCosts>('/api/admin/costs').then(setCosts).catch(() => {});
     api.get<AdminUser[]>('/api/admin/users').then(setUsers).catch(() => setDenied(true));
     api.get<WaitlistEntry[]>('/api/admin/waitlist').then(setWaitlist).catch(() => {});
+    api.get<PromoCodeRow[]>('/api/admin/promo').then(setPromo).catch(() => {});
   }
   useEffect(() => {
     load();
   }, []);
+
+  // ── Демо-данные для тура ──
+  async function seedDemo() {
+    if (!window.confirm('Засеять демо-данные? Это создаст показательную когорту аккаунтов, лидов, постов, кампаний, лист ожидания и email — чтобы вся админка выглядела «живой». Прошлые демо-данные будут пересозданы.')) return;
+    setDemoBusy(true);
+    setDemoMsg('Заполняю демо-данными…');
+    try {
+      const r = await api.post<{ users: number; searches: number; leads: number; posts: number; campaigns: number; waitlist: number; sequences: number }>('/api/admin/demo-seed', {});
+      setDemoMsg(`Готово ✓ Аккаунтов ${r.users}, поисков ${r.searches}, лидов ${r.leads}, постов ${r.posts}, кампаний ${r.campaigns}, заявок ${r.waitlist}, цепочек ${r.sequences}.`);
+      load();
+    } catch (e: any) {
+      setDemoMsg(e.message);
+    } finally {
+      setDemoBusy(false);
+    }
+  }
+  async function clearDemo() {
+    if (!window.confirm('Удалить ВСЕ демо-данные (аккаунты с пометкой demo, их активность, демо-заявки и демо-цепочки)? Реальные данные не затрагиваются.')) return;
+    setDemoBusy(true);
+    setDemoMsg('Очищаю демо-данные…');
+    try {
+      const r = await api.post<{ deletedUsers: number; deletedSequences: number }>('/api/admin/demo-clear', {});
+      setDemoMsg(`Очищено ✓ Удалено аккаунтов ${r.deletedUsers}, цепочек ${r.deletedSequences}.`);
+      load();
+    } catch (e: any) {
+      setDemoMsg(e.message);
+    } finally {
+      setDemoBusy(false);
+    }
+  }
+
+  // ── Промокоды ──
+  async function genPromo() {
+    setPromoBusy(true);
+    setPromoMsg('Генерирую коды…');
+    try {
+      const r = await api.post<{ created: number }>('/api/admin/promo/generate', { count: genCount, percentOff: 50, durationMonths: 2, campaign: 'early' });
+      setPromoMsg(`Создано ${r.created} уникальных кодов (−50% на 2 мес, 1 применение).`);
+      api.get<PromoCodeRow[]>('/api/admin/promo').then(setPromo).catch(() => {});
+    } catch (e: any) {
+      setPromoMsg(e.message);
+    } finally {
+      setPromoBusy(false);
+    }
+  }
+  async function issueWaitlist() {
+    if (!window.confirm('Выдать персональный уникальный код каждому из листа ожидания, у кого его ещё нет? Потом выгрузишь CSV (email→код) для рассылки.')) return;
+    setPromoBusy(true);
+    setPromoMsg('Выдаю коды листу ожидания…');
+    try {
+      const r = await api.post<{ issued: number }>('/api/admin/promo/issue-waitlist', { percentOff: 50, durationMonths: 2, campaign: 'waitlist' });
+      setPromoMsg(`Выдано ${r.issued} персональных кодов. Скачай CSV для рассылки.`);
+      api.get<PromoCodeRow[]>('/api/admin/promo').then(setPromo).catch(() => {});
+    } catch (e: any) {
+      setPromoMsg(e.message);
+    } finally {
+      setPromoBusy(false);
+    }
+  }
+  async function delPromo(id: string) {
+    setPromo((prev) => prev!.filter((p) => p.id !== id));
+    await api.del(`/api/admin/promo/${id}`);
+  }
 
   async function update(id: string, data: { plan?: string; role?: string; subStatus?: string; extraSeats?: number }) {
     setUsers((prev) =>
@@ -76,6 +146,25 @@ export default function AdminPage() {
         }
       />
       <div className="space-y-6 p-8">
+        {/* Демо-данные для тура */}
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold">🎬 Демо-данные для тура</div>
+              <div className="text-xs text-muted">Наполняет всю админку показательной активностью (аккаунты, лиды, посты, кампании, лист ожидания, email), чтобы во время демонстрации всё выглядело рабочим. Помечается «demo» и убирается одной кнопкой.</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button onClick={seedDemo} disabled={demoBusy} className="rounded-full bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-press disabled:opacity-50">
+                {demoBusy ? '…' : 'Заполнить демо-данными'}
+              </button>
+              <button onClick={clearDemo} disabled={demoBusy} className="rounded-full border border-line px-4 py-2 text-sm hover:bg-panel-2 disabled:opacity-50">
+                Очистить демо
+              </button>
+            </div>
+          </div>
+          {demoMsg && <div className="mt-2 text-xs text-muted">{demoMsg}</div>}
+        </Card>
+
         {/* KPI сервиса */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Аккаунтов" value={stats?.users ?? '—'} accent hint={stats ? `+${stats.new7} за 7 дней` : ''} />
@@ -151,6 +240,72 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+        </Card>
+
+        {/* Промокоды запуска */}
+        <Card>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold">🎟️ Промокоды запуска</div>
+              <div className="text-xs text-muted">
+                Уникальный код каждому, одно применение, привязка к аккаунту — нельзя применить дважды или сложить два кода «на 100%».
+                {promo ? ` Всего: ${promo.length} · применено: ${promo.filter((p) => p.used).length}` : ''}
+              </div>
+            </div>
+            <a href="/api/admin/promo.csv" className="shrink-0 rounded-full border border-line px-3 py-1.5 text-sm hover:bg-panel-2">Экспорт CSV (email→код)</a>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={500}
+              value={genCount}
+              onChange={(e) => setGenCount(Math.max(1, Math.min(500, +e.target.value)))}
+              className="w-20 rounded-lg border border-line bg-bg px-2 py-1.5 text-sm"
+            />
+            <button onClick={genPromo} disabled={promoBusy} className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-press disabled:opacity-50">
+              {promoBusy ? '…' : 'Сгенерировать коды'}
+            </button>
+            <button onClick={issueWaitlist} disabled={promoBusy} className="rounded-full border border-line px-4 py-1.5 text-sm hover:bg-panel-2 disabled:opacity-50">
+              Выдать листу ожидания
+            </button>
+            <span className="text-xs text-muted">−50% на 2 мес · 1 применение</span>
+          </div>
+          {promoMsg && <div className="mt-2 text-xs text-muted">{promoMsg}</div>}
+
+          {promo && promo.length > 0 && (
+            <div className="mt-3 max-h-80 overflow-auto rounded-xl border border-line">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-panel text-left text-muted">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Код</th>
+                    <th className="px-3 py-2 font-medium">Скидка</th>
+                    <th className="px-3 py-2 font-medium">Выдан</th>
+                    <th className="px-3 py-2 font-medium">Кампания</th>
+                    <th className="px-3 py-2 font-medium">Статус</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {promo.slice(0, 300).map((p) => (
+                    <tr key={p.id} className="border-t border-line">
+                      <td className="px-3 py-2 font-mono">{p.code}</td>
+                      <td className="px-3 py-2 text-muted">−{p.percentOff}% · {p.durationMonths} мес</td>
+                      <td className="px-3 py-2 text-muted">{p.issuedToEmail || '—'}</td>
+                      <td className="px-3 py-2 text-muted">{p.campaign}</td>
+                      <td className="px-3 py-2">
+                        {p.used ? <span className="text-success">применён</span> : <span className="text-muted">свободен</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => delPromo(p.id)} className="text-muted hover:text-danger" title="Удалить">✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
 
         {stats && (

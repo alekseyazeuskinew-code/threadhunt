@@ -7,6 +7,7 @@ import { getUserId } from '../auth/session.js';
 import { today } from '../ai/limits.js';
 import { sendEmail, renderEmailHtml } from '../email.js';
 import { generateEmail } from '../ai/generate.js';
+import { seedDemo, clearDemo } from '../demoSeed.js';
 
 const safeParse = (s: string): unknown[] => {
   try {
@@ -393,6 +394,30 @@ export async function adminRoutes(app: FastifyInstance) {
       r.ok ? sent++ : failed++;
     }
     return { ok: true, total: recipients.length, sent, failed };
+  });
+
+  // ── Демо-данные для тура: засеять / очистить ──
+  // Наполняет всю админку реалистичной активностью (когорта аккаунтов, лиды,
+  // посты, кампании, лист ожидания, email). Всё помечено isDemo и удаляется разом.
+  app.post('/api/admin/demo-seed', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    try {
+      const r = await seedDemo(db as any);
+      return { ok: true, ...r };
+    } catch (e: any) {
+      app.log.error({ err: e }, 'demo-seed failed');
+      return reply.code(500).send({ error: 'Не удалось засеять демо-данные' });
+    }
+  });
+  app.post('/api/admin/demo-clear', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    try {
+      const r = await clearDemo(db as any);
+      return { ok: true, ...r };
+    } catch (e: any) {
+      app.log.error({ err: e }, 'demo-clear failed');
+      return reply.code(500).send({ error: 'Не удалось очистить демо-данные' });
+    }
   });
 
   // Все зарегистрированные аккаунты со статистикой.

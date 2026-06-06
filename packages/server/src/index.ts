@@ -20,6 +20,7 @@ import { workspaceRoutes } from './routes/workspace.js';
 import { campaignRoutes } from './routes/campaigns.js';
 import { oauthRoutes } from './routes/oauth.js';
 import { waitlistRoutes } from './routes/waitlist.js';
+import { promoRoutes } from './routes/promo.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { startScheduler } from './scheduler.js';
 
@@ -55,6 +56,7 @@ async function ensureSchema() {
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "webhookEvents" TEXT',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetTokenHash" TEXT',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetTokenExpiresAt" TIMESTAMP',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "isDemo" BOOLEAN NOT NULL DEFAULT false',
     // Лист ожидания с лендинга (создаётся на старте — без отдельной миграции).
     `CREATE TABLE IF NOT EXISTS "WaitlistEntry" (
       "id" TEXT PRIMARY KEY,
@@ -65,6 +67,8 @@ async function ensureSchema() {
       "createdAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
     'ALTER TABLE "WaitlistEntry" ADD COLUMN IF NOT EXISTS "utm" TEXT',
+    'ALTER TABLE "WaitlistEntry" ADD COLUMN IF NOT EXISTS "promoCode" TEXT',
+    'ALTER TABLE "WaitlistEntry" ADD COLUMN IF NOT EXISTS "isDemo" BOOLEAN NOT NULL DEFAULT false',
     `CREATE TABLE IF NOT EXISTS "EmailSequence" (
       "id" TEXT PRIMARY KEY,
       "name" TEXT NOT NULL,
@@ -74,6 +78,31 @@ async function ensureSchema() {
       "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
       "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
+    'ALTER TABLE "EmailSequence" ADD COLUMN IF NOT EXISTS "isDemo" BOOLEAN NOT NULL DEFAULT false',
+    // Промокоды запуска (уникальные, защита от повторного применения).
+    `CREATE TABLE IF NOT EXISTS "PromoCode" (
+      "id" TEXT PRIMARY KEY,
+      "code" TEXT NOT NULL UNIQUE,
+      "percentOff" INTEGER NOT NULL DEFAULT 50,
+      "durationMonths" INTEGER NOT NULL DEFAULT 2,
+      "maxRedemptions" INTEGER NOT NULL DEFAULT 1,
+      "redeemedCount" INTEGER NOT NULL DEFAULT 0,
+      "expiresAt" TIMESTAMP,
+      "campaign" TEXT NOT NULL DEFAULT 'early',
+      "issuedToEmail" TEXT,
+      "isDemo" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
+    'CREATE INDEX IF NOT EXISTS "PromoCode_issuedToEmail_idx" ON "PromoCode" ("issuedToEmail")',
+    'CREATE INDEX IF NOT EXISTS "PromoCode_campaign_idx" ON "PromoCode" ("campaign")',
+    `CREATE TABLE IF NOT EXISTS "PromoRedemption" (
+      "id" TEXT PRIMARY KEY,
+      "codeId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
+    'CREATE UNIQUE INDEX IF NOT EXISTS "PromoRedemption_codeId_userId_key" ON "PromoRedemption" ("codeId","userId")',
+    'CREATE INDEX IF NOT EXISTS "PromoRedemption_userId_idx" ON "PromoRedemption" ("userId")',
     `CREATE TABLE IF NOT EXISTS "EmailDrip" (
       "id" TEXT PRIMARY KEY,
       "userId" TEXT NOT NULL,
@@ -108,6 +137,7 @@ await app.register(workspaceRoutes);
 await app.register(campaignRoutes);
 await app.register(oauthRoutes);
 await app.register(waitlistRoutes);
+await app.register(promoRoutes);
 await app.register(integrationRoutes);
 // Расширение (device-token).
 await app.register(agentRoutes);

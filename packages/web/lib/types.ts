@@ -397,3 +397,17 @@ export interface WaitlistEntry {
   status: 'new' | 'invited' | 'converted';
   createdAt: string;
 }
+
+export interface PromoCodeRow {
+  id: string;
+  code: string;
+  percentOff: number;
+  durationMonths: number;
+  maxRedemptions: number;
+  redeemedCount: number;
+  issuedToEmail: string | null;
+  campaign: string;
+  used: boolean;
+  expiresAt: string | null;
+  createdAt: string;
+}
