@@ -539,8 +539,19 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
               <Trash2 size={18} />
             </button>
           </div>
+          {/* Превью картинки по ссылке — видно, что URL рабочий до публикации */}
+          {t.mediaUrl && t.mediaType === 'image' && (
+            <img src={t.mediaUrl} alt="" className="mt-2 max-h-40 rounded-lg border border-line" onError={(e) => ((e.currentTarget.style.display = 'none'))} />
+          )}
+          {t.mediaUrl && t.mediaType === 'video' && (
+            <video src={t.mediaUrl} controls className="mt-2 max-h-40 rounded-lg border border-line" />
+          )}
         </div>
       ))}
+      <p className="text-xs text-muted">
+        Картинка/видео — по <b>публичной ссылке</b> (Threads сам скачивает файл по URL). Подойдёт прямая ссылка на .jpg/.png/.mp4
+        (например из облака с открытым доступом). Загрузку файлов прямо в дашборд добавим позже через хранилище.
+      </p>
       <div className="flex gap-2">
         <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '' }])}>
           <Plus size={16} /> Добавить
