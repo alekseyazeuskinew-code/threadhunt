@@ -72,13 +72,15 @@ export async function searchRoutes(app: FastifyInstance) {
         replyTemplates: { orderBy: { order: 'asc' } },
         postTemplates: { orderBy: { order: 'asc' } },
         publishConfig: true,
-        commentRule: true,
+        commentRules: { take: 1 },
         connection: { select: { id: true, username: true } },
         _count: { select: { leads: true, publishedPosts: true } },
       },
     });
     if (!search) return reply.code(404).send({ error: 'not found' });
-    return search;
+    // Отдаём правило комментариев одним объектом (в UI — одно правило на поиск).
+    const { commentRules, ...rest } = search as any;
+    return { ...rest, commentRule: commentRules?.[0] ?? null };
   });
 
   // ── Правило отбивки в комментариях (через Threads API) ──
@@ -95,11 +97,14 @@ export async function searchRoutes(app: FastifyInstance) {
     const parsed = commentInput.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     const d = parsed.data;
-    const row = await db.commentRule.upsert({
-      where: { searchId: id },
-      create: { searchId: id, enabled: d.enabled ?? false, mode: d.mode ?? 'keyword', replyText: d.replyText ?? '' },
-      update: { ...(d.enabled !== undefined ? { enabled: d.enabled } : {}), ...(d.mode ? { mode: d.mode } : {}), ...(d.replyText !== undefined ? { replyText: d.replyText } : {}) },
-    });
+    // Одно правило на поиск — на уровне приложения (без DB @unique).
+    const existing = await db.commentRule.findFirst({ where: { searchId: id } });
+    const row = existing
+      ? await db.commentRule.update({
+          where: { id: existing.id },
+          data: { ...(d.enabled !== undefined ? { enabled: d.enabled } : {}), ...(d.mode ? { mode: d.mode } : {}), ...(d.replyText !== undefined ? { replyText: d.replyText } : {}) },
+        })
+      : await db.commentRule.create({ data: { searchId: id, enabled: d.enabled ?? false, mode: d.mode ?? 'keyword', replyText: d.replyText ?? '' } });
     return row;
   });
 

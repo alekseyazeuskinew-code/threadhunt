@@ -241,7 +241,7 @@ model Search {
   replyTemplates ReplyTemplate[]
   postTemplates  PostTemplate[]
   publishConfig  PublishConfig?
-  commentRule    CommentRule?
+  commentRules   CommentRule[]
   leads          Lead[]
   publishedPosts PublishedPost[]
   adCampaigns    AdCampaign[]
@@ -306,11 +306,16 @@ model PublishConfig {
 // threads_manage_replies (Meta App Review).
 model CommentRule {
   id        String  @id @default(cuid())
-  searchId  String  @unique // одно правило на поиск
+  searchId  String
   search    Search  @relation(fields: [searchId], references: [id], onDelete: Cascade)
   enabled   Boolean @default(false)
   mode      String  @default("keyword") // keyword | all
   replyText String  @default("")
+
+  // Уникальность «одно правило на поиск» держим на уровне приложения (см. routes/searches.ts),
+  // чтобы не добавлять @unique на существующую таблицу — это ломает `prisma db push`
+  // (data-loss warning) в деплое Railway.
+  @@index([searchId])
 }
 
 // Дедуп авто-ответов на комментарии: на один ответ Threads отвечаем один раз.

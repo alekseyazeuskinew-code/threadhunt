@@ -67,7 +67,6 @@ async function ensureSchema() {
       "createdAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
     'ALTER TABLE "CommentRule" ADD COLUMN IF NOT EXISTS "mode" TEXT NOT NULL DEFAULT \'keyword\'',
-    'CREATE UNIQUE INDEX IF NOT EXISTS "CommentRule_searchId_key" ON "CommentRule" ("searchId")',
     `CREATE TABLE IF NOT EXISTS "CommentReply" (
       "id" TEXT PRIMARY KEY,
       "searchId" TEXT NOT NULL,
