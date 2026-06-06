@@ -81,6 +81,58 @@ export async function waitlistRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // ── Админ: синхронизировать durable-заявки из Netlify Blobs (страховка на случай
+  // простоя сервера, когда заявка не долетела до БД напрямую). Идемпотентно (upsert). ──
+  app.post('/api/admin/waitlist/sync', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const secret = process.env.LEADS_SYNC_SECRET;
+    if (!secret) return reply.code(400).send({ error: 'LEADS_SYNC_SECRET не задан на сервере' });
+    const base = process.env.LANDING_URL || 'https://thread-hunt.com';
+    let leads: any[] = [];
+    try {
+      const res = await fetch(`${base}/.netlify/functions/leads-export?token=${encodeURIComponent(secret)}`);
+      if (!res.ok) return reply.code(502).send({ error: `Сайт вернул ${res.status}` });
+      const json = (await res.json()) as { leads?: any[] };
+      leads = Array.isArray(json.leads) ? json.leads : [];
+    } catch (e: any) {
+      return reply.code(502).send({ error: 'Не удалось получить заявки с сайта: ' + String(e?.message || e) });
+    }
+    let created = 0;
+    let total = 0;
+    for (const l of leads) {
+      const email = String(l?.email || '').toLowerCase();
+      if (!email.includes('@')) continue;
+      total++;
+      // UTM из сохранённого url (если есть).
+      let utm: string | null = null;
+      let source = l.source || 'landing';
+      try {
+        if (l.url) {
+          const u = new URL(l.url);
+          const o: Record<string, string> = {};
+          for (const k of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid']) {
+            const v = u.searchParams.get(k);
+            if (v) o[k.replace('utm_', '')] = v;
+          }
+          if (Object.keys(o).length) {
+            utm = JSON.stringify(o);
+            source = o.source || source;
+          }
+        }
+      } catch {
+        /* битый url — пропускаем utm */
+      }
+      const existing = await db.waitlistEntry.findUnique({ where: { email }, select: { id: true } });
+      await db.waitlistEntry.upsert({
+        where: { email },
+        create: { email, name: l.name || null, source, utm },
+        update: { name: l.name || undefined, ...(utm ? { utm, source } : {}) },
+      });
+      if (!existing) created++;
+    }
+    return { ok: true, total, created };
+  });
+
   // ── Админ: список заявок. ──
   app.get('/api/admin/waitlist', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;

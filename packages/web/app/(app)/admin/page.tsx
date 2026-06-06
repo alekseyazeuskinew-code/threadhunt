@@ -140,6 +140,21 @@ export default function AdminPage() {
     setWaitlist((prev) => prev!.filter((w) => w.id !== id));
     await api.del(`/api/admin/waitlist/${id}`);
   }
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+  async function syncWaitlist() {
+    setSyncBusy(true);
+    setSyncMsg('Тяну заявки с сайта…');
+    try {
+      const r = await api.post<{ total: number; created: number }>('/api/admin/waitlist/sync', {});
+      setSyncMsg(`Синхронизировано: ${r.total}, новых добавлено: ${r.created}.`);
+      api.get<WaitlistEntry[]>('/api/admin/waitlist').then(setWaitlist).catch(() => {});
+    } catch (e: any) {
+      setSyncMsg(e.message);
+    } finally {
+      setSyncBusy(false);
+    }
+  }
 
   if (denied) {
     return (
@@ -196,8 +211,14 @@ export default function AdminPage() {
               <div className="text-base font-semibold">Лист ожидания</div>
               <div className="text-xs text-muted">Заявки с лендинга на ранний доступ.{waitlist ? ` Всего: ${waitlist.length}` : ''}</div>
             </div>
-            <a href="/api/admin/waitlist.csv" className="shrink-0 rounded-full border border-line px-3 py-1.5 text-sm text-text hover:bg-panel-2">Экспорт CSV</a>
+            <div className="flex shrink-0 items-center gap-2">
+              <button onClick={syncWaitlist} disabled={syncBusy} className="rounded-full border border-line px-3 py-1.5 text-sm hover:bg-panel-2 disabled:opacity-50" title="Подтянуть заявки, сохранённые на сайте (на случай простоя сервера)">
+                {syncBusy ? '…' : '↻ Синхронизировать с сайта'}
+              </button>
+              <a href="/api/admin/waitlist.csv" className="rounded-full border border-line px-3 py-1.5 text-sm text-text hover:bg-panel-2">Экспорт CSV</a>
+            </div>
           </div>
+          {syncMsg && <div className="mb-2 text-xs text-muted">{syncMsg}</div>}
           <div className="overflow-hidden rounded-xl border border-line">
             <table className="w-full text-sm">
               <thead className="bg-panel text-left text-muted">
