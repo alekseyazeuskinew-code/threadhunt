@@ -8,6 +8,8 @@ import { today } from '../ai/limits.js';
 import { sendEmail, renderEmailHtml } from '../email.js';
 import { generateEmail, aiConfigured, pingAi } from '../ai/generate.js';
 import { seedDemo, clearDemo } from '../demoSeed.js';
+import { resolveRecipients, parseSegment, personalizeStep, usesPromoVar, describeSegment, type EmailSegment } from '../emailAudience.js';
+import { ensurePromoForEmail } from '../promoCodes.js';
 
 const safeParse = (s: string): unknown[] => {
   try {
@@ -270,7 +272,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/api/admin/email-sequences', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
     const rows = await db.emailSequence.findMany({ orderBy: { createdAt: 'desc' } });
-    return rows.map((r) => ({ ...r, steps: safeParse(r.steps) }));
+    return rows.map((r) => ({ ...r, steps: safeParse(r.steps), segment: parseSegment((r as any).segment) }));
   });
   app.post('/api/admin/email-sequences', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
@@ -278,13 +280,14 @@ export async function adminRoutes(app: FastifyInstance) {
     const row = await db.emailSequence.create({
       data: { name: (body.name || 'Новая цепочка').slice(0, 120), audience: body.audience === 'waitlist' ? 'waitlist' : 'new_users' },
     });
-    return { ...row, steps: safeParse(row.steps) };
+    return { ...row, steps: safeParse(row.steps), segment: parseSegment((row as any).segment) };
   });
   const seqSchema = z.object({
     name: z.string().min(1).max(120).optional(),
     audience: z.enum(['new_users', 'waitlist']).optional(),
     enabled: z.boolean().optional(),
     steps: z.array(z.any()).optional(),
+    segment: z.any().optional(), // объект сегмента (фильтры получателей)
   });
   app.put('/api/admin/email-sequences/:id', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
@@ -299,9 +302,10 @@ export async function adminRoutes(app: FastifyInstance) {
         ...(d.audience !== undefined ? { audience: d.audience } : {}),
         ...(d.enabled !== undefined ? { enabled: d.enabled } : {}),
         ...(d.steps !== undefined ? { steps: JSON.stringify(d.steps) } : {}),
-      },
+        ...(d.segment !== undefined ? { segment: d.segment ? JSON.stringify(d.segment) : null } : {}),
+      } as any,
     });
-    return { ...row, steps: safeParse(row.steps) };
+    return { ...row, steps: safeParse(row.steps), segment: parseSegment((row as any).segment) };
   });
   app.delete('/api/admin/email-sequences/:id', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
@@ -360,40 +364,53 @@ export async function adminRoutes(app: FastifyInstance) {
       to = me?.email;
     }
     if (!to) return reply.code(400).send({ error: 'Не указан адрес' });
-    const html = renderEmailHtml(Array.isArray(body.blocks) ? body.blocks : []);
-    const res = await sendEmail({ to, subject: body.subject || 'Тест Threadhunt', html });
+    // В тесте подставляем примерные значения переменных, чтобы видно было результат.
+    const pers = personalizeStep({ subject: body.subject || 'Тест Threadhunt', blocks: Array.isArray(body.blocks) ? body.blocks : [] }, { promo: 'TH-DEMO1', name: 'Имя', email: to });
+    const html = renderEmailHtml(pers.blocks);
+    const res = await sendEmail({ to, subject: pers.subject || 'Тест Threadhunt', html });
     if (!res.ok) return reply.code(400).send({ error: res.error });
     return { ok: true, to };
   });
 
-  // Рассылка письма по базе: лист ожидания (опц. по статусу) или зарегистрированные.
+  // Подсчёт аудитории под сегмент (для подписи «уйдёт N адресам» перед отправкой).
+  app.post('/api/admin/email-audience-count', async (req, reply) => {
+    if (!(await requireAdmin(req, reply))) return;
+    const body = (req.body as any) || {};
+    const audience = body.audience === 'waitlist' ? 'waitlist' : 'new_users';
+    const seg = (body.segment || {}) as EmailSegment;
+    const recipients = await resolveRecipients(audience, seg);
+    const emails = [...new Set(recipients.map((r) => r.email).filter((e) => e && e.includes('@')))];
+    return { count: emails.length, sample: emails.slice(0, 5), describe: describeSegment(audience, seg) };
+  });
+
+  // Рассылка письма по базе: аудитория + сегмент-фильтры + персонализация
+  // ({{promo}} с авто-выдачей кода для листа ожидания, {{name}}, {{email}}).
   app.post('/api/admin/email-broadcast', async (req, reply) => {
     if (!(await requireAdmin(req, reply))) return;
     const body = (req.body as any) || {};
     const subject = (body.subject || '').toString().slice(0, 200) || 'Threadhunt';
     const blocks = Array.isArray(body.blocks) ? body.blocks : [];
     const audience = body.audience === 'waitlist' ? 'waitlist' : 'new_users';
-    let recipients: string[] = [];
-    if (audience === 'waitlist') {
-      const where = body.status ? { status: String(body.status) } : {};
-      const rows = await db.waitlistEntry.findMany({ where, select: { email: true }, take: 2000 });
-      recipients = rows.map((r) => r.email);
-    } else {
-      const rows = await db.user.findMany({ select: { email: true }, take: 2000 });
-      recipients = rows.map((r) => r.email);
-    }
-    recipients = [...new Set(recipients.filter((e) => e && e.includes('@')))];
-    if (!recipients.length) return reply.code(400).send({ error: 'В выбранной аудитории нет адресов' });
+    // Совместимость: старое поле status → сегмент.
+    const seg = (body.segment || (body.status ? { statuses: [String(body.status)] } : {})) as EmailSegment;
 
-    const html = renderEmailHtml(blocks);
+    const recipients = await resolveRecipients(audience, seg);
+    const seen = new Set<string>();
+    const list = recipients.filter((r) => r.email && r.email.includes('@') && !seen.has(r.email) && seen.add(r.email));
+    if (!list.length) return reply.code(400).send({ error: 'В выбранной аудитории нет адресов' });
+
+    const step = { subject, blocks };
+    const needPromo = audience === 'waitlist' && usesPromoVar([step] as any);
     let sent = 0;
     let failed = 0;
     // Последовательно, чтобы не упереться в rate-limit Resend (~10/сек).
-    for (const to of recipients) {
-      const r = await sendEmail({ to, subject, html });
+    for (const rec of list) {
+      const promo = needPromo ? rec.promoCode || (await ensurePromoForEmail(rec.email)) : rec.promoCode || '';
+      const pers = personalizeStep(step, { promo: promo || '', name: rec.name || '', email: rec.email });
+      const r = await sendEmail({ to: rec.email, subject: pers.subject || subject, html: renderEmailHtml(pers.blocks) });
       r.ok ? sent++ : failed++;
     }
-    return { ok: true, total: recipients.length, sent, failed };
+    return { ok: true, total: list.length, sent, failed };
   });
 
   // ── Статус ИИ: настроен ли ключ (дёшево) + живой пинг (1 токен, по запросу). ──

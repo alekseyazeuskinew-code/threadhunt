@@ -447,6 +447,7 @@ model EmailSequence {
   name      String
   audience  String   @default("new_users") // new_users | waitlist
   steps     String   @default("[]") // JSON шагов цепочки
+  segment   String?  // JSON сегмент-фильтров получателей (статусы/тарифы/активация/…)
   enabled   Boolean  @default(false)
   isDemo    Boolean  @default(false) // демо-цепочка для тура
   createdAt DateTime @default(now())

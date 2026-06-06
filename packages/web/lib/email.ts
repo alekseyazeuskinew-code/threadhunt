@@ -4,6 +4,8 @@
 
 export type EmailBlockType = 'heading' | 'text' | 'button' | 'image' | 'divider' | 'spacer';
 
+export type EmailFont = 'system' | 'arial' | 'verdana' | 'tahoma' | 'trebuchet' | 'georgia' | 'times' | 'courier';
+
 export interface EmailBlock {
   id: string;
   type: EmailBlockType;
@@ -12,6 +14,12 @@ export interface EmailBlock {
   align?: 'left' | 'center' | 'right';
   width?: 'full' | 'half' | 'small'; // image: ширина (100% / 50% / 30%)
   linkUrl?: string; // image: куда ведёт клик по картинке (необязательно)
+  // Оформление текста (heading / text / button):
+  fontFamily?: EmailFont;
+  fontSize?: number; // px
+  bold?: boolean;
+  italic?: boolean;
+  color?: string; // #rrggbb
 }
 
 export interface EmailStep {
@@ -21,13 +29,46 @@ export interface EmailStep {
   blocks: EmailBlock[];
 }
 
+// Сегмент-фильтры получателей цепочки.
+export interface EmailSegment {
+  statuses?: string[]; // waitlist: new | invited | converted
+  sourceContains?: string; // waitlist: подстрока в источнике
+  withPromo?: 'any' | 'with' | 'without'; // waitlist: есть ли промокод
+  plans?: string[]; // users: FREE | PRO | VIP
+  activation?: 'any' | 'connected' | 'not_connected' | 'with_lead' | 'no_lead'; // users
+  signupWithinDays?: number; // оба: только за последние N дней
+}
+
 export interface EmailSequence {
   id: string;
   name: string;
   audience: 'new_users' | 'waitlist';
   enabled: boolean;
   steps: EmailStep[];
+  segment?: EmailSegment;
 }
+
+// Доступные шрифты для UI.
+export const EMAIL_FONTS: { value: EmailFont; label: string }[] = [
+  { value: 'system', label: 'Системный (sans)' },
+  { value: 'arial', label: 'Arial' },
+  { value: 'verdana', label: 'Verdana' },
+  { value: 'tahoma', label: 'Tahoma' },
+  { value: 'trebuchet', label: 'Trebuchet MS' },
+  { value: 'georgia', label: 'Georgia (serif)' },
+  { value: 'times', label: 'Times New Roman' },
+  { value: 'courier', label: 'Courier (моно)' },
+];
+export const EMAIL_FONT_CSS: Record<EmailFont, string> = {
+  system: '-apple-system,Segoe UI,Roboto,Arial,sans-serif',
+  arial: 'Arial,Helvetica,sans-serif',
+  verdana: 'Verdana,Geneva,sans-serif',
+  tahoma: 'Tahoma,Geneva,sans-serif',
+  trebuchet: "'Trebuchet MS',Helvetica,sans-serif",
+  georgia: "Georgia,'Times New Roman',serif",
+  times: "'Times New Roman',Times,serif",
+  courier: "'Courier New',Courier,monospace",
+};
 
 let _n = 0;
 export const eid = (p = 'e') => `${p}${Date.now().toString(36)}${(_n++).toString(36)}`;

@@ -79,6 +79,7 @@ async function ensureSchema() {
       "updatedAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
     'ALTER TABLE "EmailSequence" ADD COLUMN IF NOT EXISTS "isDemo" BOOLEAN NOT NULL DEFAULT false',
+    'ALTER TABLE "EmailSequence" ADD COLUMN IF NOT EXISTS "segment" TEXT',
     // Промокоды запуска (уникальные, защита от повторного применения).
     `CREATE TABLE IF NOT EXISTS "PromoCode" (
       "id" TEXT PRIMARY KEY,

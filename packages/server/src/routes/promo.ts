@@ -10,38 +10,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
-
-// Алфавит без двусмысленных символов (нет O/0, I/1).
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-function randomCode(prefix = 'TH'): string {
-  let s = '';
-  for (let i = 0; i < 5; i++) s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
-  return `${prefix}-${s}`;
-}
-
-// Создать гарантированно уникальный код в БД (с ретраями на коллизии).
-async function createUniqueCode(opts: { percentOff: number; durationMonths: number; campaign: string; issuedToEmail?: string | null; expiresAt?: Date | null }): Promise<string> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const code = randomCode();
-    try {
-      await db.promoCode.create({
-        data: {
-          code,
-          percentOff: opts.percentOff,
-          durationMonths: opts.durationMonths,
-          maxRedemptions: 1,
-          campaign: opts.campaign,
-          issuedToEmail: opts.issuedToEmail ?? null,
-          expiresAt: opts.expiresAt ?? null,
-        },
-      });
-      return code;
-    } catch {
-      // коллизия по unique(code) — пробуем ещё раз
-    }
-  }
-  throw new Error('Не удалось сгенерировать уникальный код');
-}
+import { createUniqueCode } from '../promoCodes.js';
 
 export async function promoRoutes(app: FastifyInstance) {
   async function requireAdmin(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {

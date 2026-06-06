@@ -10,6 +10,8 @@ import { decrypt } from './crypto.js';
 import { publishPost, type MediaType } from './threads/publisher.js';
 import { resolveConnection } from './threads/resolve.js';
 import { sendEmail, renderEmailHtml } from './email.js';
+import { resolveRecipients, parseSegment, personalizeStep, usesPromoVar } from './emailAudience.js';
+import { ensurePromoForEmail } from './promoCodes.js';
 
 let running = false;
 let dripRunning = false;
@@ -40,16 +42,11 @@ async function dripTick() {
         continue;
       }
       if (!steps.length) continue;
-      // Получатели: ключ дедупа (id), email, якорь (createdAt). Не бластим тех, кто
-      // появился раньше создания цепочки. Для waitlist ключ — id заявки.
-      let recipients: { key: string; email: string; createdAt: Date }[];
-      if (seq.audience === 'waitlist') {
-        const rows = await db.waitlistEntry.findMany({ where: { createdAt: { gte: seq.createdAt } }, select: { id: true, email: true, createdAt: true } });
-        recipients = rows.map((r) => ({ key: r.id, email: r.email, createdAt: r.createdAt }));
-      } else {
-        const rows = await db.user.findMany({ where: { createdAt: { gte: seq.createdAt } }, select: { id: true, email: true, createdAt: true } });
-        recipients = rows.map((r) => ({ key: r.id, email: r.email, createdAt: r.createdAt }));
-      }
+      // Получатели = базовый список (по аудитории) + сегмент-фильтры цепочки.
+      // Не бластим тех, кто появился раньше создания цепочки (createdAfter).
+      const seg = parseSegment((seq as any).segment);
+      const recipients = await resolveRecipients(seq.audience, seg, { createdAfter: seq.createdAt });
+      const needPromo = seq.audience === 'waitlist' && usesPromoVar(steps as any);
       for (const rec of recipients) {
         if (budget <= 0) return;
         if (!rec.email || !rec.email.includes('@')) continue;
@@ -62,7 +59,11 @@ async function dripTick() {
         const anchor = nextIdx === 0 ? rec.createdAt : sent.find((s) => s.stepIndex === nextIdx - 1)?.sentAt;
         if (!anchor) continue;
         if (Date.now() < anchor.getTime() + (step.delayHours || 0) * 3600_000) continue; // ещё не пора
-        const r = await sendEmail({ to: rec.email, subject: step.subject || 'Threadhunt', html: renderEmailHtml((step.blocks as any[]) || []) });
+        // Персонализация: {{promo}} (выдаём код на лету, если нужно) / {{name}} / {{email}}.
+        const promo = needPromo ? rec.promoCode || (await ensurePromoForEmail(rec.email)) : rec.promoCode || '';
+        const vars = { promo: promo || '', name: rec.name || '', email: rec.email };
+        const pers = personalizeStep(step as any, vars);
+        const r = await sendEmail({ to: rec.email, subject: pers.subject || 'Threadhunt', html: renderEmailHtml(pers.blocks) });
         if (r.ok) {
           await db.emailDrip.create({ data: { userId: rec.key, sequenceId: seq.id, stepIndex: nextIdx } });
           budget--;

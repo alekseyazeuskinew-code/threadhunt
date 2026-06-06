@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Clock, Mail, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui/Card';
@@ -12,7 +12,11 @@ import {
   type EmailStep,
   type EmailBlock,
   type EmailBlockType,
+  type EmailSegment,
+  type EmailFont,
   EMAIL_BLOCK_LABELS,
+  EMAIL_FONTS,
+  EMAIL_FONT_CSS,
   newBlock,
   newStep,
   emptySequence,
@@ -40,6 +44,31 @@ export function EmailSequenceBuilder() {
   const [stats, setStats] = useState<{ perStep: Record<number, number>; started: number } | null>(null);
   const [genBrief, setGenBrief] = useState<Record<string, string>>({});
   const [gen, setGen] = useState<{ stepId: string; busy: boolean; msg: string; ok: boolean; idea: string } | null>(null);
+  const [audCount, setAudCount] = useState<{ count: number; describe: string; sample: string[] } | null>(null);
+
+  // Живой пересчёт «кому уйдёт» при смене аудитории/сегмента.
+  useEffect(() => {
+    if (!seq) {
+      setAudCount(null);
+      return;
+    }
+    let alive = true;
+    api
+      .post<{ count: number; describe: string; sample: string[] }>('/api/admin/email-audience-count', { audience: seq.audience, segment: seq.segment || {} })
+      .then((r) => alive && setAudCount(r))
+      .catch(() => alive && setAudCount(null));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq?.id, seq?.audience, JSON.stringify(seq?.segment)]);
+
+  const patchSeg = (p: Partial<EmailSegment>) => setSeq((s) => (s ? { ...s, segment: { ...(s.segment || {}), ...p } } : s));
+  const toggleArr = (arr: string[] | undefined, v: string): string[] => {
+    const set = new Set(arr || []);
+    set.has(v) ? set.delete(v) : set.add(v);
+    return [...set];
+  };
 
   // ИИ собирает целое письмо по вводным и раскидывает по блокам выбранного шага.
   async function generateStep(st: EmailStep) {
@@ -122,7 +151,7 @@ export function EmailSequenceBuilder() {
   }
   async function save() {
     if (!seq) return;
-    await api.put(`/api/admin/email-sequences/${seq.id}`, { name: seq.name, audience: seq.audience, enabled: seq.enabled, steps: seq.steps });
+    await api.put(`/api/admin/email-sequences/${seq.id}`, { name: seq.name, audience: seq.audience, enabled: seq.enabled, steps: seq.steps, segment: seq.segment || {} });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     load();
@@ -237,6 +266,86 @@ export function EmailSequenceBuilder() {
                 <Toggle checked={seq.enabled} onChange={(v) => patchSeq({ enabled: v })} />
               </div>
             </div>
+            {/* Кому отправляется: сегмент-фильтры по выбранной аудитории */}
+            <div className="mt-4 rounded-xl border border-line bg-bg p-3">
+              <div className="mb-2 text-xs font-semibold text-muted">Кому отправляется (сегмент)</div>
+              {seq.audience === 'waitlist' ? (
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted">статус:</span>
+                    {(['new', 'invited', 'converted'] as const).map((st) => {
+                      const on = (seq.segment?.statuses || []).includes(st);
+                      const lbl: Record<string, string> = { new: 'новый', invited: 'приглашён', converted: 'оплатил' };
+                      return (
+                        <button key={st} onClick={() => patchSeg({ statuses: toggleArr(seq.segment?.statuses, st) })} className={`rounded-full border px-2.5 py-0.5 text-xs ${on ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line hover:bg-panel-2'}`}>
+                          {lbl[st]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-muted">
+                    источник ~
+                    <Input className="w-32" value={seq.segment?.sourceContains || ''} onChange={(e) => patchSeg({ sourceContains: e.target.value })} placeholder="facebook…" />
+                  </label>
+                  <div className="w-40">
+                    <Select
+                      size="sm"
+                      value={seq.segment?.withPromo || 'any'}
+                      onChange={(v) => patchSeg({ withPromo: v as EmailSegment['withPromo'] })}
+                      options={[
+                        { value: 'any', label: 'промокод: любой' },
+                        { value: 'with', label: 'с промокодом' },
+                        { value: 'without', label: 'без промокода' },
+                      ]}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted">тариф:</span>
+                    {(['FREE', 'PRO', 'VIP'] as const).map((pl) => {
+                      const on = (seq.segment?.plans || []).includes(pl);
+                      return (
+                        <button key={pl} onClick={() => patchSeg({ plans: toggleArr(seq.segment?.plans, pl) })} className={`rounded-full border px-2.5 py-0.5 text-xs ${on ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line hover:bg-panel-2'}`}>
+                          {pl}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="w-52">
+                    <Select
+                      size="sm"
+                      value={seq.segment?.activation || 'any'}
+                      onChange={(v) => patchSeg({ activation: v as EmailSegment['activation'] })}
+                      options={[
+                        { value: 'any', label: 'активация: любая' },
+                        { value: 'connected', label: 'подключили аккаунт' },
+                        { value: 'not_connected', label: 'не подключили' },
+                        { value: 'with_lead', label: 'есть лид' },
+                        { value: 'no_lead', label: 'без лидов' },
+                      ]}
+                    />
+                  </div>
+                </div>
+              )}
+              <label className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+                записались за последние
+                <Input type="number" min={0} className="w-16" value={seq.segment?.signupWithinDays || 0} onChange={(e) => patchSeg({ signupWithinDays: Math.max(0, +e.target.value) })} />
+                дней (0 = все)
+              </label>
+              <div className="mt-2 text-xs">
+                {audCount === null ? (
+                  <span className="text-muted">считаю…</span>
+                ) : (
+                  <span className="text-accent-ink">
+                    Уйдёт <b>{audCount.count}</b> адресам · <span className="text-muted">{audCount.describe}</span>
+                    {audCount.sample.length > 0 && <span className="text-muted"> · напр.: {audCount.sample.slice(0, 3).join(', ')}</span>}
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить цепочку'}</Button>
               <Button variant="ghost" onClick={() => remove(seq.id)}>
@@ -303,7 +412,10 @@ export function EmailSequenceBuilder() {
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {/* Редактор блоков (drag-and-drop) */}
                   <div>
-                    <div className="mb-2 text-xs font-medium text-muted">Блоки письма (тяни, чтобы менять порядок)</div>
+                    <div className="mb-1 text-xs font-medium text-muted">Блоки письма (тяни, чтобы менять порядок)</div>
+                    <div className="mb-2 text-[11px] text-muted">
+                      Переменные в тексте/ссылках: <code className="rounded bg-panel-2 px-1">{'{{promo}}'}</code> <code className="rounded bg-panel-2 px-1">{'{{name}}'}</code> <code className="rounded bg-panel-2 px-1">{'{{email}}'}</code>. Для листа ожидания <code className="rounded bg-panel-2 px-1">{'{{promo}}'}</code> подставит персональный код (выдаст автоматически, если ещё нет).
+                    </div>
                     <div className="space-y-1.5">
                       {st.blocks.map((b, bi) => (
                         <div
@@ -411,8 +523,69 @@ function BlockFields({ b, onChange }: { b: EmailBlock; onChange: (p: Partial<Ema
           ]}
         />
       )}
+
+      {/* Оформление текста: шрифт, размер, стиль, цвет */}
+      {(b.type === 'heading' || b.type === 'text' || b.type === 'button') && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="min-w-[130px] flex-1">
+            <Select
+              size="sm"
+              value={b.fontFamily || 'system'}
+              onChange={(v) => onChange({ fontFamily: v as EmailFont })}
+              options={EMAIL_FONTS}
+            />
+          </div>
+          <input
+            type="number"
+            min={10}
+            max={48}
+            value={b.fontSize || (b.type === 'heading' ? 22 : 15)}
+            onChange={(e) => onChange({ fontSize: Math.max(10, Math.min(48, +e.target.value)) })}
+            className="w-16 rounded-lg border border-line bg-bg px-2 py-1 text-sm"
+            title="Размер, px"
+          />
+          <button
+            type="button"
+            onClick={() => onChange({ bold: !b.bold })}
+            className={`h-7 w-7 rounded-lg border text-sm font-bold ${b.bold ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line hover:bg-panel-2'}`}
+            title="Жирный"
+          >
+            B
+          </button>
+          {b.type !== 'button' && (
+            <button
+              type="button"
+              onClick={() => onChange({ italic: !b.italic })}
+              className={`h-7 w-7 rounded-lg border text-sm italic ${b.italic ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line hover:bg-panel-2'}`}
+              title="Курсив"
+            >
+              I
+            </button>
+          )}
+          {b.type !== 'button' && (
+            <input
+              type="color"
+              value={b.color || (b.type === 'heading' ? '#111111' : '#333333')}
+              onChange={(e) => onChange({ color: e.target.value })}
+              className="h-7 w-8 cursor-pointer rounded-lg border border-line bg-bg"
+              title="Цвет текста"
+            />
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+// Инлайн-стиль текста блока для превью (зеркалит серверный рендер).
+function previewTextStyle(b: EmailBlock, def: { size: number; weight: number; color: string }): CSSProperties {
+  return {
+    fontSize: (b.fontSize && b.fontSize > 0 ? b.fontSize : def.size) + 'px',
+    fontWeight: b.bold === true ? 700 : b.bold === false ? 400 : def.weight,
+    fontStyle: b.italic ? 'italic' : undefined,
+    fontFamily: b.fontFamily ? EMAIL_FONT_CSS[b.fontFamily] : undefined,
+    color: b.color || def.color,
+  };
 }
 
 // Превью письма (как примерно увидит получатель).
@@ -424,12 +597,12 @@ export function EmailPreview({ subject, blocks }: { subject: string; blocks: Ema
         {blocks.length === 0 && <div className="text-center text-sm text-black/40">Пустое письмо — добавь блоки.</div>}
         {blocks.map((b) => {
           const al = b.align === 'center' ? 'text-center' : b.align === 'right' ? 'text-right' : 'text-left';
-          if (b.type === 'heading') return <div key={b.id} className={`text-lg font-bold ${al}`}>{b.text}</div>;
-          if (b.type === 'text') return <p key={b.id} className={`whitespace-pre-wrap text-sm leading-relaxed text-black/80 ${al}`}>{b.text}</p>;
+          if (b.type === 'heading') return <div key={b.id} className={al} style={previewTextStyle(b, { size: 22, weight: 700, color: '#111111' })}>{b.text}</div>;
+          if (b.type === 'text') return <p key={b.id} className={`whitespace-pre-wrap leading-relaxed ${al}`} style={previewTextStyle(b, { size: 15, weight: 400, color: '#333333' })}>{b.text}</p>;
           if (b.type === 'button')
             return (
               <div key={b.id} className={al}>
-                <span className="inline-block rounded-lg bg-[#c6f24e] px-4 py-2 text-sm font-semibold text-[#0b0b0f]">{b.text || 'Кнопка'}</span>
+                <span className="inline-block rounded-lg bg-[#c6f24e] px-4 py-2 font-semibold text-[#0b0b0f]" style={{ fontSize: (b.fontSize && b.fontSize > 0 ? b.fontSize : 15) + 'px', fontFamily: b.fontFamily ? EMAIL_FONT_CSS[b.fontFamily] : undefined }}>{b.text || 'Кнопка'}</span>
               </div>
             );
           if (b.type === 'image') {

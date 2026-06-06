@@ -25,6 +25,32 @@ export async function sendEmail({ to, subject, html }: { to: string; subject: st
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// Email-безопасные семейства шрифтов (с фолбэками). Ключ хранится в блоке.
+const FONT_STACKS: Record<string, string> = {
+  system: "-apple-system,Segoe UI,Roboto,Arial,sans-serif",
+  arial: "Arial,Helvetica,sans-serif",
+  verdana: "Verdana,Geneva,sans-serif",
+  tahoma: "Tahoma,Geneva,sans-serif",
+  trebuchet: "'Trebuchet MS',Helvetica,sans-serif",
+  georgia: "Georgia,'Times New Roman',serif",
+  times: "'Times New Roman',Times,serif",
+  courier: "'Courier New',Courier,monospace",
+};
+function fontStack(key: unknown): string | null {
+  return key && FONT_STACKS[String(key)] ? FONT_STACKS[String(key)] : null;
+}
+// Доп. инлайн-стили текста из блока (шрифт/размер/жирность/курсив/цвет).
+function textStyle(b: any, defaults: { size: number; weight: number }): string {
+  const css: string[] = [];
+  const ff = fontStack(b?.fontFamily);
+  css.push(`font-size:${Number(b?.fontSize) > 0 ? Number(b.fontSize) : defaults.size}px`);
+  css.push(`font-weight:${b?.bold === true ? 700 : b?.bold === false ? 400 : defaults.weight}`);
+  if (b?.italic) css.push('font-style:italic');
+  if (ff) css.push(`font-family:${ff}`);
+  if (typeof b?.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(b.color)) css.push(`color:${b.color}`);
+  return css.join(';');
+}
+
 // Блоки конструктора → HTML письма (инлайн-стили, безопасно для почтовых клиентов).
 export function renderEmailHtml(blocks: any[]): string {
   const body = (blocks || [])
@@ -32,11 +58,14 @@ export function renderEmailHtml(blocks: any[]): string {
       const al = b?.align === 'center' ? 'center' : b?.align === 'right' ? 'right' : 'left';
       switch (b?.type) {
         case 'heading':
-          return `<h1 style="font-size:22px;font-weight:700;margin:0 0 12px;text-align:${al};color:#111">${esc(b.text)}</h1>`;
+          return `<h1 style="${textStyle(b, { size: 22, weight: 700 })};margin:0 0 12px;text-align:${al};color:#111">${esc(b.text)}</h1>`;
         case 'text':
-          return `<p style="font-size:15px;line-height:1.6;margin:0 0 12px;text-align:${al};color:#333;white-space:pre-wrap">${esc(b.text)}</p>`;
-        case 'button':
-          return `<div style="text-align:${al};margin:16px 0"><a href="${esc(b.url)}" style="display:inline-block;background:#c6f24e;color:#0b0b0f;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:10px;font-size:15px">${esc(b.text || 'Открыть')}</a></div>`;
+          return `<p style="${textStyle(b, { size: 15, weight: 400 })};line-height:1.6;margin:0 0 12px;text-align:${al};color:#333;white-space:pre-wrap">${esc(b.text)}</p>`;
+        case 'button': {
+          const bs = fontStack(b?.fontFamily);
+          const sz = Number(b?.fontSize) > 0 ? Number(b.fontSize) : 15;
+          return `<div style="text-align:${al};margin:16px 0"><a href="${esc(b.url)}" style="display:inline-block;background:#c6f24e;color:#0b0b0f;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:10px;font-size:${sz}px${bs ? `;font-family:${bs}` : ''}">${esc(b.text || 'Открыть')}</a></div>`;
+        }
         case 'image': {
           if (!b?.url) return '';
           const w = b.width === 'half' ? '50%' : b.width === 'small' ? '30%' : '100%';
