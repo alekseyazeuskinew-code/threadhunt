@@ -51,6 +51,13 @@ export interface SearchDetail extends SearchSummary {
   obDeadlineHours?: number;
   obDeadlineAt?: string | null;
   obTimezone?: string;
+  commentRule?: CommentRuleConfig | null;
+}
+
+export interface CommentRuleConfig {
+  enabled: boolean;
+  mode: 'keyword' | 'all';
+  replyText: string;
 }
 
 export type Stage = 'NEW' | 'CONTACTED' | 'SCREENING' | 'HIRED' | 'BENCH' | 'REJECTED';

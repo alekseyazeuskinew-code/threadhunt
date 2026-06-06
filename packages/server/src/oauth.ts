@@ -52,7 +52,7 @@ export function threadsAuthUrl(state: string): string {
   const p = new URLSearchParams({
     client_id: env.THREADS_APP_ID!,
     redirect_uri: env.THREADS_OAUTH_REDIRECT!,
-    scope: 'threads_basic,threads_content_publish',
+    scope: 'threads_basic,threads_content_publish,threads_manage_replies,threads_read_replies',
     response_type: 'code',
     state,
   });

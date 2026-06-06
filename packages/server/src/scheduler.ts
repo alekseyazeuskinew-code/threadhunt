@@ -7,7 +7,7 @@
 
 import { db } from './db.js';
 import { decrypt } from './crypto.js';
-import { publishPost, type MediaType } from './threads/publisher.js';
+import { publishPost, fetchReplies, publishReply, type MediaType } from './threads/publisher.js';
 import { resolveConnection } from './threads/resolve.js';
 import { sendEmail, renderEmailHtml } from './email.js';
 import { resolveRecipients, parseSegment, personalizeStep, usesPromoVar } from './emailAudience.js';
@@ -15,13 +15,84 @@ import { ensurePromoForEmail } from './promoCodes.js';
 
 let running = false;
 let dripRunning = false;
+let commentsRunning = false;
 
 export function startScheduler() {
   setInterval(tick, 60_000); // автопостинг — каждую минуту
   tick(); // и сразу при старте
   setInterval(dripTick, 5 * 60_000); // email-цепочки — каждые 5 минут
   setTimeout(dripTick, 15_000); // и вскоре после старта
-  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки, внутри API)');
+  setInterval(commentTick, 4 * 60_000); // отбивка в комментариях — каждые 4 минуты
+  setTimeout(commentTick, 30_000); // и вскоре после старта
+  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии, внутри API)');
+}
+
+// Авто-отбивка в комментариях через Threads API: под каждым нашим недавним постом
+// ищем новые ответы и публикуем ответ по правилу (keyword — только с кодовым
+// словом; all — на любой комментарий). Дедуп по CommentReply. Бюджет на проход.
+// GRACEFUL: нет токена/scope (до одобрения Meta) — просто пропускаем без ошибок.
+async function commentTick() {
+  if (commentsRunning) return;
+  commentsRunning = true;
+  try {
+    const rules = await db.commentRule.findMany({
+      where: { enabled: true, search: { status: 'ACTIVE' } },
+      include: { search: { include: { keywords: true, connection: true } } },
+    });
+    let budget = 30; // максимум ответов за один проход
+    const since = new Date(Date.now() - 7 * 86_400_000);
+    for (const rule of rules) {
+      if (budget <= 0) break;
+      if (!rule.replyText.trim()) continue;
+      const search = rule.search;
+      const conn = await resolveConnection(search);
+      if (!conn?.accessTokenEnc) continue; // нет подключённого OAuth-аккаунта
+      let token: string;
+      try {
+        token = decrypt(conn.accessTokenEnc);
+      } catch {
+        continue;
+      }
+      const keywords = (search.keywords || []).map((k) => k.text.toLowerCase()).filter(Boolean);
+      // недавние успешно опубликованные посты этого поиска
+      const posts = await db.publishedPost.findMany({
+        where: { searchId: search.id, ok: true, threadsPostId: { not: null }, createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+      });
+      for (const post of posts) {
+        if (budget <= 0) break;
+        let replies;
+        try {
+          replies = await fetchReplies(token, post.threadsPostId!);
+        } catch {
+          break; // нет доступа (scope/срок токена) — дальше по этому поиску нет смысла
+        }
+        for (const rep of replies) {
+          if (budget <= 0) break;
+          if (!rep.id) continue;
+          if (rep.username && conn.username && rep.username.toLowerCase() === conn.username.toLowerCase()) continue; // наш же ответ
+          const text = (rep.text || '').toLowerCase();
+          if (rule.mode === 'keyword' && keywords.length && !keywords.some((k) => text.includes(k))) continue;
+          // дедуп: уже отвечали на этот комментарий?
+          const seen = await db.commentReply.findUnique({ where: { replyId: rep.id } });
+          if (seen) continue;
+          try {
+            await publishReply(token, conn.threadsUserId, rep.id, rule.replyText);
+            await db.commentReply.create({ data: { searchId: search.id, replyId: rep.id } });
+            budget--;
+          } catch {
+            // конкретный ответ не прошёл — помечаем как обработанный, чтобы не долбить
+            await db.commentReply.create({ data: { searchId: search.id, replyId: rep.id } }).catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[comments] tick error:', (e as Error).message);
+  } finally {
+    commentsRunning = false;
+  }
 }
 
 // Drip email-цепочек для новых пользователей: каждому подходящему юзеру шлём

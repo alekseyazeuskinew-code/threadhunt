@@ -188,29 +188,79 @@ function AutomationTab({
         </div>
       </div>
 
-      {/* ── Отбивка в комментариях (скоро) ── */}
-      <div className="rounded-2xl border border-dashed border-line bg-panel p-4 opacity-90">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 font-medium">
-              Отбивка в комментариях <Badge tone="neutral">скоро</Badge>
-            </div>
-            <div className="text-sm text-muted">Бот будет отвечать под постами — на все комментарии или только с кодовым словом.</div>
-          </div>
-          <Toggle checked={false} onChange={() => {}} disabled />
+      {/* ── Отбивка в комментариях (через Threads API) ── */}
+      <CommentRuleCard s={s} reload={reload} />
+    </div>
+  );
+}
+
+// Правило авто-ответа на комментарии под постами (Threads API).
+function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void }) {
+  const cr = s.commentRule;
+  const [enabled, setEnabled] = useState(cr?.enabled ?? false);
+  const [mode, setMode] = useState<'keyword' | 'all'>(cr?.mode ?? 'keyword');
+  const [replyText, setReplyText] = useState(cr?.replyText ?? '');
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function save(patch?: { enabled?: boolean }) {
+    setSaving(true);
+    try {
+      await api.put(`/api/searches/${s.id}/comment-rule`, { enabled: patch?.enabled ?? enabled, mode, replyText });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-line bg-panel p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">Отбивка в комментариях</div>
+          <div className="text-sm text-muted">Бот отвечает под твоими постами — на все комментарии или только с кодовым словом.</div>
         </div>
-        <div className="mt-3 space-y-2 text-sm text-muted">
-          <label className="flex items-center gap-2">
-            <input type="radio" disabled checked readOnly /> только с кодовым словом
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="radio" disabled readOnly /> на все комментарии
-          </label>
-        </div>
-        <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
-          Появится после одобрения отдельного доступа в Meta (threads_read_replies / threads_manage_replies). Настройки сохранятся заранее.
-        </p>
+        <Toggle
+          checked={enabled}
+          onChange={(v) => {
+            setEnabled(v);
+            save({ enabled: v });
+          }}
+        />
       </div>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-sm">
+        <label className="flex items-center gap-2">
+          <input type="radio" checked={mode === 'keyword'} onChange={() => setMode('keyword')} /> только с кодовым словом
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" checked={mode === 'all'} onChange={() => setMode('all')} /> на все комментарии
+        </label>
+      </div>
+
+      <div className="mt-3">
+        <label className="mb-1.5 block text-sm">Текст ответа в комментарии</label>
+        <Textarea
+          value={replyText}
+          onChange={(e) => setReplyText(e.target.value)}
+          placeholder="Напр.: Привет! Спасибо за интерес 🙌 Напиши кодовое слово в директ — пришлю детали."
+        />
+      </div>
+
+      <div className="mt-3 flex items-center gap-3">
+        <Button onClick={() => save()} disabled={saving}>
+          {saved ? 'Сохранено ✓' : 'Сохранить'}
+        </Button>
+        {mode === 'keyword' && <span className="text-xs text-muted">Отвечаем только если в комментарии есть кодовое слово из вкладки «Слова».</span>}
+      </div>
+
+      <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
+        Работает для аккаунта, подключённого через «Войти через Threads» (вкладка «Подключения»). Требует доступа Meta
+        (threads_read_replies / threads_manage_replies) — включится автоматически после одобрения и переподключения аккаунта.
+        Настройки можно сохранить заранее.
+      </p>
     </div>
   );
 }

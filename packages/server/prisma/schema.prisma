@@ -241,7 +241,7 @@ model Search {
   replyTemplates ReplyTemplate[]
   postTemplates  PostTemplate[]
   publishConfig  PublishConfig?
-  commentRules   CommentRule[]
+  commentRule    CommentRule?
   leads          Lead[]
   publishedPosts PublishedPost[]
   adCampaigns    AdCampaign[]
@@ -300,13 +300,25 @@ model PublishConfig {
   nextIndex       Int     @default(0)
 }
 
-// Правило отбивки в комментариях (этап 3).
+// Правило отбивки в комментариях. Через Threads API: при новом ответе под нашим
+// постом бот публикует ответ (mode=keyword — только если текст содержит кодовое
+// слово; mode=all — на любой комментарий). Требует scope threads_read_replies +
+// threads_manage_replies (Meta App Review).
 model CommentRule {
   id        String  @id @default(cuid())
-  searchId  String
+  searchId  String  @unique // одно правило на поиск
   search    Search  @relation(fields: [searchId], references: [id], onDelete: Cascade)
   enabled   Boolean @default(false)
+  mode      String  @default("keyword") // keyword | all
   replyText String  @default("")
+}
+
+// Дедуп авто-ответов на комментарии: на один ответ Threads отвечаем один раз.
+model CommentReply {
+  id        String   @id @default(cuid())
+  searchId  String
+  replyId   String   @unique // id комментария в Threads
+  createdAt DateTime @default(now())
 
   @@index([searchId])
 }

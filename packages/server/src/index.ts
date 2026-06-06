@@ -66,6 +66,15 @@ async function ensureSchema() {
       "status" TEXT NOT NULL DEFAULT 'new',
       "createdAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
+    'ALTER TABLE "CommentRule" ADD COLUMN IF NOT EXISTS "mode" TEXT NOT NULL DEFAULT \'keyword\'',
+    'CREATE UNIQUE INDEX IF NOT EXISTS "CommentRule_searchId_key" ON "CommentRule" ("searchId")',
+    `CREATE TABLE IF NOT EXISTS "CommentReply" (
+      "id" TEXT PRIMARY KEY,
+      "searchId" TEXT NOT NULL,
+      "replyId" TEXT NOT NULL UNIQUE,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
+    'CREATE INDEX IF NOT EXISTS "CommentReply_searchId_idx" ON "CommentReply" ("searchId")',
     'ALTER TABLE "WaitlistEntry" ADD COLUMN IF NOT EXISTS "utm" TEXT',
     'ALTER TABLE "WaitlistEntry" ADD COLUMN IF NOT EXISTS "promoCode" TEXT',
     'ALTER TABLE "WaitlistEntry" ADD COLUMN IF NOT EXISTS "isDemo" BOOLEAN NOT NULL DEFAULT false',

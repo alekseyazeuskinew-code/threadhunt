@@ -72,12 +72,35 @@ export async function searchRoutes(app: FastifyInstance) {
         replyTemplates: { orderBy: { order: 'asc' } },
         postTemplates: { orderBy: { order: 'asc' } },
         publishConfig: true,
+        commentRule: true,
         connection: { select: { id: true, username: true } },
         _count: { select: { leads: true, publishedPosts: true } },
       },
     });
     if (!search) return reply.code(404).send({ error: 'not found' });
     return search;
+  });
+
+  // ── Правило отбивки в комментариях (через Threads API) ──
+  const commentInput = z.object({
+    enabled: z.boolean().optional(),
+    mode: z.enum(['keyword', 'all']).optional(),
+    replyText: z.string().max(500).optional(),
+  });
+  app.put('/api/searches/:id/comment-rule', async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
+    const parsed = commentInput.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const d = parsed.data;
+    const row = await db.commentRule.upsert({
+      where: { searchId: id },
+      create: { searchId: id, enabled: d.enabled ?? false, mode: d.mode ?? 'keyword', replyText: d.replyText ?? '' },
+      update: { ...(d.enabled !== undefined ? { enabled: d.enabled } : {}), ...(d.mode ? { mode: d.mode } : {}), ...(d.replyText !== undefined ? { replyText: d.replyText } : {}) },
+    });
+    return row;
   });
 
   // ── Обновить базовые поля ──

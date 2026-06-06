@@ -119,6 +119,38 @@ export async function publishText(
   return publishPost(accessToken, threadsUserId, { text });
 }
 
+export interface ThreadsReply {
+  id: string;
+  text?: string;
+  username?: string;
+  timestamp?: string;
+}
+
+/** Получить ответы (комментарии) под нашим постом. Требует threads_read_replies. */
+export async function fetchReplies(accessToken: string, mediaId: string): Promise<ThreadsReply[]> {
+  const json = await apiGet(`/${mediaId}/replies`, {
+    fields: 'id,text,username,timestamp',
+    access_token: accessToken,
+  });
+  return Array.isArray(json?.data) ? (json.data as ThreadsReply[]) : [];
+}
+
+/** Опубликовать ответ на комментарий/пост. Требует threads_manage_replies. */
+export async function publishReply(accessToken: string, threadsUserId: string, replyToId: string, text: string): Promise<{ id: string }> {
+  const container = await apiPost(`/${threadsUserId}/threads`, {
+    media_type: 'TEXT',
+    text,
+    reply_to_id: replyToId,
+    access_token: accessToken,
+  });
+  await new Promise((r) => setTimeout(r, 2000));
+  const published = await apiPost(`/${threadsUserId}/threads_publish`, {
+    creation_id: container.id,
+    access_token: accessToken,
+  });
+  return { id: published.id };
+}
+
 /** Продлить долгоживущий токен (раз в ~60 дней). Возвращает новый токен + срок. */
 export async function refreshToken(accessToken: string) {
   return apiGet('/refresh_access_token', {
