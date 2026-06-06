@@ -57,6 +57,7 @@ export type Stage = 'NEW' | 'CONTACTED' | 'SCREENING' | 'HIRED' | 'BENCH' | 'REJ
 
 export interface Lead {
   id: string;
+  searchId?: string;
   fromUsername: string | null;
   matchedKeyword: string;
   section: string | null;
