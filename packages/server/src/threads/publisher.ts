@@ -34,6 +34,19 @@ export interface PublishResult {
 
 export type MediaType = 'image' | 'video' | '';
 
+// Одно медиа поста (для карусели — их несколько).
+export interface MediaItem {
+  url: string;
+  type: 'image' | 'video';
+}
+
+// Один сегмент цепочки веток: текст + опциональная карусель медиа.
+// segment[0] = корневой пост, остальные публикуются как ответы (reply_to_id).
+export interface ChainSegment {
+  text?: string;
+  media?: MediaItem[];
+}
+
 /** Узнать id/username владельца токена. */
 export async function whoami(accessToken: string) {
   return apiGet('/me', {
@@ -61,53 +74,156 @@ async function waitContainerReady(creationId: string, token: string, maxMs = 120
   throw new Error('Таймаут обработки медиа (видео слишком долго кодируется).');
 }
 
+// Создать контейнер ОДНОГО медиа (image/video). Опции: элемент карусели
+// (is_carousel_item) и/или ответ (reply_to_id). Для элемента карусели текст не
+// прикрепляется — он живёт на родительском CAROUSEL-контейнере.
+async function createMediaItemContainer(
+  accessToken: string,
+  threadsUserId: string,
+  item: MediaItem,
+  opts: { text?: string; isCarouselItem?: boolean; replyToId?: string } = {},
+): Promise<string> {
+  const params: Record<string, string> = { access_token: accessToken };
+  if (item.type === 'image') {
+    params.media_type = 'IMAGE';
+    params.image_url = item.url;
+  } else {
+    params.media_type = 'VIDEO';
+    params.video_url = item.url;
+  }
+  if (opts.isCarouselItem) params.is_carousel_item = 'true';
+  else if (opts.text) params.text = opts.text;
+  if (opts.replyToId) params.reply_to_id = opts.replyToId;
+  const c = await apiPost(`/${threadsUserId}/threads`, params);
+  return c.id as string;
+}
+
+// Дождаться готовности контейнера, если он содержит видео (видео кодируется
+// асинхронно). Для фото/текста — короткая пауза.
+async function settleContainer(creationId: string, accessToken: string, hasVideo: boolean) {
+  if (hasVideo) await waitContainerReady(creationId, accessToken);
+  else await new Promise((r) => setTimeout(r, 3000));
+}
+
+// Получить permalink опубликованного поста (не критично при сбое).
+async function fetchPermalink(publishedId: string, accessToken: string): Promise<string | null> {
+  try {
+    const info = await apiGet(`/${publishedId}`, { fields: 'permalink', access_token: accessToken });
+    return info.permalink || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Опубликовать ОДИН сегмент: текст и/или медиа (1 шт. или карусель), опционально
+ * как ответ (reply_to_id) — на этом строятся и обычный пост, и цепочки веток.
+ * Карусель: создаём контейнер на каждый элемент (is_carousel_item) → родительский
+ * CAROUSEL с children → публикуем.
+ */
+export async function publishSegment(
+  accessToken: string,
+  threadsUserId: string,
+  seg: ChainSegment,
+  opts: { replyToId?: string } = {},
+): Promise<PublishResult> {
+  const text = seg.text || '';
+  const media = (seg.media || []).filter((m) => m && m.url && (m.type === 'image' || m.type === 'video'));
+  if (!text && !media.length) throw new Error('Пустой сегмент: нет ни текста, ни медиа.');
+
+  let creationId: string;
+  let mediaType: string;
+
+  if (media.length > 1) {
+    // ── Карусель ──
+    const childIds: string[] = [];
+    for (const item of media) {
+      const id = await createMediaItemContainer(accessToken, threadsUserId, item, { isCarouselItem: true });
+      await settleContainer(id, accessToken, item.type === 'video');
+      childIds.push(id);
+    }
+    const parent = await apiPost(`/${threadsUserId}/threads`, {
+      media_type: 'CAROUSEL',
+      children: childIds.join(','),
+      text,
+      access_token: accessToken,
+      ...(opts.replyToId ? { reply_to_id: opts.replyToId } : {}),
+    });
+    creationId = parent.id;
+    await settleContainer(creationId, accessToken, false);
+    mediaType = 'carousel';
+  } else if (media.length === 1) {
+    // ── Одно медиа ──
+    const item = media[0];
+    creationId = await createMediaItemContainer(accessToken, threadsUserId, item, { text, replyToId: opts.replyToId });
+    await settleContainer(creationId, accessToken, item.type === 'video');
+    mediaType = item.type;
+  } else {
+    // ── Только текст ──
+    const c = await apiPost(`/${threadsUserId}/threads`, {
+      media_type: 'TEXT',
+      text,
+      access_token: accessToken,
+      ...(opts.replyToId ? { reply_to_id: opts.replyToId } : {}),
+    });
+    creationId = c.id;
+    await settleContainer(creationId, accessToken, false);
+    mediaType = 'text';
+  }
+
+  const published = await apiPost(`/${threadsUserId}/threads_publish`, {
+    creation_id: creationId,
+    access_token: accessToken,
+  });
+  return { id: published.id, permalink: await fetchPermalink(published.id, accessToken), mediaType };
+}
+
 /**
  * Опубликовать пост: текст и/или медиа по ПУБЛИЧНОЙ ссылке (порт publishPost из publisher.js).
- * mediaType: 'image' | 'video' | '' (пусто = только текст).
+ * mediaType: 'image' | 'video' | '' (пусто = только текст). Поддерживает карусель
+ * через opts.media (массив). Обёртка над publishSegment для обратной совместимости.
  */
 export async function publishPost(
   accessToken: string,
   threadsUserId: string,
-  opts: { text?: string; mediaUrl?: string; mediaType?: MediaType },
+  opts: { text?: string; mediaUrl?: string; mediaType?: MediaType; media?: MediaItem[] },
 ): Promise<PublishResult> {
-  const text = opts.text || '';
-  const mediaUrl = opts.mediaUrl || '';
-  const mediaType = opts.mediaType || '';
-  if ((mediaType === 'image' || mediaType === 'video') && !mediaUrl) throw new Error('Указан тип медиа, но нет ссылки.');
-  if (!text && !mediaUrl) throw new Error('Пустой пост: нет ни текста, ни медиа.');
-
-  // 1) контейнер (TEXT / IMAGE / VIDEO)
-  let params: Record<string, string>;
-  if (mediaUrl && mediaType === 'image') {
-    params = { media_type: 'IMAGE', image_url: mediaUrl, text, access_token: accessToken };
-  } else if (mediaUrl && mediaType === 'video') {
-    params = { media_type: 'VIDEO', video_url: mediaUrl, text, access_token: accessToken };
-  } else {
-    params = { media_type: 'TEXT', text, access_token: accessToken };
+  const media: MediaItem[] =
+    opts.media && opts.media.length
+      ? opts.media
+      : opts.mediaUrl && (opts.mediaType === 'image' || opts.mediaType === 'video')
+        ? [{ url: opts.mediaUrl, type: opts.mediaType }]
+        : [];
+  if ((opts.mediaType === 'image' || opts.mediaType === 'video') && !opts.mediaUrl && !(opts.media && opts.media.length)) {
+    throw new Error('Указан тип медиа, но нет ссылки.');
   }
-  const container = await apiPost(`/${threadsUserId}/threads`, params);
+  return publishSegment(accessToken, threadsUserId, { text: opts.text, media });
+}
 
-  // 2) ждём готовности: для видео опрашиваем статус, иначе просто пауза
-  if (mediaType === 'video') {
-    await waitContainerReady(container.id, accessToken);
-  } else {
-    await new Promise((r) => setTimeout(r, 3000));
+/**
+ * Опубликовать ЦЕПОЧКУ веток: первый сегмент — корневой пост, каждый следующий —
+ * ответ на предыдущий (reply_to_id). Так «ветка под веткой» залетает сильнее.
+ * Возвращает результат корневого поста (+ id всех сегментов и число опубликованных).
+ */
+export async function publishChain(
+  accessToken: string,
+  threadsUserId: string,
+  segments: ChainSegment[],
+): Promise<PublishResult & { segmentIds: string[]; segmentCount: number }> {
+  const segs = segments.filter((s) => (s.text && s.text.trim()) || (s.media && s.media.length));
+  if (!segs.length) throw new Error('Пустая цепочка: нет ни одного сегмента.');
+
+  const root = await publishSegment(accessToken, threadsUserId, segs[0]);
+  const segmentIds = [root.id];
+  let replyTo = root.id;
+  // Ответы публикуем последовательно, пауза между ними бережёт аккаунт от лимитов.
+  for (let i = 1; i < segs.length; i++) {
+    await new Promise((r) => setTimeout(r, 2500));
+    const r = await publishSegment(accessToken, threadsUserId, segs[i], { replyToId: replyTo });
+    segmentIds.push(r.id);
+    replyTo = r.id; // следующая ветка цепляется к этой — получается «ветка под веткой»
   }
-
-  // 3) публикация
-  const published = await apiPost(`/${threadsUserId}/threads_publish`, {
-    creation_id: container.id,
-    access_token: accessToken,
-  });
-
-  let permalink: string | null = null;
-  try {
-    const info = await apiGet(`/${published.id}`, { fields: 'permalink', access_token: accessToken });
-    permalink = info.permalink || null;
-  } catch {
-    /* не критично */
-  }
-  return { id: published.id, permalink, mediaType: mediaType || 'text' };
+  return { ...root, segmentIds, segmentCount: segmentIds.length };
 }
 
 /** Текстовый пост — обёртка над publishPost. */

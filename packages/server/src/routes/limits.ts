@@ -14,10 +14,17 @@ const DEFAULTS = {
   workingHoursEnabled: false,
   activeFrom: '09:00',
   activeTo: '21:00',
+  // Параметры прохода отбивки.
+  sweepIntervalMinutes: 180,
+  safeMode: false,
+  sweepMain: true,
+  sweepRequests: true,
+  sweepHidden: true,
+  runNowAt: null as Date | null,
 };
 
-// Анти-бан потолки: нельзя быстрее/больше этих значений.
-const CAP = { replyDelayMin: 3, repliesMax: 100, dialogsMax: 100 };
+// Анти-бан потолки: нельзя быстрее/больше/чаще этих значений.
+const CAP = { replyDelayMin: 3, repliesMax: 100, dialogsMax: 100, intervalMin: 30 };
 
 export async function limitsRoutes(app: FastifyInstance) {
   app.get('/api/limits', async (req, reply) => {
@@ -34,6 +41,12 @@ export async function limitsRoutes(app: FastifyInstance) {
     workingHoursEnabled: z.boolean().optional(),
     activeFrom: z.string().regex(HHMM).optional(),
     activeTo: z.string().regex(HHMM).optional(),
+    // Параметры прохода отбивки.
+    sweepIntervalMinutes: z.number().int().min(CAP.intervalMin, `Не чаще раза в ${CAP.intervalMin} мин — это бережёт аккаунт`).max(1440).optional(),
+    safeMode: z.boolean().optional(),
+    sweepMain: z.boolean().optional(),
+    sweepRequests: z.boolean().optional(),
+    sweepHidden: z.boolean().optional(),
   });
 
   app.put('/api/limits', async (req, reply) => {
@@ -44,6 +57,16 @@ export async function limitsRoutes(app: FastifyInstance) {
     const data = parsed.data;
     const saved = await db.limits.upsert({ where: { userId }, create: { userId, ...data }, update: data });
     return { ...saved, caps: CAP };
+  });
+
+  // «Прогон сейчас»: ставим метку времени — расширение увидит её в задачах и
+  // запустит обход вне расписания (минуя кулдаун). Хотя бы один раздел должен
+  // быть выбран, иначе обходить нечего.
+  app.post('/api/dm/run-now', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const l = await db.limits.upsert({ where: { userId }, create: { userId, runNowAt: new Date() }, update: { runNowAt: new Date() } });
+    return { ok: true, runNowAt: l.runNowAt };
   });
 }
 

@@ -3,8 +3,12 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import { env } from './env.js';
 import { db } from './db.js';
+import { LOCAL_UPLOAD_DIR, storageBackend } from './storage.js';
+import { uploadRoutes } from './routes/uploads.js';
 import { agentRoutes } from './routes/agent.js';
 import { authRoutes } from './routes/auth.js';
 import { searchRoutes } from './routes/searches.js';
@@ -30,6 +34,16 @@ const app = Fastify({ logger: true });
 const corsOrigins = [env.WEB_ORIGIN, ...(env.EXTRA_ORIGINS ? env.EXTRA_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean) : [])];
 await app.register(cors, { origin: corsOrigins, credentials: true });
 await app.register(cookie, { secret: env.SESSION_SECRET });
+
+// Загрузка медиа: лимит 100 МБ на файл (видео Reels умещаются). 1 файл за запрос.
+await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024, files: 1 } });
+
+// Локальное хранилище медиа раздаём по /uploads (когда S3/R2 не настроен).
+if (storageBackend === 'local') {
+  const { promises: fs } = await import('node:fs');
+  await fs.mkdir(LOCAL_UPLOAD_DIR, { recursive: true }).catch(() => {});
+  await app.register(fastifyStatic, { root: LOCAL_UPLOAD_DIR, prefix: '/uploads/', decorateReply: false });
+}
 
 // Парсер form-urlencoded — Meta шлёт signed_request (deauthorize/data-deletion) в этом формате.
 app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
@@ -120,6 +134,27 @@ async function ensureSchema() {
       "sentAt" TIMESTAMP NOT NULL DEFAULT now(),
       UNIQUE("userId","sequenceId","stepIndex")
     )`,
+    // Карусель + цепочки веток в шаблонах постов.
+    'ALTER TABLE "PostTemplate" ADD COLUMN IF NOT EXISTS "segmentsJson" TEXT',
+    // Параметры прохода отбивки (расширяют Limits).
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "sweepIntervalMinutes" INTEGER NOT NULL DEFAULT 180',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "safeMode" BOOLEAN NOT NULL DEFAULT false',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "sweepMain" BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "sweepRequests" BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "sweepHidden" BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "runNowAt" TIMESTAMP',
+    // Журнал проходов отбивки (телеметрия для статистики и хронологии).
+    `CREATE TABLE IF NOT EXISTS "AgentPass" (
+      "id" TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "scanned" INTEGER NOT NULL DEFAULT 0,
+      "sent" INTEGER NOT NULL DEFAULT 0,
+      "matched" INTEGER NOT NULL DEFAULT 0,
+      "sections" TEXT,
+      "dryRun" BOOLEAN NOT NULL DEFAULT false,
+      "at" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
+    'CREATE INDEX IF NOT EXISTS "AgentPass_userId_at_idx" ON "AgentPass" ("userId","at")',
   ];
   for (const sql of stmts) {
     try {
@@ -148,6 +183,7 @@ await app.register(oauthRoutes);
 await app.register(waitlistRoutes);
 await app.register(promoRoutes);
 await app.register(integrationRoutes);
+await app.register(uploadRoutes);
 // Расширение (device-token).
 await app.register(agentRoutes);
 

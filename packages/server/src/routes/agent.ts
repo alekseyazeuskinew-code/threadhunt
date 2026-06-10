@@ -35,7 +35,17 @@ export async function agentRoutes(app: FastifyInstance) {
       const res: AgentTasksResponse = {
         active: false,
         searches: [],
-        limits: { minDelayMs: 8000, maxRepliesPerDay: 0, repliesRemainingToday: 0, maxDialogs: 0, workingHours: { enabled: false, from: '09:00', to: '21:00' } },
+        limits: {
+          minDelayMs: 8000,
+          maxRepliesPerDay: 0,
+          repliesRemainingToday: 0,
+          maxDialogs: 0,
+          workingHours: { enabled: false, from: '09:00', to: '21:00' },
+          sweepIntervalMinutes: 180,
+          safeMode: false,
+          sections: { main: true, requests: true, hidden: true },
+          runNowAt: null,
+        },
         pollIntervalSec: 60,
       };
       return res;
@@ -78,6 +88,10 @@ export async function agentRoutes(app: FastifyInstance) {
         repliesRemainingToday,
         maxDialogs: lim.maxDialogsPerSweep,
         workingHours: { enabled: lim.workingHoursEnabled, from: lim.activeFrom, to: lim.activeTo },
+        sweepIntervalMinutes: lim.sweepIntervalMinutes,
+        safeMode: lim.safeMode,
+        sections: { main: lim.sweepMain, requests: lim.sweepRequests, hidden: lim.sweepHidden },
+        runNowAt: lim.runNowAt ? new Date(lim.runNowAt).toISOString() : null,
       },
       pollIntervalSec: POLL_INTERVAL_SEC,
     };
@@ -140,6 +154,31 @@ export async function agentRoutes(app: FastifyInstance) {
           at: e.at,
         });
       }
+    }
+    return { ok: true };
+  });
+
+  // Сводка прохода отбивки → журнал AgentPass (статистика для карточки и хронологии).
+  // Реальный (не dry-run) проход «съедает» метку «Прогон сейчас», чтобы не повторять.
+  const passSchema = z.object({
+    scanned: z.number().int().min(0).default(0),
+    sent: z.number().int().min(0).default(0),
+    matched: z.number().int().min(0).default(0),
+    sections: z.string().optional(),
+    dryRun: z.boolean().optional(),
+  });
+  app.post('/api/agent/pass', async (req, reply) => {
+    const device = await authDevice(req.headers.authorization);
+    if (!device) return reply.code(401).send({ error: 'unauthorized' });
+    const parsed = passSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+    const p = parsed.data;
+    await db.agentPass.create({
+      data: { userId: device.userId, scanned: p.scanned, sent: p.sent, matched: p.matched, sections: p.sections, dryRun: p.dryRun ?? false },
+    });
+    if (!p.dryRun) {
+      // обход выполнен — сбрасываем триггер «Прогон сейчас»
+      await db.limits.updateMany({ where: { userId: device.userId }, data: { runNowAt: null } });
     }
     return { ok: true };
   });

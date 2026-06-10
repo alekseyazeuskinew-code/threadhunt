@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { SearchDetail, ReplyTemplate, PostTemplate, Lead, SearchStats, TestPublishResult } from '@/lib/types';
+import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
 import { Badge } from '@/components/ui/Badge';
@@ -17,10 +17,11 @@ import { type Flow, defaultFlow, FLOW_TEMPLATES } from '@/lib/flow';
 import { FlowPreview } from '@/components/onboarding/FlowRenderer';
 import { TIMEZONES, zonedToUtc } from '@/lib/timezones';
 
-type TabKey = 'automation' | 'keywords' | 'replies' | 'posts' | 'ads' | 'goal' | 'onboarding' | 'leads';
+// Четыре раздела вместо прежних восьми: обзор (пульт + хронология + цель),
+// отбивка (директ + комменты), приманки (посты + реклама), лиды (+ онбординг).
+type TabKey = 'overview' | 'otbivka' | 'baits' | 'leads';
 
-// Форматы/«ходы» для генерации постов — чтобы ветки заходили (разные роли цепляют
-// разные крючки). Ключи синхронны с server/ai/generate.ts POST_FORMATS.
+// Форматы/«ходы» для генерации постов. Ключи синхронны с server/ai/generate.ts POST_FORMATS.
 const POST_FORMAT_OPTIONS: { key: string; label: string; hint: string }[] = [
   { key: 'funny', label: '😄 Смешной хук', hint: 'шутка/мем в первой строке' },
   { key: 'provocative', label: '🔥 Провокация', hint: 'вызов, «слабо?», лёгкий троллинг' },
@@ -33,10 +34,15 @@ const POST_FORMAT_OPTIONS: { key: string; label: string; hint: string }[] = [
   { key: 'challenge', label: '🎯 Тест-крючок', hint: 'микро-задача прямо в посте' },
 ];
 
-// Автосохранение: дебаунс-сохранение значения на сервер при изменениях. Не
-// сохраняет начальное состояние (skip на первом рендере) и не дёргает reload —
-// чтобы не сбивать ввод. Возвращает статус для индикатора. Так сгенерированные
-// текстовки и правки НЕ теряются при переходах между страницами.
+// Режимы совпадения кодового слова (движок — shared/keywords.ts).
+const MATCH_MODE_OPTIONS = [
+  { value: 'root', label: 'по корню (монтаж → монтажёр)' },
+  { value: 'word', label: 'слово целиком во фразе' },
+  { value: 'exact', label: 'всё сообщение точно' },
+];
+
+// ─────────────────────────── вспомогательное ───────────────────────────
+
 function useAutosave<T>(value: T, persist: (v: T) => Promise<void>, delay = 1000): 'idle' | 'saving' | 'saved' {
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const first = useRef(true);
@@ -63,18 +69,40 @@ function useAutosave<T>(value: T, persist: (v: T) => Promise<void>, delay = 1000
   return status;
 }
 
-// Маленький индикатор статуса автосохранения.
 function AutosaveBadge({ status }: { status: 'idle' | 'saving' | 'saved' }) {
   if (status === 'saving') return <span className="text-xs text-muted">Сохраняю…</span>;
   if (status === 'saved') return <span className="text-xs text-success">Автосохранено ✓</span>;
   return <span className="text-xs text-muted">Автосохранение включено</span>;
 }
 
-// Деталь поиска как переиспользуемая панель: и в split-view (справа), и как deep-link.
-// onChanged — чтобы левый список обновился при смене статуса/контента.
+function SectionTitle({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-center gap-2">
+        <span className="text-accent-ink">{icon}</span>
+        <h2 className="text-base font-semibold">{title}</h2>
+      </div>
+      {hint && <p className="mt-0.5 text-sm text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+function relTime(iso: string): string {
+  const d = new Date(iso).getTime();
+  const diff = Date.now() - d;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'только что';
+  if (m < 60) return `${m} мин назад`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} ч назад`;
+  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// ─────────────────────────── корневая панель ───────────────────────────
+
 export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: () => void }) {
   const [s, setS] = useState<SearchDetail | null>(null);
-  const [tab, setTab] = useState<TabKey>('automation');
+  const [tab, setTab] = useState<TabKey>('overview');
 
   async function load() {
     setS(await api.get<SearchDetail>(`/api/searches/${id}`));
@@ -104,9 +132,7 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <h1 className="truncate text-xl font-semibold">{s.title}</h1>
-              <Badge tone={s.status === 'ACTIVE' ? 'accent' : 'neutral'}>
-                {s.status === 'ACTIVE' ? '● активен' : '○ пауза'}
-              </Badge>
+              <Badge tone={s.status === 'ACTIVE' ? 'accent' : 'neutral'}>{s.status === 'ACTIVE' ? '● активен' : '○ пауза'}</Badge>
             </div>
             {s.connection?.username && <p className="mt-1 text-sm text-muted">Аккаунт @{s.connection.username}</p>}
           </div>
@@ -121,13 +147,9 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
             active={tab}
             onChange={(k) => setTab(k as TabKey)}
             tabs={[
-              { key: 'automation', label: 'Автоматизация' },
-              { key: 'keywords', label: 'Кодовые слова', count: s.keywords.length },
-              { key: 'replies', label: 'Отбивка', count: s.replyTemplates.length },
-              { key: 'posts', label: 'Посты', count: s.postTemplates.length },
-              { key: 'ads', label: 'Реклама' },
-              { key: 'goal', label: 'Цель' },
-              { key: 'onboarding', label: 'Онбординг' },
+              { key: 'overview', label: 'Обзор' },
+              { key: 'otbivka', label: 'Отбивка', count: s.keywords.length },
+              { key: 'baits', label: 'Приманки', count: s.postTemplates.length },
               { key: 'leads', label: 'Лиды', count: s._count?.leads ?? 0 },
             ]}
           />
@@ -135,23 +157,18 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
       </header>
 
       <div className="max-w-3xl p-6">
-        {tab === 'automation' && <AutomationTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} goTo={setTab} />}
-        {tab === 'keywords' && <KeywordsTab s={s} reload={reload} />}
-        {tab === 'replies' && <RepliesTab s={s} reload={reload} />}
-        {tab === 'posts' && <PostsTab s={s} reload={reload} />}
-        {tab === 'ads' && <CampaignsManager fixedSearchId={s.id} searches={[{ id: s.id, title: s.title } as any]} />}
-        {tab === 'goal' && <GoalPlanner searchId={s.id} onRewrite={() => setTab('posts')} />}
-        {tab === 'onboarding' && <OnboardingTab s={s} reload={reload} />}
-        {tab === 'leads' && <LeadsTab id={id} />}
+        {tab === 'overview' && <OverviewTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} goTo={setTab} />}
+        {tab === 'otbivka' && <OtbivkaTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} />}
+        {tab === 'baits' && <BaitsTab s={s} reload={reload} />}
+        {tab === 'leads' && <LeadsAndOnboardingTab s={s} reload={reload} id={id} />}
       </div>
     </div>
   );
 }
 
-// Сводная вкладка: вся автоматизация поиска в одном окне — отбивка в директе,
-// автопостинг и (скоро) отбивка в комментариях. Детальная настройка остаётся в
-// соответствующих под-вкладках; сюда вынесены главные переключатели и параметры.
-function AutomationTab({
+// ─────────────────────────────── ОБЗОР ───────────────────────────────
+// Пульт: компактные тумблеры движков + хронология бэка + цель.
+function OverviewTab({
   s,
   reload,
   status,
@@ -165,82 +182,450 @@ function AutomationTab({
   goTo: (t: TabKey) => void;
 }) {
   const [cfg, setCfg] = useState(s.publishConfig ?? { enabled: false, intervalMinutes: 240, maxPerDay: 5, rotation: 'sequential' as const });
-  const [saved, setSaved] = useState(false);
-  const hours = Math.floor((cfg.intervalMinutes || 0) / 60);
-  const mins = (cfg.intervalMinutes || 0) % 60;
 
-  async function saveAutopost() {
-    await api.patch(`/api/searches/${s.id}/publish-config`, cfg);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+  async function toggleAutopost(v: boolean) {
+    setCfg({ ...cfg, enabled: v });
+    await api.patch(`/api/searches/${s.id}/publish-config`, { ...cfg, enabled: v });
     reload();
   }
 
   return (
     <div className="space-y-5">
-      {/* ── Отбивка в директе ── */}
+      {/* Движки */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <EngineCard
+          title="Отбивка в директе"
+          on={status === 'ACTIVE'}
+          onToggle={onToggleSearch}
+          meta={`${s.keywords.length} слов · ${s.replyTemplates.length} ответов`}
+          onClick={() => goTo('otbivka')}
+        />
+        <EngineCard
+          title="Автопостинг приманок"
+          on={cfg.enabled}
+          onToggle={toggleAutopost}
+          meta={`${s.postTemplates.length} шаблонов · каждые ${Math.round((cfg.intervalMinutes || 0) / 60)} ч`}
+          onClick={() => goTo('baits')}
+        />
+        <EngineCard
+          title="Отбивка в комментариях"
+          on={!!s.commentRule?.enabled}
+          meta={s.commentRule?.enabled ? 'включена' : 'выключена'}
+          onClick={() => goTo('otbivka')}
+        />
+      </div>
+
+      {/* Хронология «что происходит на бэке» */}
+      <ActivityTimeline id={s.id} />
+
+      {/* Цель найма */}
+      <div>
+        <SectionTitle icon={<FlaskConical size={16} />} title="Цель найма" hint="Сколько нужно лидов под цель и успеваем ли по темпу." />
+        <GoalPlanner searchId={s.id} onRewrite={() => goTo('baits')} />
+      </div>
+    </div>
+  );
+}
+
+function EngineCard({ title, on, onToggle, meta, onClick }: { title: string; on: boolean; onToggle?: (v: boolean) => void; meta: string; onClick: () => void }) {
+  return (
+    <div className="rounded-2xl border border-line bg-panel p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-sm font-medium leading-tight">{title}</div>
+        {onToggle ? (
+          <Toggle checked={on} onChange={onToggle} />
+        ) : (
+          <span className={`text-xs font-medium ${on ? 'text-success' : 'text-muted'}`}>{on ? '●' : '○'}</span>
+        )}
+      </div>
+      <div className="mt-2 text-xs text-muted">{meta}</div>
+      <button onClick={onClick} className="mt-3 text-sm font-medium text-accent-ink hover:underline">
+        Настроить →
+      </button>
+    </div>
+  );
+}
+
+// Лента активности бэка: публикации + лиды + проходы агента.
+function ActivityTimeline({ id }: { id: string }) {
+  const [items, setItems] = useState<ActivityItem[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function load() {
+    setBusy(true);
+    try {
+      setItems(await api.get<ActivityItem[]>(`/api/searches/${id}/activity`));
+    } catch {
+      setItems([]);
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const icon = (k: ActivityItem['kind']) => (k === 'post' ? <FileText size={14} /> : k === 'lead' ? <MessageSquare size={14} /> : <Activity size={14} />);
+
+  return (
+    <div className="rounded-2xl border border-line bg-panel p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <SectionTitle icon={<Activity size={16} />} title="Что происходит на бэке" hint="Публикации, ответы в директе и проходы бота — по времени." />
+        <Button variant="ghost" size="sm" onClick={load} disabled={busy}>
+          {busy ? 'Обновляю…' : 'Обновить'}
+        </Button>
+      </div>
+      {!items ? (
+        <div className="text-sm text-muted">Загрузка…</div>
+      ) : items.length === 0 ? (
+        <div className="text-sm text-muted">Пока тихо. Как только бот опубликует пост или ответит в директе — появится здесь.</div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((it, i) => (
+            <div key={i} className="flex items-start gap-2.5 text-sm">
+              <span className={`mt-0.5 shrink-0 ${it.ok ? 'text-muted' : 'text-danger'}`}>{icon(it.kind)}</span>
+              <div className="min-w-0 flex-1">
+                <span className="font-medium">{it.title}</span>
+                {it.detail && <span className="text-muted"> · {it.detail}</span>}
+                {it.permalink && (
+                  <a href={it.permalink} target="_blank" rel="noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 text-accent-ink hover:underline">
+                    открыть <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
+              <span className="shrink-0 text-xs text-muted">{relTime(it.at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────── ОТБИВКА ──────────────────────────────
+// Директ: слова (+режим) → ответы → параметры прохода + статистика → комменты.
+function OtbivkaTab({ s, reload, status, onToggleSearch }: { s: SearchDetail; reload: () => void; status: string; onToggleSearch: () => void }) {
+  return (
+    <div className="space-y-7">
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="flex items-center justify-between">
           <div>
             <div className="font-medium">Отбивка в директе</div>
-            <div className="text-sm text-muted">Бот сам отвечает в Threads на сообщения с кодовыми словами.</div>
+            <div className="text-sm text-muted">Бот сам отвечает в Threads на сообщения с кодовыми словами (через расширение).</div>
           </div>
           <div className="flex items-center gap-3">
             <span className={`text-sm font-medium ${status === 'ACTIVE' ? 'text-success' : 'text-muted'}`}>{status === 'ACTIVE' ? 'Включена' : 'Выключена'}</span>
             <Toggle checked={status === 'ACTIVE'} onChange={onToggleSearch} />
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-sm">
-          <button onClick={() => goTo('keywords')} className="rounded-full bg-bg px-3 py-1.5 hover:bg-panel-2">
-            Кодовые слова: <b>{s.keywords.length}</b> →
-          </button>
-          <button onClick={() => goTo('replies')} className="rounded-full bg-bg px-3 py-1.5 hover:bg-panel-2">
-            Шаблоны ответов: <b>{s.replyTemplates.length}</b> →
-          </button>
-        </div>
       </div>
 
-      {/* ── Автопостинг ── */}
-      <div className="rounded-2xl border border-line bg-panel p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-medium">Автопостинг приманок</div>
-            <div className="text-sm text-muted">Бот сам публикует посты-приманки по расписанию (Threads API).</div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className={`text-sm font-medium ${cfg.enabled ? 'text-success' : 'text-muted'}`}>{cfg.enabled ? 'Включён' : 'Выключен'}</span>
-            <Toggle checked={cfg.enabled} onChange={(v) => setCfg({ ...cfg, enabled: v })} />
-          </div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-muted">
-          <label className="flex items-center gap-2">
-            раз в
-            <Input type="number" min={0} className="w-16" value={hours} onChange={(e) => setCfg({ ...cfg, intervalMinutes: Math.max(0, +e.target.value) * 60 + mins })} />
-            ч
-            <Input type="number" min={0} max={59} className="w-16" value={mins} onChange={(e) => setCfg({ ...cfg, intervalMinutes: hours * 60 + Math.max(0, Math.min(59, +e.target.value)) })} />
-            мин
-          </label>
-          <label className="flex items-center gap-2">
-            не больше
-            <Input type="number" min={1} className="w-16" value={cfg.maxPerDay} onChange={(e) => setCfg({ ...cfg, maxPerDay: +e.target.value })} />
-            в день
-          </label>
-        </div>
-        {(cfg.intervalMinutes < 60 || cfg.maxPerDay > 10) && (
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-warning">
-            <ShieldAlert size={13} /> Слишком частый постинг повышает риск ограничений. Безопасно: раз в 2–4 ч, до 5–10 в день.
-          </p>
-        )}
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button onClick={saveAutopost}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
-          <Button variant="ghost" onClick={() => goTo('posts')}>
-            Шаблоны постов и тест-публикация →
-          </Button>
-        </div>
+      <DmPassCard searchId={s.id} />
+
+      <div>
+        <SectionTitle icon={<Sparkles size={16} />} title="Кодовые слова" hint="Что ловим в директе и как — по корню или точно." />
+        <KeywordsSection s={s} reload={reload} />
       </div>
 
-      {/* ── Отбивка в комментариях (через Threads API) ── */}
-      <CommentRuleCard s={s} reload={reload} />
+      <div>
+        <SectionTitle icon={<MessageSquare size={16} />} title="Шаблоны ответов" hint="Что бот пишет в ответ. Несколько — ротация / A-B." />
+        <RepliesSection s={s} reload={reload} />
+      </div>
+
+      <div>
+        <SectionTitle icon={<MessageSquare size={16} />} title="Отбивка в комментариях" hint="Ответы под твоими постами через официальный Threads API." />
+        <CommentRuleCard s={s} reload={reload} />
+      </div>
+    </div>
+  );
+}
+
+// Параметры прохода отбивки + статистика (аккаунт-уровень: один обход на все поиски).
+function DmPassCard({ searchId }: { searchId: string }) {
+  const [lim, setLim] = useState<Limits | null>(null);
+  const [stats, setStats] = useState<DmStats | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function loadAll() {
+    const [l, st] = await Promise.all([api.get<Limits>('/api/limits'), api.get<DmStats>(`/api/searches/${searchId}/dm-stats`).catch(() => null)]);
+    setLim(l);
+    if (st) setStats(st);
+  }
+  useEffect(() => {
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchId]);
+
+  if (!lim) return <div className="rounded-2xl border border-line bg-panel p-4 text-sm text-muted">Загрузка параметров…</div>;
+
+  const set = (patch: Partial<Limits>) => setLim({ ...lim, ...patch });
+  const intervalMin = lim.caps?.intervalMin ?? 30;
+
+  async function save() {
+    await api.put('/api/limits', {
+      sweepIntervalMinutes: lim!.sweepIntervalMinutes,
+      maxDialogsPerSweep: lim!.maxDialogsPerSweep,
+      safeMode: lim!.safeMode,
+      sweepMain: lim!.sweepMain,
+      sweepRequests: lim!.sweepRequests,
+      sweepHidden: lim!.sweepHidden,
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+  async function runNow() {
+    setRunning(true);
+    setMsg('');
+    try {
+      await api.post('/api/dm/run-now');
+      setMsg('Запущено — расширение начнёт обход в открытой вкладке Threads (до минуты).');
+      setTimeout(loadAll, 2000);
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const lp = stats?.lastPass;
+  const noSections = !lim.sweepMain && !lim.sweepRequests && !lim.sweepHidden;
+
+  return (
+    <div className="rounded-2xl border border-line bg-panel p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <div className="font-medium">Параметры прохода</div>
+          <div className="text-sm text-muted">
+            Как бот обходит директ. Один обход покрывает все активные поиски аккаунта.
+            {stats && (
+              <span className={`ml-2 ${stats.agent.online ? 'text-success' : 'text-warning'}`}>
+                ● агент {stats.agent.online ? 'онлайн' : 'офлайн'}
+              </span>
+            )}
+          </div>
+        </div>
+        <Button size="sm" onClick={runNow} disabled={running || noSections}>
+          <Play size={14} /> {running ? 'Запускаю…' : 'Прогон сейчас'}
+        </Button>
+      </div>
+
+      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+        <label className="flex items-center gap-2 text-sm text-muted">
+          интервал
+          <Input
+            type="number"
+            min={intervalMin}
+            className="w-20"
+            value={lim.sweepIntervalMinutes}
+            onChange={(e) => set({ sweepIntervalMinutes: Math.max(intervalMin, +e.target.value) })}
+          />
+          мин
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted">
+          чатов за проход
+          <Input type="number" min={1} className="w-20" value={lim.maxDialogsPerSweep} onChange={(e) => set({ maxDialogsPerSweep: Math.max(1, +e.target.value) })} />
+        </label>
+      </div>
+
+      <div className="mt-3">
+        <div className="mb-1.5 text-xs font-medium text-muted">Разделы директа (где искать)</div>
+        <div className="flex flex-wrap gap-3 text-sm">
+          <Check2 label="Основной директ" checked={lim.sweepMain} onChange={(v) => set({ sweepMain: v })} />
+          <Check2 label="Запросы" checked={lim.sweepRequests} onChange={(v) => set({ sweepRequests: v })} />
+          <Check2 label="Скрытые" checked={lim.sweepHidden} onChange={(v) => set({ sweepHidden: v })} />
+        </div>
+        {noSections && <p className="mt-1.5 text-xs text-danger">Выбери хотя бы один раздел — иначе обходить нечего.</p>}
+      </div>
+
+      <label className="mt-3 flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={lim.safeMode} onChange={(e) => set({ safeMode: e.target.checked })} />
+        <span>Безопасный режим — проходить и считать совпадения, но <b>не отправлять</b> ответы</span>
+      </label>
+
+      {lim.sweepIntervalMinutes <= intervalMin && (
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-warning">
+          <ShieldAlert size={13} /> Частые проходы повышают риск ограничений. Безопасно — раз в 2–3 часа.
+        </p>
+      )}
+
+      <div className="mt-4 flex items-center gap-2">
+        <Button onClick={save} disabled={noSections}>{saved ? 'Сохранено ✓' : 'Сохранить параметры'}</Button>
+      </div>
+      {msg && <p className="mt-2 text-xs text-muted">{msg}</p>}
+
+      {/* Статистика последнего прохода */}
+      {lp && (
+        <div className="mt-4 border-t border-line pt-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+            <Clock size={14} className="text-muted" /> Последний проход · {relTime(lp.at)}
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <PassStat label="Отправлено" value={lp.sent} />
+            <PassStat label="Чатов проверено" value={lp.scanned} />
+            <PassStat label="Найдено слов" value={lp.matched} />
+          </div>
+        </div>
+      )}
+
+      {/* Всего ответов по кодовым словам */}
+      {stats && stats.byKeyword.length > 0 && (
+        <div className="mt-4 border-t border-line pt-4">
+          <div className="mb-2 text-sm font-medium">Всего ответов по кодовым словам</div>
+          <div className="space-y-1.5">
+            {(() => {
+              const max = Math.max(...stats.byKeyword.map((k) => k.count), 1);
+              return stats.byKeyword.map((k) => (
+                <div key={k.keyword} className="flex items-center gap-2 text-sm">
+                  <span className="w-24 shrink-0 truncate text-muted">{k.keyword}</span>
+                  <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-panel-2">
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${Math.round((k.count / max) * 100)}%` }} />
+                  </div>
+                  <span className="w-10 shrink-0 text-right tabular-nums">{k.count}</span>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PassStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl bg-bg p-3">
+      <div className="font-display text-2xl font-semibold tabular-nums">{value}</div>
+      <div className="text-xs text-muted">{label}</div>
+    </div>
+  );
+}
+
+function Check2({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /> {label}
+    </label>
+  );
+}
+
+type KwRow = { text: string; mode: string; replyText: string };
+
+function KeywordsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
+  const [list, setList] = useState<KwRow[]>(
+    s.keywords.length ? s.keywords.map((k) => ({ text: k.text, mode: k.mode || 'root', replyText: k.replyText || '' })) : [{ text: '', mode: 'root', replyText: '' }],
+  );
+  const [saved, setSaved] = useState(false);
+  const set = (i: number, patch: Partial<KwRow>) => setList((l) => l.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  const persist = async () =>
+    void (await api.put(`/api/searches/${s.id}/keywords`, {
+      keywords: list.filter((r) => r.text.trim()).map((r) => ({ text: r.text.trim(), mode: r.mode || 'root', replyText: r.replyText.trim() || undefined })),
+    }));
+  const autosave = useAutosave(list, persist);
+
+  async function save() {
+    await persist();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+    reload();
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted">
+        Сообщения с этими словами ловятся автоматически. Режим «по корню» поймает забытое окончание («монтаж» → «монтажёр»);
+        «слово целиком» — только отдельное слово; «всё сообщение» — если текст равен слову. Можно задать свой ответ под каждое слово.
+      </p>
+
+      {list.map((r, i) => (
+        <div key={i} className="rounded-2xl border border-line bg-panel p-3">
+          <div className="flex items-center gap-2">
+            <Input className="flex-1" value={r.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="монтаж" />
+            <Select className="w-56" size="sm" value={r.mode} onChange={(v) => set(i, { mode: v })} options={MATCH_MODE_OPTIONS} />
+            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
+              <Trash2 size={18} />
+            </button>
+          </div>
+          <Textarea
+            className="mt-2"
+            value={r.replyText}
+            onChange={(e) => set(i, { replyText: e.target.value })}
+            placeholder="Свой ответ под это слово (необязательно). Пусто → общий шаблон."
+          />
+        </div>
+      ))}
+
+      <div className="flex gap-2">
+        <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '', mode: 'root', replyText: '' }])}>
+          <Plus size={16} /> Добавить слово
+        </Button>
+        <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+        <AutosaveBadge status={autosave} />
+      </div>
+    </div>
+  );
+}
+
+function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
+  const [list, setList] = useState<ReplyTemplate[]>(s.replyTemplates.length ? s.replyTemplates : [{ text: '', redirectTarget: '' }]);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [genMsg, setGenMsg] = useState('');
+  const set = (i: number, patch: Partial<ReplyTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+
+  const persist = async () =>
+    void (await api.put(`/api/searches/${s.id}/reply-templates`, {
+      templates: list.filter((t) => t.text.trim()).map((t) => ({ text: t.text, redirectTarget: t.redirectTarget })),
+    }));
+  const autosave = useAutosave(list, persist);
+
+  async function save() {
+    await persist();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+    reload();
+  }
+  async function generate() {
+    setBusy(true);
+    setGenMsg('');
+    try {
+      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 4 });
+      setList((l) => [...l, ...(result || []).map((text) => ({ text, redirectTarget: '' }))]);
+      if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
+    } catch (e: any) {
+      setGenMsg(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
+          <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
+        </Button>
+      </div>
+      {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
+      {list.map((t, i) => (
+        <div key={i} className="rounded-2xl border border-line bg-panel p-4">
+          <Textarea value={t.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="Привет! Спасибо за отклик…" />
+          <div className="mt-2 flex items-center gap-2">
+            <Input className="flex-1" value={t.redirectTarget} onChange={(e) => set(i, { redirectTarget: e.target.value })} placeholder="Куда направить: @telegram или ссылка" />
+            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
+              <Trash2 size={18} />
+            </button>
+          </div>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '', redirectTarget: '' }])}>
+          <Plus size={16} /> Добавить
+        </Button>
+        <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+        <AutosaveBadge status={autosave} />
+      </div>
     </div>
   );
 }
@@ -269,10 +654,7 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-medium">Отбивка в комментариях</div>
-          <div className="text-sm text-muted">Бот отвечает под твоими постами — на все комментарии или только с кодовым словом.</div>
-        </div>
+        <div className="text-sm text-muted">На все комментарии или только с кодовым словом.</div>
         <Toggle
           checked={enabled}
           onChange={(v) => {
@@ -292,166 +674,72 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
       </div>
 
       <div className="mt-3">
-        <label className="mb-1.5 block text-sm">Текст ответа в комментарии</label>
-        <Textarea
-          value={replyText}
-          onChange={(e) => setReplyText(e.target.value)}
-          placeholder="Напр.: Привет! Спасибо за интерес 🙌 Напиши кодовое слово в директ — пришлю детали."
-        />
+        <Textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Напр.: Привет! Спасибо за интерес 🙌 Напиши кодовое слово в директ — пришлю детали." />
       </div>
 
       <div className="mt-3 flex items-center gap-3">
-        <Button onClick={() => save()} disabled={saving}>
-          {saved ? 'Сохранено ✓' : 'Сохранить'}
-        </Button>
-        {mode === 'keyword' && <span className="text-xs text-muted">Отвечаем только если в комментарии есть кодовое слово из вкладки «Слова».</span>}
+        <Button onClick={() => save()} disabled={saving}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
       </div>
 
       <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
-        Работает для аккаунта, подключённого через «Войти через Threads» (вкладка «Подключения»). Требует доступа Meta
-        (threads_read_replies / threads_manage_replies) — включится автоматически после одобрения и переподключения аккаунта.
-        Настройки можно сохранить заранее.
+        Требует доступа Meta (threads_read_replies / threads_manage_replies) — включится после одобрения и переподключения аккаунта. Настройки можно сохранить заранее.
       </p>
     </div>
   );
 }
 
-type KwRow = { text: string; mode: string; replyText: string };
-
-function KeywordsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
-  const [list, setList] = useState<KwRow[]>(
-    s.keywords.length ? s.keywords.map((k) => ({ text: k.text, mode: k.mode || 'root', replyText: k.replyText || '' })) : [{ text: '', mode: 'root', replyText: '' }],
-  );
-  const [saved, setSaved] = useState(false);
-  const set = (i: number, patch: Partial<KwRow>) => setList((l) => l.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-
-  const persist = async () =>
-    void (await api.put(`/api/searches/${s.id}/keywords`, {
-      keywords: list
-        .filter((r) => r.text.trim())
-        .map((r) => ({ text: r.text.trim(), mode: r.mode || 'root', replyText: r.replyText.trim() || undefined })),
-    }));
-  const autosave = useAutosave(list, persist);
-
-  async function save() {
-    await persist();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-    reload();
-  }
-
+// ───────────────────────────── ПРИМАНКИ ─────────────────────────────
+// Посты с медиа/каруселью/цепочками + расписание + тест/публикация + реклама.
+function BaitsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted">
-        Сообщения с этими словами в директе ловятся автоматически (по корню: «монтаж» поймает и «монтажёр»). Можно задать
-        <b> свой ответ под каждое слово</b> — если оставить пустым, отправится общий шаблон из вкладки «Отбивка».
-      </p>
-
-      {list.map((r, i) => (
-        <div key={i} className="rounded-2xl border border-line bg-panel p-3">
-          <div className="flex items-center gap-2">
-            <Input className="flex-1" value={r.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="монтаж" />
-            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
-              <Trash2 size={18} />
-            </button>
-          </div>
-          <Textarea
-            className="mt-2"
-            value={r.replyText}
-            onChange={(e) => set(i, { replyText: e.target.value })}
-            placeholder="Свой ответ под это слово (необязательно). Пусто → общий шаблон."
-          />
-        </div>
-      ))}
-
-      <div className="flex gap-2">
-        <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '', mode: 'root', replyText: '' }])}>
-          <Plus size={16} /> Добавить слово
-        </Button>
-        <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
-        <AutosaveBadge status={autosave} />
+    <div className="space-y-8">
+      <PostsSection s={s} reload={reload} />
+      <div>
+        <SectionTitle icon={<Layers size={16} />} title="Реклама" hint="Платное продвижение приманок через Meta." />
+        <CampaignsManager fixedSearchId={s.id} searches={[{ id: s.id, title: s.title } as any]} />
       </div>
     </div>
   );
 }
 
-function RepliesTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
-  const [list, setList] = useState<ReplyTemplate[]>(s.replyTemplates.length ? s.replyTemplates : [{ text: '', redirectTarget: '' }]);
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [genMsg, setGenMsg] = useState('');
-  const set = (i: number, patch: Partial<ReplyTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
-
-  // Автосохранение (без reload, чтобы не сбивать ввод) — генерации и правки не теряются.
-  const persist = async () =>
-    void (await api.put(`/api/searches/${s.id}/reply-templates`, {
-      templates: list.filter((t) => t.text.trim()).map((t) => ({ text: t.text, redirectTarget: t.redirectTarget })),
-    }));
-  const autosave = useAutosave(list, persist);
-
-  async function save() {
-    await persist();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-    reload();
-  }
-  async function generate() {
-    setBusy(true);
-    setGenMsg('');
+// Загрузить медиа из шаблона поста в редактируемые сегменты.
+function templateToSegments(t: PostTemplate): PostSegment[] {
+  if (t.segmentsJson) {
     try {
-      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 4 });
-      setList((l) => [...l, ...(result || []).map((text) => ({ text, redirectTarget: '' }))]);
-      if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
-    } catch (e: any) {
-      setGenMsg(e.message);
-    } finally {
-      setBusy(false);
-    }
+      const arr = JSON.parse(t.segmentsJson);
+      if (Array.isArray(arr) && arr.length) {
+        return arr.map((seg: any) => ({
+          text: typeof seg?.text === 'string' ? seg.text : '',
+          media: Array.isArray(seg?.media) ? seg.media.filter((m: any) => m?.url && (m.type === 'image' || m.type === 'video')) : [],
+        }));
+      }
+    } catch {}
   }
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted">Ответ кандидату, поймавшему кодовое слово. Несколько — ротация / A-B.</p>
-        <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
-          <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
-        </Button>
-      </div>
-      {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
-      {list.map((t, i) => (
-        <div key={i} className="rounded-2xl border border-line bg-panel p-4">
-          <Textarea value={t.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="Привет! Спасибо за отклик…" />
-          <div className="mt-2 flex items-center gap-2">
-            <Input className="flex-1" value={t.redirectTarget} onChange={(e) => set(i, { redirectTarget: e.target.value })} placeholder="Куда направить: @telegram или ссылка" />
-            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
-              <Trash2 size={18} />
-            </button>
-          </div>
-        </div>
-      ))}
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '', redirectTarget: '' }])}>
-          <Plus size={16} /> Добавить
-        </Button>
-        <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
-        <AutosaveBadge status={autosave} />
-      </div>
-    </div>
-  );
+  const media: MediaItem[] = t.mediaUrl && (t.mediaType === 'image' || t.mediaType === 'video') ? [{ url: t.mediaUrl, type: t.mediaType }] : [];
+  return [{ text: t.text || '', media }];
 }
 
-function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
-  const [list, setList] = useState<PostTemplate[]>(s.postTemplates.length ? s.postTemplates : [{ text: '' }]);
+type EditTpl = { segments: PostSegment[] };
+
+function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
+  const [list, setList] = useState<EditTpl[]>(
+    s.postTemplates.length ? s.postTemplates.map((t) => ({ segments: templateToSegments(t) })) : [{ segments: [{ text: '', media: [] }] }],
+  );
   const [cfg, setCfg] = useState(s.publishConfig ?? { enabled: false, intervalMinutes: 240, maxPerDay: 5, rotation: 'sequential' as const });
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [genMsg, setGenMsg] = useState('');
   const [brief, setBrief] = useState('');
   const [formats, setFormats] = useState<string[]>([]);
+  const [chainMode, setChainMode] = useState(false); // ИИ: генерировать цепочки веток
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<TestPublishResult | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [published, setPublished] = useState<{ ok: boolean; permalink?: string | null; error?: string } | null>(null);
-  const set = (i: number, patch: Partial<PostTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+
+  // изменить сегмент шаблона ti, сегмент si
+  const setSeg = (ti: number, si: number, patch: Partial<PostSegment>) =>
+    setList((l) => l.map((t, j) => (j === ti ? { ...t, segments: t.segments.map((sg, k) => (k === si ? { ...sg, ...patch } : sg)) } : t)));
 
   async function runTest() {
     setTesting(true);
@@ -464,10 +752,8 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
       setTesting(false);
     }
   }
-
-  // Реальная публикация одного поста по кнопке (для проверки/скринкаста).
   async function runPublishNow() {
-    if (!window.confirm('Опубликовать реальный пост в Threads от твоего аккаунта прямо сейчас?')) return;
+    if (!window.confirm('Опубликовать реальный пост (или цепочку) в Threads от твоего аккаунта прямо сейчас?')) return;
     setPublishing(true);
     setPublished(null);
     try {
@@ -481,10 +767,13 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
     }
   }
 
-  // Автосохранение (без reload) — сгенерированные посты и правки не теряются при переходах.
+  // Сохраняем как цепочки сегментов (карусель + ветки).
   const persist = async () => {
     await api.put(`/api/searches/${s.id}/post-templates`, {
-      templates: list.filter((t) => t.text.trim() || t.mediaUrl).map((t) => ({ text: t.text, mediaUrl: t.mediaUrl || '', mediaType: t.mediaType || undefined })),
+      templates: list
+        .map((t) => ({ segments: t.segments.filter((sg) => sg.text.trim() || sg.media.length) }))
+        .filter((t) => t.segments.length)
+        .map((t) => ({ segments: t.segments })),
     });
     await api.patch(`/api/searches/${s.id}/publish-config`, cfg);
   };
@@ -500,22 +789,36 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
     setBusy(true);
     setGenMsg('');
     try {
-      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, {
-        kind: 'posts',
-        count: formats.length ? Math.max(formats.length, 5) : 5,
-        brief: brief.trim() || undefined,
-        formats: formats.length ? formats : undefined,
-      });
-      setList((l) => [...l, ...(result || []).map((text) => ({ text }))]);
-      if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
+      if (chainMode) {
+        const { result, source } = await api.post<{ result: string[][]; source?: string }>(`/api/searches/${s.id}/generate`, {
+          kind: 'chain',
+          count: 3,
+          brief: brief.trim() || undefined,
+          formats: formats.length ? formats : undefined,
+        });
+        const chains = (result || []).map((chain) => ({ segments: chain.map((text) => ({ text, media: [] as MediaItem[] })) }));
+        setList((l) => [...l, ...chains]);
+        if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
+      } else {
+        const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, {
+          kind: 'posts',
+          count: formats.length ? Math.max(formats.length, 5) : 5,
+          brief: brief.trim() || undefined,
+          formats: formats.length ? formats : undefined,
+        });
+        setList((l) => [...l, ...(result || []).map((text) => ({ segments: [{ text, media: [] as MediaItem[] }] }))]);
+        if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
+      }
     } catch (e: any) {
       setGenMsg(e.message);
     } finally {
       setBusy(false);
     }
   }
+
   return (
     <div className="space-y-5">
+      {/* Автопубликация */}
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -523,9 +826,7 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
             <div className="text-sm text-muted">Бот сам постит приманки по расписанию через официальный API.</div>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`text-sm font-medium ${cfg.enabled ? 'text-success' : 'text-muted'}`}>
-              {cfg.enabled ? 'Включён' : 'Выключен'}
-            </span>
+            <span className={`text-sm font-medium ${cfg.enabled ? 'text-success' : 'text-muted'}`}>{cfg.enabled ? 'Включён' : 'Выключен'}</span>
             <Toggle checked={cfg.enabled} onChange={(v) => setCfg({ ...cfg, enabled: v })} />
           </div>
         </div>
@@ -572,7 +873,7 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
           </p>
         )}
 
-        {/* Тест публикации — прогон без реальной отправки */}
+        {/* Тест + публикация */}
         <div className="mt-4 border-t border-line pt-4">
           <div className="flex items-center justify-between">
             <div className="text-sm">
@@ -608,7 +909,7 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
           {test && (
             <div className={`mt-3 rounded-xl border p-3 ${test.ready ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}>
               <div className="mb-2 text-sm font-medium">
-                {test.ready ? '✓ Готово к публикации — всё на месте (тест, без отправки)' : '⚠ Публикация не пройдёт — есть незакрытые пункты'}
+                {test.ready ? '✓ Готово к публикации (тест, без отправки)' : '⚠ Публикация не пройдёт — есть незакрытые пункты'}
               </div>
               <div className="space-y-1.5">
                 {test.checks.map((c, i) => (
@@ -620,9 +921,12 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
               </div>
               {test.wouldPost && (
                 <div className="mt-3 rounded-lg bg-bg p-2.5 text-sm">
-                  <div className="mb-1 text-xs text-muted">Следующим выйдет ({test.wouldPost.rotation}):</div>
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                    <span>Следующим выйдет ({test.wouldPost.rotation}):</span>
+                    {(test.wouldPost.segmentCount ?? 1) > 1 && <Badge tone="accent">цепочка из {test.wouldPost.segmentCount}</Badge>}
+                    {(test.wouldPost.mediaCount ?? 0) > 1 && <Badge tone="accent">карусель {test.wouldPost.mediaCount}</Badge>}
+                  </div>
                   <p className="whitespace-pre-wrap">{test.wouldPost.text}</p>
-                  {test.wouldPost.mediaUrl && <div className="mt-1 text-xs text-muted truncate">📎 {test.wouldPost.mediaType}: {test.wouldPost.mediaUrl}</div>}
                 </div>
               )}
             </div>
@@ -630,18 +934,17 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
         </div>
       </div>
 
+      {/* Бриф + ИИ */}
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="mb-1 text-sm font-medium">Бриф для ИИ (необязательно)</div>
-        <p className="mb-2 text-xs text-muted">Опиши условия для постов: оплата/цена, формат и занятость, куда писать, дедлайн. ИИ впишет это в посты по формуле залетающих приманок.</p>
+        <p className="mb-2 text-xs text-muted">Опиши условия: оплата/цена, формат и занятость, куда писать, дедлайн. ИИ впишет это в посты.</p>
         <Textarea
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           placeholder="Напр.: монтажёр Reels, 15–20 роликов/нед, 500₽ за ролик, удалёнка, кодовое слово «монтаж», дедлайн пятница"
         />
-
-        {/* Форматы/ходы — чтобы ветки заходили под разные роли */}
         <div className="mt-3">
-          <div className="mb-1.5 text-xs font-medium text-muted">Тон и ходы (можно несколько — ИИ сделает по варианту на каждый)</div>
+          <div className="mb-1.5 text-xs font-medium text-muted">Тон и ходы (можно несколько)</div>
           <div className="flex flex-wrap gap-1.5">
             {POST_FORMAT_OPTIONS.map((f) => {
               const on = formats.includes(f.key);
@@ -658,50 +961,76 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
               );
             })}
           </div>
-          <p className="mt-1.5 text-[11px] text-muted">Не заходит «в лоб» (частая история по монтажу)? Возьми «Смешной хук», «Провокация» или «Цена-якорь» — и сравни, что даёт больше директов.</p>
         </div>
-
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-xs text-muted">Тон возьмётся из «Голоса бренда» (Настройки) — добавь туда примеры своих постов.</p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={chainMode} onChange={(e) => setChainMode(e.target.checked)} />
+            <span className="inline-flex items-center gap-1"><GitBranch size={14} /> Цепочки веток (пост + ответвления)</span>
+          </label>
           <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
-            <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
+            <Sparkles size={14} /> {busy ? 'Генерирую…' : chainMode ? 'Сгенерировать цепочки' : 'Сгенерировать ИИ'}
           </Button>
         </div>
       </div>
       {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
 
-      {list.map((t, i) => (
-        <div key={i} className="rounded-2xl border border-line bg-panel p-4">
-          <Textarea value={t.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="Ищу монтажёра Reels…" />
-          <div className="mt-2 flex items-center gap-2">
-            <Input className="flex-1" value={t.mediaUrl || ''} onChange={(e) => set(i, { mediaUrl: e.target.value })} placeholder="URL картинки/видео (необязательно)" />
-            <Select
-              size="sm"
-              className="w-28"
-              value={t.mediaType || ''}
-              onChange={(v) => set(i, { mediaType: (v || null) as any })}
-              options={[{ value: '', label: 'текст' }, { value: 'image', label: 'фото' }, { value: 'video', label: 'видео' }]}
-            />
-            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
+      {/* Шаблоны постов */}
+      {list.map((t, ti) => (
+        <div key={ti} className="rounded-2xl border border-line bg-panel p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
+              {t.segments.length > 1 ? (
+                <><GitBranch size={13} /> Цепочка из {t.segments.length}</>
+              ) : (
+                <>Пост</>
+              )}
+            </div>
+            <button onClick={() => setList((l) => l.filter((_, j) => j !== ti))} className="text-muted hover:text-danger" title="Удалить шаблон">
               <Trash2 size={18} />
             </button>
           </div>
-          {/* Превью картинки по ссылке — видно, что URL рабочий до публикации */}
-          {t.mediaUrl && t.mediaType === 'image' && (
-            <img src={t.mediaUrl} alt="" className="mt-2 max-h-40 rounded-lg border border-line" onError={(e) => ((e.currentTarget.style.display = 'none'))} />
-          )}
-          {t.mediaUrl && t.mediaType === 'video' && (
-            <video src={t.mediaUrl} controls className="mt-2 max-h-40 rounded-lg border border-line" />
-          )}
+
+          <div className="space-y-3">
+            {t.segments.map((seg, si) => (
+              <div key={si} className={si > 0 ? 'rounded-xl border-l-2 border-accent/40 bg-bg/40 pl-3' : ''}>
+                {t.segments.length > 1 && (
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-muted">{si === 0 ? 'Корневой пост' : `Ветка ${si}`}</span>
+                    {si > 0 && (
+                      <button
+                        onClick={() => setList((l) => l.map((x, j) => (j === ti ? { ...x, segments: x.segments.filter((_, k) => k !== si) } : x)))}
+                        className="text-xs text-muted hover:text-danger"
+                      >
+                        убрать ветку
+                      </button>
+                    )}
+                  </div>
+                )}
+                <Textarea value={seg.text} onChange={(e) => setSeg(ti, si, { text: e.target.value })} placeholder={si === 0 ? 'Ищу монтажёра Reels…' : 'Продолжение в ветке: детали, оплата, CTA…'} />
+                <MediaEditor
+                  media={seg.media}
+                  onChange={(media) => setSeg(ti, si, { media })}
+                />
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setList((l) => l.map((x, j) => (j === ti ? { ...x, segments: [...x.segments, { text: '', media: [] }] } : x)))}
+            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent-ink hover:underline"
+          >
+            <GitBranch size={14} /> Добавить ветку под этот пост
+          </button>
         </div>
       ))}
+
       <p className="text-xs text-muted">
-        Картинка/видео — по <b>публичной ссылке</b> (Threads сам скачивает файл по URL). Подойдёт прямая ссылка на .jpg/.png/.mp4
-        (например из облака с открытым доступом). Загрузку файлов прямо в дашборд добавим позже через хранилище.
+        Загружай фото/видео прямо сюда — файл уйдёт в публикацию (Threads скачает его по нашей ссылке). Несколько медиа в одном
+        посте = <b>карусель</b>. «Ветка под веткой» = цепочка ответов, которая лучше заходит в ленте.
       </p>
       <div className="flex items-center gap-2">
-        <Button variant="ghost" onClick={() => setList((l) => [...l, { text: '' }])}>
-          <Plus size={16} /> Добавить
+        <Button variant="ghost" onClick={() => setList((l) => [...l, { segments: [{ text: '', media: [] }] }])}>
+          <Plus size={16} /> Добавить пост
         </Button>
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
         <AutosaveBadge status={autosave} />
@@ -710,8 +1039,117 @@ function PostsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   );
 }
 
-// Онбординг: конструктор страниц/блоков публичной ссылки кандидата.
-function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
+// Редактор медиа сегмента: загрузка файла + вставка по ссылке + превью + карусель.
+function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: MediaItem[]) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState('');
+  const [showUrl, setShowUrl] = useState(false);
+  const [url, setUrl] = useState('');
+  const [urlType, setUrlType] = useState<'image' | 'video'>('image');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function onFile(files: FileList | null) {
+    if (!files || !files.length) return;
+    setUploading(true);
+    setErr('');
+    try {
+      const added: MediaItem[] = [];
+      for (const f of Array.from(files)) {
+        const r = await api.upload(f);
+        added.push({ url: r.url, type: r.type });
+      }
+      onChange([...media, ...added]);
+    } catch (e: any) {
+      setErr(e.message || 'Не удалось загрузить');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  function addUrl() {
+    if (!url.trim()) return;
+    onChange([...media, { url: url.trim(), type: urlType }]);
+    setUrl('');
+    setShowUrl(false);
+  }
+
+  return (
+    <div className="mt-2">
+      {media.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {media.map((m, i) => (
+            <div key={i} className="relative">
+              {m.type === 'image' ? (
+                <img src={m.url} alt="" className="h-20 w-20 rounded-lg border border-line object-cover" onError={(e) => (e.currentTarget.style.opacity = '0.3')} />
+              ) : (
+                <video src={m.url} className="h-20 w-20 rounded-lg border border-line object-cover" />
+              )}
+              <span className="absolute left-1 top-1 rounded bg-black/60 p-0.5 text-white">{m.type === 'image' ? <ImageIcon size={11} /> : <Video size={11} />}</span>
+              <button
+                onClick={() => onChange(media.filter((_, j) => j !== i))}
+                className="absolute -right-1.5 -top-1.5 rounded-full bg-danger p-0.5 text-white hover:bg-danger/80"
+                title="Убрать"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+          {media.length > 1 && (
+            <span className="self-center"><Badge tone="accent">карусель {media.length}</Badge></span>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => onFile(e.target.files)} />
+        <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          <Upload size={14} /> {uploading ? 'Загружаю…' : 'Загрузить фото/видео'}
+        </Button>
+        <button onClick={() => setShowUrl((v) => !v)} className="text-xs text-muted hover:text-text">
+          или по ссылке
+        </button>
+      </div>
+
+      {showUrl && (
+        <div className="mt-2 flex items-center gap-2">
+          <Input className="flex-1" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/file.mp4 (прямая ссылка)" />
+          <Select size="sm" className="w-24" value={urlType} onChange={(v) => setUrlType(v as any)} options={[{ value: 'image', label: 'фото' }, { value: 'video', label: 'видео' }]} />
+          <Button size="sm" onClick={addUrl}>Добавить</Button>
+        </div>
+      )}
+      {err && <p className="mt-1 text-xs text-danger">{err}</p>}
+    </div>
+  );
+}
+
+// ──────────────────────────── ЛИДЫ + ОНБОРДИНГ ────────────────────────────
+function LeadsAndOnboardingTab({ s, reload, id }: { s: SearchDetail; reload: () => void; id: string }) {
+  return (
+    <div className="space-y-8">
+      <div>
+        <SectionTitle icon={<MessageSquare size={16} />} title="Лиды" hint="Кто написал кодовое слово — пайплайн кандидатов." />
+        <LeadsList id={id} />
+      </div>
+      <div>
+        <SectionTitle icon={<Eye size={16} />} title="Онбординг по ссылке" hint="Страницы и блоки, по которым пройдёт кандидат." />
+        <OnboardingSection s={s} reload={reload} />
+      </div>
+    </div>
+  );
+}
+
+function LeadsList({ id }: { id: string }) {
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  useEffect(() => {
+    api.get<Lead[]>(`/api/searches/${id}/leads`).then(setLeads);
+  }, [id]);
+  if (!leads) return <div className="text-muted">Загрузка…</div>;
+  if (!leads.length) return <div className="text-sm text-muted">Пока лидов нет. Появятся, как только кто-то напишет кодовое слово.</div>;
+  return <LeadTable leads={leads} showSearch={false} />;
+}
+
+function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [enabled, setEnabled] = useState(s.obEnabled);
   const [showPreview, setShowPreview] = useState(false);
   const [flow, setFlow] = useState<Flow>(() => {
@@ -726,7 +1164,6 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [saved, setSaved] = useState(false);
   const [tplName, setTplName] = useState('');
   const [saved2, setSaved2] = useState(false);
-  // дедлайн
   const [dlMode, setDlMode] = useState<'none' | 'relative' | 'fixed'>(s.obDeadlineMode || 'none');
   const initHours = s.obDeadlineHours || 48;
   const [dlUnit, setDlUnit] = useState<'h' | 'd'>(initHours % 24 === 0 ? 'd' : 'h');
@@ -741,7 +1178,7 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
       obEnabled: enabled,
       obFlow: JSON.stringify(flow),
       obDeadlineMode: dlMode,
-      obDeadlineHours: Math.min(720, Math.max(1, hours)), // сервер принимает максимум 30 дней (720ч)
+      obDeadlineHours: Math.min(720, Math.max(1, hours)),
       obDeadlineAt,
       obTimezone: tz,
     });
@@ -761,12 +1198,7 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
     <div className="space-y-5">
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="flex items-center justify-between">
-          <div>
-            <div className="font-medium">Онбординг по ссылке</div>
-            <div className="text-sm text-muted">
-              Собери страницы и блоки, по которым пройдёт кандидат. Ссылку выдашь из карточки во вкладке «Лиды».
-            </div>
-          </div>
+          <div className="text-sm text-muted">Ссылку выдашь из карточки лида во вкладке «Лиды».</div>
           <div className="flex shrink-0 items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => setShowPreview(true)}>
               <Eye size={15} /> Предпросмотр
@@ -776,7 +1208,6 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
         </div>
       </div>
 
-      {/* Загрузить готовый шаблон под роль */}
       <div>
         <div className="mb-2 text-sm text-muted">Загрузить шаблон под роль (заменит текущий конструктор):</div>
         <div className="flex flex-wrap gap-2">
@@ -795,7 +1226,6 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
 
       <FlowBuilder value={flow} onChange={setFlow} />
 
-      {/* Дедлайн сдачи тестового */}
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="font-medium">Дедлайн сдачи тестового</div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
@@ -805,30 +1235,17 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
             onChange={(v) => setDlMode(v as any)}
             options={[{ value: 'none', label: 'Без дедлайна' }, { value: 'relative', label: 'Через…' }, { value: 'fixed', label: 'К дате' }]}
           />
-
           {dlMode === 'relative' && (
             <>
               <Input type="number" className="w-20" value={dlValue} onChange={(e) => setDlValue(+e.target.value)} />
-              <Select
-                className="w-28"
-                value={dlUnit}
-                onChange={(v) => setDlUnit(v as any)}
-                options={[{ value: 'h', label: 'часов' }, { value: 'd', label: 'дней' }]}
-              />
+              <Select className="w-28" value={dlUnit} onChange={(v) => setDlUnit(v as any)} options={[{ value: 'h', label: 'часов' }, { value: 'd', label: 'дней' }]} />
               <span>с момента, как кандидат откроет ссылку</span>
             </>
           )}
-
           {dlMode === 'fixed' && (
-            <input
-              type="datetime-local"
-              value={dlLocal}
-              onChange={(e) => setDlLocal(e.target.value)}
-              className="rounded-xl border border-line bg-bg px-3 py-2 text-text"
-            />
+            <input type="datetime-local" value={dlLocal} onChange={(e) => setDlLocal(e.target.value)} className="rounded-xl border border-line bg-bg px-3 py-2 text-text" />
           )}
         </div>
-
         {dlMode !== 'none' && (
           <div className="mt-3 flex items-center gap-2 text-sm text-muted">
             <span>Часовой пояс:</span>
@@ -864,7 +1281,6 @@ function OnboardingTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   );
 }
 
-// Аналитика отвалов по шагам онбординга.
 function OnboardingFunnelBlock({ id }: { id: string }) {
   const [f, setF] = useState<import('@/lib/types').OnboardingFunnel | null>(null);
   useEffect(() => {
@@ -906,16 +1322,6 @@ function OnboardingFunnelBlock({ id }: { id: string }) {
       )}
     </div>
   );
-}
-
-function LeadsTab({ id }: { id: string }) {
-  const [leads, setLeads] = useState<Lead[] | null>(null);
-  useEffect(() => {
-    api.get<Lead[]>(`/api/searches/${id}/leads`).then(setLeads);
-  }, [id]);
-  if (!leads) return <div className="text-muted">Загрузка…</div>;
-  if (!leads.length) return <div className="text-muted">Пока лидов нет. Появятся, как только кто-то напишет кодовое слово.</div>;
-  return <LeadTable leads={leads} showSearch={false} />;
 }
 
 function StatsStrip({ id }: { id: string }) {

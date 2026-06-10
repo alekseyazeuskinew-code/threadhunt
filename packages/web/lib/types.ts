@@ -13,11 +13,40 @@ export interface ReplyTemplate {
   redirectTarget: string;
 }
 
+export interface MediaItem {
+  url: string;
+  type: 'image' | 'video';
+}
+
+// Один сегмент цепочки: текст + карусель медиа. segment[0] — корневой пост,
+// остальные — ветки-ответы.
+export interface PostSegment {
+  text: string;
+  media: MediaItem[];
+}
+
 export interface PostTemplate {
   id?: string;
   text: string;
   mediaUrl?: string | null;
   mediaType?: 'image' | 'video' | null;
+  segmentsJson?: string | null; // JSON массива сегментов (карусель + цепочка)
+}
+
+export interface DmStats {
+  lastPass: { scanned: number; sent: number; matched: number; sections: string | null; at: string } | null;
+  byKeyword: { keyword: string; count: number }[];
+  agent: { online: boolean; threadsLoggedIn: boolean; lastHeartbeat: string | null };
+  runNowAt: string | null;
+}
+
+export interface ActivityItem {
+  kind: 'post' | 'lead' | 'pass';
+  at: string;
+  ok: boolean;
+  title: string;
+  detail?: string;
+  permalink?: string | null;
 }
 
 export interface PublishConfig {
@@ -196,7 +225,7 @@ export interface TestPublishResult {
   dryRun: true;
   connection: string | null;
   checks: PublishCheck[];
-  wouldPost: { index: number; text: string; mediaUrl: string | null; mediaType: string | null; rotation: string } | null;
+  wouldPost: { index: number; text: string; mediaUrl: string | null; mediaType: string | null; rotation: string; segmentCount?: number; mediaCount?: number } | null;
 }
 
 export interface GoalConfig {
@@ -380,7 +409,13 @@ export interface Limits {
   workingHoursEnabled: boolean;
   activeFrom: string;
   activeTo: string;
-  caps?: { replyDelayMin: number; repliesMax: number; dialogsMax: number };
+  sweepIntervalMinutes: number;
+  safeMode: boolean;
+  sweepMain: boolean;
+  sweepRequests: boolean;
+  sweepHidden: boolean;
+  runNowAt?: string | null;
+  caps?: { replyDelayMin: number; repliesMax: number; dialogsMax: number; intervalMin: number };
 }
 
 export interface BrandProfile {

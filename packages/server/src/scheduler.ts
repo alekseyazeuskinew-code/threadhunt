@@ -7,7 +7,8 @@
 
 import { db } from './db.js';
 import { decrypt } from './crypto.js';
-import { publishPost, fetchReplies, publishReply, type MediaType } from './threads/publisher.js';
+import { publishChain, fetchReplies, publishReply } from './threads/publisher.js';
+import { parseSegments } from './threads/segments.js';
 import { resolveConnection } from './threads/resolve.js';
 import { sendEmail, renderEmailHtml } from './email.js';
 import { resolveRecipients, parseSegment, personalizeStep, usesPromoVar } from './emailAudience.js';
@@ -206,13 +207,12 @@ export async function publishForSearch(searchId: string): Promise<PublishResult>
 
   const token = decrypt(conn.accessTokenEnc);
   try {
-    const res = await publishPost(token, conn.threadsUserId, {
-      text: tpl.text,
-      mediaUrl: tpl.mediaUrl ?? undefined,
-      mediaType: (tpl.mediaType as MediaType) ?? '',
-    });
+    // Публикуем цепочку: корневой пост + ветки-ответы (или просто один пост).
+    const segments = parseSegments(tpl);
+    const res = await publishChain(token, conn.threadsUserId, segments);
+    const rootMedia = segments[0]?.media?.[0]?.url ?? tpl.mediaUrl ?? null;
     await db.publishedPost.create({
-      data: { searchId, threadsPostId: res.id, permalink: res.permalink, text: tpl.text.slice(0, 500), mediaType: res.mediaType, mediaUrl: tpl.mediaUrl ?? null, ok: true },
+      data: { searchId, threadsPostId: res.id, permalink: res.permalink, text: (segments[0]?.text || tpl.text).slice(0, 500), mediaType: res.mediaType, mediaUrl: rootMedia, ok: true },
     });
     await db.publishConfig.update({
       where: { id: cfg.id },

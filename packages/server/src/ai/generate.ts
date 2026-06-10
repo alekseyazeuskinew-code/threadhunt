@@ -144,6 +144,90 @@ export async function generatePosts(input: GenerateInput): Promise<GenOutput> {
   }
 }
 
+// ── Генерация ЦЕПОЧКИ веток (пост + ответвления под ним) ──
+// Цепочка = корневой пост-хук + 1–2 ответа-«ветки», которые догоняют деталями и
+// усиливают охват (алгоритм Threads буститит активные обсуждения под постом).
+// Возвращаем массив цепочек; каждая цепочка — массив текстов сегментов.
+const SYSTEM_CHAIN = `Ты пишешь ЦЕПОЧКУ постов-приманок для найма в Threads: корневой пост + 1–2 ответа-«ветки» под ним (как стиль bot.js/постов-приманок). Цель — спровоцировать написать кодовое слово в директ и поднять охват за счёт продолжения в ветке.
+
+Правила цепочки:
+1. Сегмент 1 (КОРЕНЬ) — сильный хук + кто нужен, коротко. НЕ вываливай все детали — оставь, что раскрыть в ветке.
+2. Сегмент 2 (ВЕТКА) — догоняет конкретикой: формат/занятость/оплата/объём (числа, деньги), 1–2 плюса команды.
+3. Сегмент 3 (ВЕТКА, опционально) — усиление: дедлайн/дефицит, вирусный приём («скинь другу»), и ФИНАЛЬНЫЙ CTA с кодовым словом «{кодовое слово}» в директ + эмодзи.
+Если делаешь 2 сегмента — CTA с кодовым словом ставь во второй. CTA с кодовым словом ОБЯЗАТЕЛЕН в последнем сегменте.
+
+Тон: на «ты», живо, с лёгким юмором, как человек, а не отдел кадров. Эмодзи 1–3 по смыслу. Каждый сегмент — 1–4 коротких строки. Избегай канцелярита и клише.
+
+Верни СТРОГО JSON-массив цепочек, где каждая цепочка — массив строк (сегментов), без markdown. Пример формата: [["корень…","ветка с деталями…","ветка с CTA «слово» 🎬"], ["…","…"]]`;
+
+export interface ChainGenOutput {
+  items: string[][]; // массив цепочек; каждая цепочка — массив текстов сегментов
+  source: 'ai' | 'demo';
+}
+
+export async function generateChain(input: GenerateInput & { segments?: number }): Promise<ChainGenOutput> {
+  const segCount = Math.min(3, Math.max(2, input.segments || 3));
+  if (!client) return { items: demoChains(input, segCount), source: 'demo' };
+  try {
+    const msg = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1800,
+      system: [{ type: 'text', text: SYSTEM_CHAIN, cache_control: { type: 'ephemeral' } }],
+      messages: [
+        {
+          role: 'user',
+          content:
+            `Вакансия: ${input.title}\n` +
+            `Описание (детали для уникальности): ${input.description || '—'}\n` +
+            (input.brief ? `Бриф/условия (учти и впиши — цена, формат, занятость, куда писать): ${input.brief}\n` : '') +
+            `Кодовое слово для директа: «${input.keyword}»\n` +
+            brandBlock(input.brand) +
+            (input.formats && input.formats.length
+              ? `Тон/ходы корневого поста (по кругу): ${input.formats.map((f) => POST_FORMAT_LABELS[f] || f).join(', ')}.\n`
+              : '') +
+            `Сгенерируй ${input.count} РАЗНЫХ цепочек, в каждой по ${segCount} сегмента.`,
+        },
+      ],
+    });
+    const parsed = parseJsonChains(textOf(msg));
+    return parsed ? { items: parsed, source: 'ai' } : { items: demoChains(input, segCount), source: 'demo' };
+  } catch {
+    return { items: demoChains(input, segCount), source: 'demo' };
+  }
+}
+
+// Парсер массива цепочек: [[seg,seg], ...]. Терпим и плоский массив строк (одна цепочка).
+function parseJsonChains(text: string): string[][] | null {
+  const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  try {
+    const arr = JSON.parse(cleaned);
+    if (!Array.isArray(arr) || !arr.length) return null;
+    if (Array.isArray(arr[0])) {
+      const chains = arr.map((c: any) => (Array.isArray(c) ? c.map(String).filter((s) => s.trim()) : [])).filter((c: string[]) => c.length);
+      return chains.length ? chains : null;
+    }
+    // плоский массив строк → одна цепочка
+    const flat = arr.map(String).filter((s) => s.trim());
+    return flat.length ? [flat] : null;
+  } catch {
+    return null;
+  }
+}
+
+function demoChains(i: GenerateInput, segCount: number): string[][] {
+  const role = i.title.toLowerCase();
+  const detail = i.description ? i.description.split(/[.,;]/)[0].trim().toLowerCase() : 'удалёнка, оплата вовремя';
+  const root = `${i.title}, вы тут?????? Расширяю команду — беру 1–2 на постоянку 🙌`;
+  const branch1 = `Детали: ${detail}. Формат простой, без душнилова и созвонов-марафонов.`;
+  const branchCta = `Кто в теме — кидай портфолио и слово «${i.keyword}» в директ 🎬`;
+  const chainA = segCount >= 3 ? [root, branch1, branchCta] : [root, `${branch1} Пиши «${i.keyword}» в директ 🎬`];
+  const root2 = `Знаешь крутого ${role}? Или сам ${role}? 👀`;
+  const chainB = segCount >= 3
+    ? [root2, `Расскажу условия: ${detail}. Беру тех, у кого горят глаза.`, `Слово-ключ «${i.keyword}» мне в директ — и поехали 🚀`]
+    : [root2, `Условия: ${detail}. Слово «${i.keyword}» в директ 🚀`];
+  return [chainA, chainB].slice(0, Math.max(1, i.count));
+}
+
 export async function generateReplies(input: {
   title: string;
   description: string;

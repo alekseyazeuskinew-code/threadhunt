@@ -18,13 +18,18 @@ export interface AgentSearchRule {
   maxRepliesPerDay: number;
 }
 
-/** Лимиты авто-отбивки (на аккаунт). Расширение строго соблюдает. */
+/** Лимиты + параметры прохода отбивки (на аккаунт). Расширение строго соблюдает. */
 export interface AgentLimits {
   minDelayMs: number; // пауза между ответами
   maxRepliesPerDay: number; // максимум сообщений в день
   repliesRemainingToday: number; // сколько ещё можно сегодня
-  maxDialogs: number; // максимум диалогов читать за проход
+  maxDialogs: number; // максимум диалогов читать за проход («чатов за проход»)
   workingHours: { enabled: boolean; from: string; to: string }; // окно «HH:MM»
+  // ── Параметры прохода (настраиваются в карточке «Отбивка в директе») ──
+  sweepIntervalMinutes: number; // как часто запускать обход
+  safeMode: boolean; // безопасный режим: проходить и считать, но НЕ отправлять
+  sections: { main: boolean; requests: boolean; hidden: boolean }; // какие разделы обходить
+  runNowAt: string | null; // метка «Прогон сейчас» (ISO) — обойти расписание, если новее последнего прохода
 }
 
 /** Ответ сервера на запрос задач. */
@@ -55,6 +60,15 @@ export interface AgentReplyEvent {
 
 export interface AgentEventsRequest {
   events: AgentReplyEvent[];
+}
+
+/** Сводка прохода отбивки — агент шлёт её серверу по завершении обхода. */
+export interface AgentPassReport {
+  scanned: number; // диалогов осмотрено
+  sent: number; // ответов отправлено
+  matched: number; // совпадений по словам найдено
+  sections?: string; // какие разделы обходили (csv)
+  dryRun?: boolean; // безопасный/тестовый проход
 }
 
 export interface AgentHeartbeat {

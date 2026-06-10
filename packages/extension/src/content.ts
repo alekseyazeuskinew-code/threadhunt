@@ -38,6 +38,17 @@ const SECTIONS = [
   { url: '/messages/', label: 'main' },
 ] as const;
 
+type SectionDef = { url: string; label: string };
+
+// Какие разделы обходить — по галочкам из настроек (limits.sections). Если ничего
+// не выбрано/настроек нет — обходим все три (поведение по умолчанию).
+function activeSections(sections?: { main: boolean; requests: boolean; hidden: boolean }): SectionDef[] {
+  if (!sections) return SECTIONS.map((s) => ({ ...s }));
+  const on: Record<string, boolean> = { requests: sections.requests, hidden: sections.hidden, main: sections.main };
+  const picked = SECTIONS.filter((s) => on[s.label]).map((s) => ({ ...s }));
+  return picked.length ? picked : SECTIONS.map((s) => ({ ...s }));
+}
+
 // preview — текст строки чата в списке (имя + последнее сообщение). В Запросах/Скрытых
 // само сообщение видно ТОЛЬКО здесь (чат до приёма сообщений не показывает), поэтому
 // кодовое слово ищем в preview, не открывая чат (D.12 хендоффа — бережёт лимиты).
@@ -70,8 +81,13 @@ interface Sweep {
   sent: number; // отправлено за этот проход
   expectPath: string; // куда мы навигировали — для проверки, что страница та самая
   guard: number; // защита от зацикливания ре-навигаций
-  dryRun?: boolean; // ТЕСТ: проходим директ и ищем совпадения, но НИЧЕГО не отправляем
-  scanned?: number; // тест: сколько диалогов осмотрено
+  dryRun?: boolean; // не отправлять (тест из popup ИЛИ безопасный режим)
+  scanned?: number; // сколько диалогов осмотрено
+  // Разделы директа, выбранные на старте прохода (по галочкам настроек).
+  sections: SectionDef[];
+  // Отправить серверу сводку прохода (статистика). true для реальных и безопасных
+  // проходов; false для теста из popup (он пишет результат только в storage.local).
+  reportPass?: boolean;
 }
 
 // Сейчас рабочее время? (окно «HH:MM», по локальному времени клиента)
@@ -90,8 +106,8 @@ const SWEEP_KEY = 'sweep';
 const LAST_SWEEP_KEY = 'lastSweepAt';
 const TEST_RESULT_KEY = 'th_test_result'; // результат тест-прохода (для popup), в storage.local
 // Антибан: проходы делают много навигаций (разделы + чаты), частые заходы ловят
-// HTTP 429 (D.15 хендоффа). Поэтому новый обход — не чаще раза в 30 минут.
-const COOLDOWN_MS = 30 * 60_000;
+// HTTP 429 (D.15 хендоффа). Интервал между обходами берётся из настроек
+// (limits.sweepIntervalMinutes, минимум 30 мин) — см. ветку старта обхода.
 
 async function getSweep(): Promise<Sweep | null> {
   const s = await chrome.storage.session.get(SWEEP_KEY);
@@ -271,11 +287,24 @@ async function step() {
     const tasks = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
     if (!tasks?.active || !tasks.searches.length) return;
     const lim = tasks.limits;
-    // ЛИМИТЫ: вне рабочих часов или исчерпан дневной лимит — проход не начинаем.
-    if (lim && !withinWorkingHours(lim.workingHours)) return;
-    if (lim && lim.repliesRemainingToday <= 0) return;
-    const { [LAST_SWEEP_KEY]: last } = await chrome.storage.session.get(LAST_SWEEP_KEY);
-    if (last && Date.now() - last < COOLDOWN_MS) return;
+    const sections = activeSections(lim?.sections);
+    const safe = !!lim?.safeMode; // безопасный режим: проходим и считаем, но не отправляем
+
+    // «Прогон сейчас»: метка времени с сервера новее уже обработанной — запускаем
+    // обход немедленно, минуя кулдаун и рабочие часы.
+    const { [LAST_SWEEP_KEY]: last, lastRunNow } = await chrome.storage.session.get([LAST_SWEEP_KEY, 'lastRunNow']);
+    const runNowTs = lim?.runNowAt ? Date.parse(lim.runNowAt) : 0;
+    const isRunNow = !!runNowTs && runNowTs !== lastRunNow;
+
+    if (!isRunNow) {
+      // ЛИМИТЫ: вне рабочих часов — не начинаем. Дневной лимит важен только если
+      // реально отправляем (в безопасном режиме можно проходить и при 0 остатке).
+      if (lim && !withinWorkingHours(lim.workingHours)) return;
+      if (lim && lim.repliesRemainingToday <= 0 && !safe) return;
+      const cooldownMs = Math.max(30, lim?.sweepIntervalMinutes ?? 180) * 60_000;
+      if (last && Date.now() - last < cooldownMs) return;
+    }
+    if (isRunNow) await chrome.storage.session.set({ lastRunNow: runNowTs });
 
     sweep = {
       phase: 'warmup',
@@ -293,6 +322,10 @@ async function step() {
       sent: 0,
       expectPath: '/messages/', // прогрев перед заходом в Запросы (D.10)
       guard: 0,
+      sections,
+      dryRun: safe, // безопасный режим = не отправляем
+      reportPass: true, // реальный/безопасный проход — шлём статистику серверу
+      scanned: 0,
     };
     await setSweep(sweep);
     navigate('/messages/');
@@ -304,10 +337,10 @@ async function step() {
     await sleep(2500);
     sweep.phase = 'collect';
     sweep.sectionIdx = 0;
-    sweep.expectPath = SECTIONS[0].url;
+    sweep.expectPath = sweep.sections[0].url;
     sweep.guard = 0;
     await setSweep(sweep);
-    navigate(SECTIONS[0].url);
+    navigate(sweep.sections[0].url);
     return;
   }
 
@@ -321,7 +354,7 @@ async function step() {
   }
 
   if (sweep.phase === 'collect') {
-    const sec = SECTIONS[sweep.sectionIdx];
+    const sec = sweep.sections[sweep.sectionIdx];
     await sleep(3500);
     await scrollList();
     const seen = new Set(sweep.seenIds);
@@ -356,8 +389,8 @@ async function step() {
     sweep.seenIds = [...seen];
     sweep.sectionIdx++;
 
-    if (sweep.sectionIdx < SECTIONS.length) {
-      sweep.expectPath = SECTIONS[sweep.sectionIdx].url;
+    if (sweep.sectionIdx < sweep.sections.length) {
+      sweep.expectPath = sweep.sections[sweep.sectionIdx].url;
       sweep.guard = 0;
       await setSweep(sweep);
       navigate(sweep.expectPath);
@@ -448,13 +481,27 @@ async function step() {
 }
 
 async function finishSweep(sweep: Sweep) {
-  if (sweep.dryRun) {
-    // ТЕСТ: НИЧЕГО не отправляем на сервер (не создаём лидов) — только сводку для popup.
+  if (!sweep.dryRun) {
+    // Реальный проход: создаём лиды (события) на сервере.
+    if (sweep.events.length) chrome.runtime.sendMessage({ type: 'events', events: sweep.events });
+  } else if (!sweep.reportPass) {
+    // ТЕСТ из popup: ничего на сервер, только сводка для popup.
     await chrome.storage.local.set({
       [TEST_RESULT_KEY]: { scanned: sweep.scanned || 0, matched: sweep.events.length, at: new Date().toISOString(), done: true },
     });
-  } else {
-    if (sweep.events.length) chrome.runtime.sendMessage({ type: 'events', events: sweep.events });
+  }
+  // Реальный и безопасный проходы шлют статистику серверу (для карточки/хронологии).
+  if (sweep.reportPass) {
+    chrome.runtime.sendMessage({
+      type: 'pass',
+      report: {
+        scanned: sweep.scanned || 0,
+        sent: sweep.sent || 0,
+        matched: sweep.events.length,
+        sections: sweep.sections.map((s) => s.label).join(','),
+        dryRun: !!sweep.dryRun,
+      },
+    });
   }
   await chrome.storage.session.set({ [LAST_SWEEP_KEY]: Date.now() });
   await setSweep(null);
@@ -488,6 +535,8 @@ async function startTestSweep(): Promise<{ ok: boolean; reason?: string }> {
     expectPath: '/messages/', // прогрев перед Запросами (D.10)
     guard: 0,
     dryRun: true,
+    reportPass: false, // тест из popup: статистику на сервер НЕ шлём
+    sections: activeSections(tasks?.limits?.sections),
     scanned: 0,
   };
   await setSweep(sweep);

@@ -47,6 +47,7 @@ model User {
   flowTemplates FlowTemplate[]
   metaConnection MetaConnection?
   adCampaigns    AdCampaign[]
+  agentPasses    AgentPass[]
 }
 
 // Участник рабочего пространства (командный доступ с ограниченными правами).
@@ -73,10 +74,34 @@ model Limits {
   user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   replyDelaySec       Int     @default(8) // пауза между ответами, сек
   maxRepliesPerDay    Int     @default(40) // максимум отправленных сообщений в день
-  maxDialogsPerSweep  Int     @default(40) // максимум прочитываемых диалогов за проход
+  maxDialogsPerSweep  Int     @default(40) // «чатов за проход» — макс. диалогов за обход
   workingHoursEnabled Boolean @default(false) // отвечать только в рабочие часы
   activeFrom          String  @default("09:00") // HH:MM
   activeTo            String  @default("21:00") // HH:MM
+  // ── Параметры прохода отбивки (читает расширение) ──
+  sweepIntervalMinutes Int     @default(180) // как часто запускать обход директа (мин)
+  safeMode             Boolean @default(false) // безопасный режим: проходить и считать, но НЕ отправлять
+  sweepMain            Boolean @default(true)  // обходить основной директ
+  sweepRequests        Boolean @default(true)  // обходить «Запросы»
+  sweepHidden          Boolean @default(true)  // обходить «Скрытые»
+  runNowAt             DateTime? // «Прогон сейчас»: метка, по которой расширение запустит обход вне расписания
+}
+
+// Журнал проходов отбивки (телеметрия от расширения): статистика последнего
+// обхода для карточки «Отбивка в директе» и ленты «что происходит на бэке».
+// Проход глобальный по аккаунту (один обход покрывает все активные поиски).
+model AgentPass {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scanned  Int      @default(0) // диалогов осмотрено
+  sent     Int      @default(0) // ответов отправлено
+  matched  Int      @default(0) // совпадений по кодовым словам найдено
+  sections String? // какие разделы обходили (csv: main,requests,hidden)
+  dryRun   Boolean  @default(false) // безопасный/тестовый проход
+  at       DateTime @default(now())
+
+  @@index([userId, at])
 }
 
 // Учёт расхода ИИ — по пользователю и дню (для лимитов по тарифам).
@@ -280,8 +305,15 @@ model PostTemplate {
   search    Search  @relation(fields: [searchId], references: [id], onDelete: Cascade)
   text      String
   // Медиа по ПУБЛИЧНОЙ ссылке (требование Threads API): image_url / video_url.
-  mediaUrl  String? // публичный URL картинки/видео
+  // ЛЕГАСИ-зеркало первого сегмента: text/mediaUrl/mediaType = сегмент[0] и его
+  // первое медиа. Источник правды для карусели и цепочек веток — segmentsJson.
+  mediaUrl  String? // публичный URL картинки/видео (первое медиа корневого поста)
   mediaType String? // image | video | null (только текст)
+  // Карусель + цепочка веток. JSON-массив сегментов (как obFlow в Search):
+  //   [{ "text": "...", "media": [{ "url": "...", "type": "image|video" }, ...] }, ...]
+  // segment[0] = корневой пост, остальные = ответы-«ветки» (reply_to_id).
+  // media длиной >1 → карусель (Threads CAROUSEL). Пусто/нет → берём легаси-поля.
+  segmentsJson String?
   source    String  @default("manual") // manual | ai
   order     Int     @default(0)
 

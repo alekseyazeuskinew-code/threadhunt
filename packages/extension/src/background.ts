@@ -56,6 +56,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       void tick(); // обновить alreadyReplied сразу после отправки
     });
   }
+  if (msg?.type === 'pass') {
+    // Сводка прохода → сервер (статистика для карточки и хронологии).
+    void authed('/api/agent/pass', { method: 'POST', body: JSON.stringify(msg.report || {}) }).then(() => {
+      void tick(); // подтянуть свежие настройки (в т.ч. сброшенный runNowAt)
+    });
+  }
   if (msg?.type === 'getTasks') {
     chrome.storage.local.get('tasks').then((s) => sendResponse(s.tasks || null));
     return true; // async response

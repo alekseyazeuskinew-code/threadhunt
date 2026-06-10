@@ -5,10 +5,11 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
-import { generatePosts, generateReplies, type BrandVoice } from '../ai/generate.js';
+import { generatePosts, generateReplies, generateChain, type BrandVoice } from '../ai/generate.js';
 import { aiLimitFor, today } from '../ai/limits.js';
 import { decrypt } from '../crypto.js';
 import { whoami } from '../threads/publisher.js';
+import { parseSegments } from '../threads/segments.js';
 import { resolveConnection } from '../threads/resolve.js';
 import { publishForSearch } from '../scheduler.js';
 
@@ -172,10 +173,18 @@ export async function searchRoutes(app: FastifyInstance) {
     return db.replyTemplate.findMany({ where: { searchId: id }, orderBy: { order: 'asc' } });
   });
 
-  // ── Заменить шаблоны постов (с медиа) ──
+  // ── Заменить шаблоны постов (медиа + карусель + цепочки веток) ──
+  // Каждый шаблон = цепочка сегментов. segment[0] — корневой пост, остальные —
+  // ветки-ответы. media длиной >1 → карусель. Легаси-поля (text/mediaUrl/mediaType)
+  // зеркалят первый сегмент для обратной совместимости.
+  const mediaItem = z.object({ url: z.string().url(), type: z.enum(['image', 'video']) });
+  const segment = z.object({ text: z.string().default(''), media: z.array(mediaItem).max(20).default([]) });
   const postInput = z.object({
     templates: z.array(
       z.object({
+        // Новый формат: цепочка сегментов.
+        segments: z.array(segment).max(10).optional(),
+        // Легаси-поля (если segments не передали).
         text: z.string().default(''),
         mediaUrl: z.string().url().optional().or(z.literal('')),
         mediaType: z.enum(['image', 'video']).optional(),
@@ -191,13 +200,24 @@ export async function searchRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     await db.postTemplate.deleteMany({ where: { searchId: id } });
     await db.postTemplate.createMany({
-      data: parsed.data.templates.map((t, i) => ({
-        searchId: id,
-        text: t.text,
-        mediaUrl: t.mediaUrl || null,
-        mediaType: t.mediaType || null,
-        order: i,
-      })),
+      data: parsed.data.templates.map((t, i) => {
+        // Нормализуем в массив сегментов (из segments либо из легаси-полей).
+        const segs =
+          t.segments && t.segments.length
+            ? t.segments.filter((s) => (s.text && s.text.trim()) || s.media.length)
+            : [{ text: t.text, media: t.mediaUrl && t.mediaType ? [{ url: t.mediaUrl, type: t.mediaType }] : [] }];
+        const root = segs[0] ?? { text: '', media: [] };
+        const hasChain = segs.length > 1 || root.media.length > 1;
+        return {
+          searchId: id,
+          text: root.text || '',
+          mediaUrl: root.media[0]?.url || null,
+          mediaType: root.media[0]?.type || null,
+          // segmentsJson храним только если есть что хранить сверх одного простого медиа.
+          segmentsJson: hasChain ? JSON.stringify(segs) : null,
+          order: i,
+        };
+      }),
     });
     return db.postTemplate.findMany({ where: { searchId: id }, orderBy: { order: 'asc' } });
   });
@@ -230,12 +250,84 @@ export async function searchRoutes(app: FastifyInstance) {
     return db.lead.findMany({ where: { searchId: id }, orderBy: { createdAt: 'desc' }, take: 200 });
   });
 
-  // ── ИИ-генерация постов / ответов ──
+  // ── Статистика отбивки в директе (для карточки) ──
+  // lastPass — последний проход (глобальный по аккаунту). byKeyword — всего ответов
+  // по кодовым словам этого поиска (как «дизайн 96 / монтаж 65» на эталоне).
+  app.get('/api/searches/:id/dm-stats', async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
+
+    const [lastPass, grouped, device, limits] = await Promise.all([
+      db.agentPass.findFirst({ where: { userId, dryRun: false }, orderBy: { at: 'desc' } }),
+      db.lead.groupBy({ by: ['matchedKeyword'], where: { searchId: id, status: 'REPLIED' }, _count: { _all: true } }),
+      db.device.findFirst({ where: { userId }, orderBy: { lastHeartbeat: 'desc' } }),
+      db.limits.findUnique({ where: { userId } }),
+    ]);
+    const byKeyword = grouped
+      .map((g) => ({ keyword: g.matchedKeyword, count: g._count._all }))
+      .sort((a, b) => b.count - a.count);
+    const online = !!device?.lastHeartbeat && Date.now() - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
+    return {
+      lastPass: lastPass ? { scanned: lastPass.scanned, sent: lastPass.sent, matched: lastPass.matched, sections: lastPass.sections, at: lastPass.at } : null,
+      byKeyword,
+      agent: { online, threadsLoggedIn: !!device?.threadsLoggedIn, lastHeartbeat: device?.lastHeartbeat ?? null },
+      runNowAt: limits?.runNowAt ?? null,
+    };
+  });
+
+  // ── Хронология «что происходит на бэке» ──
+  // Единая лента: публикации постов + лиды отбивки + проходы агента, по времени.
+  app.get('/api/searches/:id/activity', async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
+
+    const [posts, leads, passes] = await Promise.all([
+      db.publishedPost.findMany({ where: { searchId: id }, orderBy: { createdAt: 'desc' }, take: 25 }),
+      db.lead.findMany({ where: { searchId: id }, orderBy: { createdAt: 'desc' }, take: 25 }),
+      db.agentPass.findMany({ where: { userId }, orderBy: { at: 'desc' }, take: 15 }),
+    ]);
+    type Item = { kind: 'post' | 'lead' | 'pass'; at: Date; ok: boolean; title: string; detail?: string; permalink?: string | null };
+    const items: Item[] = [];
+    for (const p of posts)
+      items.push({
+        kind: 'post',
+        at: p.createdAt,
+        ok: p.ok,
+        title: p.ok ? 'Опубликован пост' : 'Ошибка публикации',
+        detail: p.ok ? p.text.slice(0, 120) : p.error || p.text.slice(0, 120),
+        permalink: p.permalink,
+      });
+    for (const l of leads)
+      items.push({
+        kind: 'lead',
+        at: l.createdAt,
+        ok: l.status === 'REPLIED',
+        title: l.status === 'REPLIED' ? `Ответили лиду${l.fromUsername ? ' @' + l.fromUsername : ''}` : `Лид без ответа${l.fromUsername ? ' @' + l.fromUsername : ''}`,
+        detail: `слово «${l.matchedKeyword}»${l.section ? ' · ' + l.section : ''}`,
+      });
+    for (const pass of passes)
+      items.push({
+        kind: 'pass',
+        at: pass.at,
+        ok: true,
+        title: pass.dryRun ? 'Проход (тест/безопасный)' : 'Проход отбивки',
+        detail: `проверено ${pass.scanned} · найдено ${pass.matched} · отправлено ${pass.sent}`,
+      });
+    items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    return items.slice(0, 40);
+  });
+
+  // ── ИИ-генерация постов / ответов / цепочек веток ──
   const genSchema = z.object({
-    kind: z.enum(['posts', 'replies']).default('posts'),
+    kind: z.enum(['posts', 'replies', 'chain']).default('posts'),
     count: z.number().min(1).max(10).default(5),
     brief: z.string().max(2000).optional(),
     formats: z.array(z.string().max(40)).max(12).optional(),
+    segments: z.number().min(2).max(3).optional(), // для kind=chain: длина цепочки
   });
   // Генерация выполняется СРАЗУ (inline). Защита бюджета: дневной лимит по тарифу +
   // учёт расхода. Персонализация: подставляем «Голос бренда». Graceful: при сбое ИИ
@@ -261,7 +353,7 @@ export async function searchRoutes(app: FastifyInstance) {
       return reply.code(429).send({ error: `Дневной лимит ИИ исчерпан (${limit}/день). Обнови тариф или вернись завтра.` });
     }
 
-    const { kind, count, brief, formats } = genSchema.parse(req.body ?? {});
+    const { kind, count, brief, formats, segments } = genSchema.parse(req.body ?? {});
     const voice: BrandVoice | undefined = brand
       ? {
           companyName: brand.companyName,
@@ -275,18 +367,21 @@ export async function searchRoutes(app: FastifyInstance) {
         }
       : undefined;
 
+    const keyword = search.keywords[0]?.text || search.title;
     const out =
       kind === 'replies'
         ? await generateReplies({ title: search.title, description: search.description, redirectTarget: '', count, brand: voice })
-        : await generatePosts({
-            title: search.title,
-            description: search.description,
-            keyword: search.keywords[0]?.text || search.title,
-            count,
-            brand: voice,
-            brief,
-            formats,
-          });
+        : kind === 'chain'
+          ? await generateChain({ title: search.title, description: search.description, keyword, count, brand: voice, brief, formats, segments })
+          : await generatePosts({
+              title: search.title,
+              description: search.description,
+              keyword,
+              count,
+              brand: voice,
+              brief,
+              formats,
+            });
 
     // учёт расхода (+1 за вызов) и журнал
     await db.aiUsage.upsert({
@@ -385,16 +480,22 @@ export async function searchRoutes(app: FastifyInstance) {
       checks.push({ label: 'Токен рабочий (проверка /me)', ok: tokenOk, detail: tokenDetail });
     }
 
-    // что вышло бы следующим постом
-    let wouldPost: { index: number; text: string; mediaUrl: string | null; mediaType: string | null; rotation: string } | null = null;
+    // что вышло бы следующим постом (с учётом карусели и цепочки веток)
+    let wouldPost:
+      | { index: number; text: string; mediaUrl: string | null; mediaType: string | null; rotation: string; segmentCount: number; mediaCount: number }
+      | null = null;
     if (hasTpl) {
       const idx = (cfg?.nextIndex || 0) % search.postTemplates.length;
       const tpl = search.postTemplates[idx];
+      const segs = parseSegments(tpl);
+      const root = segs[0];
       wouldPost = {
         index: idx,
-        text: tpl.text,
-        mediaUrl: tpl.mediaUrl ?? null,
-        mediaType: tpl.mediaType ?? null,
+        text: root?.text || tpl.text,
+        mediaUrl: root?.media?.[0]?.url ?? tpl.mediaUrl ?? null,
+        mediaType: root?.media?.[0]?.type ?? tpl.mediaType ?? null,
+        segmentCount: segs.length, // 1 = обычный пост, >1 = цепочка веток
+        mediaCount: root?.media?.length ?? 0, // >1 = карусель в корневом посте
         rotation: cfg?.rotation === 'random' ? 'случайный (один из шаблонов)' : 'по очереди',
       };
     }

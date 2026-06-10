@@ -24,10 +24,28 @@ async function req<T>(path: string, opts: { method?: string; body?: unknown } = 
   return res.json();
 }
 
+// Загрузка файла (multipart). Content-Type НЕ ставим — браузер сам проставит
+// boundary. Возвращает публичный URL и тип медиа для постов.
+async function upload(file: File): Promise<{ url: string; type: 'image' | 'video'; size: number }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/api/uploads', { method: 'POST', credentials: 'include', body: fd });
+  if (!res.ok) {
+    let msg = `Ошибка ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.error) msg = typeof j.error === 'string' ? j.error : 'Не удалось загрузить файл';
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 export const api = {
   get: <T>(p: string) => req<T>(p),
   post: <T>(p: string, body?: unknown) => req<T>(p, { method: 'POST', body }),
   patch: <T>(p: string, body?: unknown) => req<T>(p, { method: 'PATCH', body }),
   put: <T>(p: string, body?: unknown) => req<T>(p, { method: 'PUT', body }),
   del: <T>(p: string) => req<T>(p, { method: 'DELETE' }),
+  upload,
 };
