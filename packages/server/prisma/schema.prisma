@@ -268,6 +268,7 @@ model Search {
   obDeadlineHours Int    @default(48) // для relative: часов с момента старта
   obDeadlineAt   DateTime? // для fixed: абсолютный момент (UTC)
   obTimezone     String  @default("") // IANA-зона для показа кандидату (пусто = его локальная)
+  obRemindersEnabled Boolean @default(true) // слать кандидату email-напоминания о дедлайне теста
 
   // ── Автопланировщик целей найма ──
   goalEnabled    Boolean   @default(false)
@@ -416,6 +417,8 @@ model Lead {
   ndaAcceptedAt      DateTime?
   obStep             Int       @default(0) // прогресс по шагам (аналитика воронки)
   candidateResponses String? // JSON ответов кандидата по блокам конструктора
+  obReminderCount    Int       @default(0) // сколько email-напоминаний о дедлайне отправлено
+  obLastReminderAt   DateTime? // когда отправляли последнее напоминание (анти-спам)
 
   comments LeadComment[]
 

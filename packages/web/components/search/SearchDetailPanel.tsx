@@ -1225,6 +1225,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   const [dlValue, setDlValue] = useState(initHours % 24 === 0 ? initHours / 24 : initHours);
   const [dlLocal, setDlLocal] = useState('');
   const [tz, setTz] = useState(s.obTimezone || '');
+  const [reminders, setReminders] = useState(s.obRemindersEnabled ?? true);
 
   async function save() {
     const hours = dlUnit === 'd' ? dlValue * 24 : dlValue;
@@ -1236,6 +1237,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
       obDeadlineHours: Math.min(720, Math.max(1, hours)),
       obDeadlineAt,
       obTimezone: tz,
+      obRemindersEnabled: reminders,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
@@ -1360,7 +1362,17 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
             <Select className="w-72" value={tz} onChange={setTz} options={TIMEZONES.map((t) => ({ value: t.tz, label: t.label }))} />
           </div>
         )}
-        <p className="mt-2 text-xs text-muted">Кандидат увидит дедлайн и обратный отсчёт. По истечении — в канбане «тест просрочен».</p>
+        <p className="mt-2 text-xs text-muted">Кандидат увидит дедлайн, обратный отсчёт и кнопку «Добавить в календарь». По истечении — в канбане «тест просрочен».</p>
+
+        {dlMode !== 'none' && (
+          <div className="mt-3 flex items-start justify-between gap-3 border-t border-line pt-3">
+            <div>
+              <div className="text-sm font-medium">Email-напоминания о дедлайне</div>
+              <div className="text-xs text-muted">Кто оставил email, но не сдал тест — получит 1–2 деликатных письма с обратным отсчётом и ссылкой. Поднимает доходимость.</div>
+            </div>
+            <Toggle checked={reminders} onChange={setReminders} />
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

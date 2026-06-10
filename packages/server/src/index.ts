@@ -168,6 +168,10 @@ async function ensureSchema() {
       "createdAt" TIMESTAMP NOT NULL DEFAULT now()
     )`,
     'CREATE INDEX IF NOT EXISTS "Announcement_createdAt_idx" ON "Announcement" ("createdAt")',
+    // Email-напоминания кандидату о дедлайне теста.
+    'ALTER TABLE "Search" ADD COLUMN IF NOT EXISTS "obRemindersEnabled" BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "obReminderCount" INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "obLastReminderAt" TIMESTAMP',
   ];
   for (const sql of stmts) {
     try {

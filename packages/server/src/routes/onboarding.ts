@@ -46,6 +46,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
     obDeadlineHours: z.number().int().min(1).max(720).optional(),
     obDeadlineAt: z.string().datetime().nullable().optional(),
     obTimezone: z.string().max(64).optional(),
+    obRemindersEnabled: z.boolean().optional(),
   });
   app.put('/api/searches/:id/onboarding', async (req, reply) => {
     const userId = await requireUser(req, reply);

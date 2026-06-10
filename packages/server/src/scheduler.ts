@@ -17,6 +17,7 @@ import { ensurePromoForEmail } from './promoCodes.js';
 let running = false;
 let dripRunning = false;
 let commentsRunning = false;
+let remindersRunning = false;
 
 export function startScheduler() {
   setInterval(tick, 60_000); // автопостинг — каждую минуту
@@ -25,7 +26,87 @@ export function startScheduler() {
   setTimeout(dripTick, 15_000); // и вскоре после старта
   setInterval(commentTick, 4 * 60_000); // отбивка в комментариях — каждые 4 минуты
   setTimeout(commentTick, 30_000); // и вскоре после старта
-  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии, внутри API)');
+  setInterval(onbReminderTick, 15 * 60_000); // напоминания о дедлайне теста — каждые 15 минут
+  setTimeout(onbReminderTick, 45_000); // и вскоре после старта
+  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии + напоминания, внутри API)');
+}
+
+// Авто-напоминания кандидату на email о дедлайне тестового — поднимают доходимость.
+// Кандидат оставил email на 1-м шаге, но не сдал тест → шлём 1-2 деликатных письма
+// с обратным отсчётом и ссылкой. Анти-спам: не чаще раза в час, максимум 2 письма.
+async function onbReminderTick() {
+  if (remindersRunning) return;
+  remindersRunning = true;
+  try {
+    if (!process.env.RESEND_API_KEY) return; // без почтового ключа слать нечем
+    const webOrigin = (process.env.WEB_ORIGIN || '').replace(/\/$/, '');
+    const now = Date.now();
+    const leads = await db.lead.findMany({
+      where: {
+        onboardToken: { not: null },
+        testDeadlineAt: { not: null, gt: new Date() }, // дедлайн ещё впереди
+        testSubmittedAt: null, // ещё не сдал
+        candidateContact: { contains: '@' }, // оставил похожее на email
+      },
+      include: { search: { select: { title: true, obFlow: true, obRemindersEnabled: true } } },
+      take: 300,
+    });
+    const EMAIL_RX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    for (const l of leads) {
+      const s = l.search;
+      if (!s?.obRemindersEnabled) continue;
+      if (l.obLastReminderAt && now - new Date(l.obLastReminderAt).getTime() < 60 * 60_000) continue; // не чаще раза в час
+      const email = (l.candidateContact || '').trim();
+      if (!EMAIL_RX.test(email)) continue;
+      // завершил ли флоу? (obStep дошёл до числа страниц)
+      const pages = pageCount(s.obFlow);
+      if (pages && l.obStep >= pages) continue;
+      const hLeft = (new Date(l.testDeadlineAt!).getTime() - now) / 3600_000;
+      const count = l.obReminderCount || 0;
+      // 1-е письмо — когда осталось ≤24ч, 2-е — когда ≤4ч. Больше двух не шлём.
+      const shouldRemind = (count === 0 && hLeft <= 24) || (count === 1 && hLeft <= 4);
+      if (!shouldRemind) continue;
+      const link = webOrigin ? `${webOrigin}/c/${l.onboardToken}` : '';
+      const res = await sendEmail({
+        to: email,
+        subject: `Напоминание: тестовое по «${s.title}» — осталось ~${Math.max(1, Math.round(hLeft))} ч`,
+        html: reminderHtml({ role: s.title, link, deadline: l.testDeadlineAt!, name: l.candidateName }),
+      });
+      // и при успехе, и при ошибке ставим метку времени, чтобы не долбить каждые 15 мин;
+      // счётчик растёт только при реальной отправке.
+      await db.lead
+        .update({ where: { id: l.id }, data: { obLastReminderAt: new Date(), ...(res.ok ? { obReminderCount: count + 1 } : {}) } })
+        .catch(() => {});
+    }
+  } catch (e) {
+    console.error('[reminders] tick error:', (e as Error).message);
+  } finally {
+    remindersRunning = false;
+  }
+}
+
+function pageCount(obFlow: string | null): number {
+  if (!obFlow) return 0;
+  try {
+    const f = JSON.parse(obFlow);
+    return Array.isArray(f?.pages) ? f.pages.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function reminderHtml({ role, link, deadline, name }: { role: string; link: string; deadline: Date; name: string | null }): string {
+  const when = new Date(deadline).toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
+  const hi = name ? `Привет, ${name}!` : 'Привет!';
+  const btn = link
+    ? `<div style="text-align:center;margin:22px 0 6px"><a href="${link}" style="display:inline-block;background:#6d5cf6;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 24px;border-radius:12px;font-size:15px">Продолжить и сдать тест</a></div>`
+    : '';
+  return `<div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:8px">
+    <p style="font-size:16px;color:#16151c;margin:0 0 8px"><b>${hi}</b></p>
+    <p style="font-size:15px;line-height:1.6;color:#333;margin:0">Ты начал(а) отклик на роль <b>${role}</b>, но ещё не сдал(а) тестовое. Дедлайн — <b>${when}</b>. Успеешь? 🙌</p>
+    ${btn}
+    <p style="font-size:13px;color:#888;margin:14px 0 0">Если уже не актуально — просто проигнорируй это письмо.</p>
+  </div>`;
 }
 
 // Авто-отбивка в комментариях через Threads API: под каждым нашим недавним постом

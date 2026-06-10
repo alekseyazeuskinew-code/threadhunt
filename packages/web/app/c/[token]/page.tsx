@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowRight, Clock } from 'lucide-react';
+import { ArrowRight, Clock, CalendarPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Flow } from '@/lib/flow';
 import { fmtInTz } from '@/lib/timezones';
@@ -106,7 +106,12 @@ export default function CandidateFlow() {
             <CompletionView />
           ) : (
             <div className="mt-5">
-              {data.deadline && <DeadlineBanner deadline={data.deadline} tz={data.timezone} now={now} />}
+              {data.deadline && (
+                <>
+                  <DeadlineBanner deadline={data.deadline} tz={data.timezone} now={now} />
+                  <CalendarLinks deadline={data.deadline} role={data.role} token={token} />
+                </>
+              )}
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
                 {page.blocks.map((b) => (
@@ -140,6 +145,31 @@ function DeadlineBanner({ deadline, tz, now }: { deadline: string; tz: string; n
         Дедлайн: <b>{fmtInTz(deadline, tz)}</b>{tzLabel} ·{' '}
         {overdue ? `просрочено на ${h}ч ${m}м` : `осталось ${h}ч ${m}м`}
       </span>
+    </div>
+  );
+}
+
+// «Добавить в календарь» — поднимает доходимость до сдачи теста: дедлайн всегда
+// под рукой. Google Calendar (по клику) + .ics для Apple/Outlook.
+function CalendarLinks({ deadline, role, token }: { deadline: string; role: string; token: string }) {
+  const start = new Date(deadline);
+  const end = new Date(start.getTime() + 30 * 60_000);
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const title = `Сдать тестовое: ${role}`;
+  const link = typeof window !== 'undefined' ? `${window.location.origin}/c/${token}` : '';
+  const details = `Дедлайн сдачи тестового задания.${link ? '\n' + link : ''}`;
+  const gcal = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent(details)}`;
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`, `SUMMARY:${title}`, `DESCRIPTION:${details.replace(/\n/g, '\\n')}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const icsHref = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-muted">Не забыть:</span>
+      <a href={gcal} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 font-medium text-accent-ink transition-colors hover:bg-accent-soft">
+        <CalendarPlus size={13} /> В Google Календарь
+      </a>
+      <a href={icsHref} download={`test-${role}.ics`} className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-muted transition-colors hover:text-text">
+        .ics (Apple/Outlook)
+      </a>
     </div>
   );
 }
