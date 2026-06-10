@@ -1073,6 +1073,7 @@ function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: Me
   const [showUrl, setShowUrl] = useState(false);
   const [url, setUrl] = useState('');
   const [urlType, setUrlType] = useState<'image' | 'video'>('image');
+  const [lightbox, setLightbox] = useState<MediaItem | null>(null); // открытое на просмотр медиа
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onFile(files: FileList | null) {
@@ -1102,17 +1103,24 @@ function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: Me
   }
 
   return (
+    <>
     <div className="mt-2">
       {media.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {media.map((m, i) => (
-            <div key={i} className="relative">
-              {m.type === 'image' ? (
-                <img src={m.url} alt="" className="h-20 w-20 rounded-lg border border-line object-cover" onError={(e) => (e.currentTarget.style.opacity = '0.3')} />
-              ) : (
-                <video src={m.url} className="h-20 w-20 rounded-lg border border-line object-cover" />
-              )}
-              <span className="absolute left-1 top-1 rounded bg-black/60 p-0.5 text-white">{m.type === 'image' ? <ImageIcon size={11} /> : <Video size={11} />}</span>
+            <div key={i} className="group relative">
+              {/* Клик по превью — открыть фото/видео в полном размере. */}
+              <button type="button" onClick={() => setLightbox(m)} title="Открыть" className="block">
+                {m.type === 'image' ? (
+                  <img src={m.url} alt="" className="h-20 w-20 rounded-lg border border-line object-cover" onError={(e) => (e.currentTarget.style.opacity = '0.3')} />
+                ) : (
+                  <video src={m.url} className="h-20 w-20 rounded-lg border border-line object-cover" />
+                )}
+                <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/0 text-white opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
+                  <Eye size={18} />
+                </span>
+              </button>
+              <span className="pointer-events-none absolute left-1 top-1 rounded bg-black/60 p-0.5 text-white">{m.type === 'image' ? <ImageIcon size={11} /> : <Video size={11} />}</span>
               <button
                 onClick={() => onChange(media.filter((_, j) => j !== i))}
                 className="absolute -right-1.5 -top-1.5 rounded-full bg-danger p-0.5 text-white hover:bg-danger/80"
@@ -1147,6 +1155,26 @@ function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: Me
       )}
       {err && <p className="mt-1 text-xs text-danger">{err}</p>}
     </div>
+
+    {/* Лайтбокс: полноразмерный просмотр загруженного фото/видео. */}
+    {lightbox && (
+      <div className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-black/85 p-6" onClick={() => setLightbox(null)}>
+        <div className="relative max-h-[88vh] max-w-[92vw]" onClick={(e) => e.stopPropagation()}>
+          {lightbox.type === 'image' ? (
+            <img src={lightbox.url} alt="" className="max-h-[84vh] max-w-[92vw] rounded-xl object-contain shadow-2xl" />
+          ) : (
+            <video src={lightbox.url} controls autoPlay className="max-h-[84vh] max-w-[92vw] rounded-xl shadow-2xl" />
+          )}
+          <div className="mt-3 flex items-center justify-between text-sm text-white/85">
+            <a href={lightbox.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline">
+              Открыть оригинал <ExternalLink size={13} />
+            </a>
+            <button onClick={() => setLightbox(null)} className="rounded-full bg-white/10 px-3 py-1 hover:bg-white/20">Закрыть ✕</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
