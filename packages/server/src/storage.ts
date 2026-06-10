@@ -29,8 +29,6 @@ const S3_SECRET_ACCESS_KEY = process.env.S3_SECRET_ACCESS_KEY || '';
 const S3_REGION = process.env.S3_REGION || 'auto';
 // Публичный базовый URL, по которому отдаётся бакет (CDN/Custom domain R2).
 const S3_PUBLIC_BASE_URL = (process.env.S3_PUBLIC_BASE_URL || '').replace(/\/$/, '');
-// Публичный адрес самого API (для локального бэкенда: PUBLIC_BASE_URL/uploads/...).
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || process.env.WEB_ORIGIN || '').replace(/\/$/, '');
 
 const useS3 = !!(S3_ENDPOINT && S3_BUCKET && S3_ACCESS_KEY_ID && S3_SECRET_ACCESS_KEY && S3_PUBLIC_BASE_URL);
 
@@ -96,12 +94,15 @@ export async function saveUpload(userId: string, buf: Buffer, mime: string): Pro
     return { url: `${S3_PUBLIC_BASE_URL}/${key}`, key, type, mime, size: buf.length };
   }
 
-  // Локальный бэкенд: пишем на диск, отдаём по /uploads.
-  const abs = path.join(LOCAL_UPLOAD_DIR, key.replace(/^uploads\//, ''));
+  // Локальный бэкенд: пишем на диск, отдаём по ОТНОСИТЕЛЬНОМУ /api/media/...
+  // Относительный путь грузится с того же домена, что и дашборд (Next проксирует
+  // /api/* на бэкенд), поэтому ПРЕВЬЮ работает без всякой настройки доменов.
+  // Для публикации в Threads абсолютный URL достраивает publisher (PUBLIC_BASE_URL).
+  const rel = key.replace(/^uploads\//, '');
+  const abs = path.join(LOCAL_UPLOAD_DIR, rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, buf);
-  const base = PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
-  return { url: `${base}/${key}`, key, type, mime, size: buf.length };
+  return { url: `/api/media/${rel}`, key, type, mime, size: buf.length };
 }
 
 /** Удалить файл по ключу (best-effort, не критично при сбое). */

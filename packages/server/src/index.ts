@@ -39,11 +39,12 @@ await app.register(cookie, { secret: env.SESSION_SECRET });
 // Загрузка медиа: лимит 100 МБ на файл (видео Reels умещаются). 1 файл за запрос.
 await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024, files: 1 } });
 
-// Локальное хранилище медиа раздаём по /uploads (когда S3/R2 не настроен).
+// Локальное хранилище медиа раздаём по /api/media/ (этот префикс Next проксирует
+// на бэкенд, поэтому превью грузится с того же домена без настройки PUBLIC_BASE_URL).
 if (storageBackend === 'local') {
   const { promises: fs } = await import('node:fs');
   await fs.mkdir(LOCAL_UPLOAD_DIR, { recursive: true }).catch(() => {});
-  await app.register(fastifyStatic, { root: LOCAL_UPLOAD_DIR, prefix: '/uploads/', decorateReply: false });
+  await app.register(fastifyStatic, { root: LOCAL_UPLOAD_DIR, prefix: '/api/media/', decorateReply: false });
 }
 
 // Парсер form-urlencoded — Meta шлёт signed_request (deauthorize/data-deletion) в этом формате.

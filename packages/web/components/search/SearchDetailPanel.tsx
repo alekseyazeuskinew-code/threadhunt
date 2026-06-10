@@ -1353,12 +1353,9 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
               <span>Так увидит кандидат · мобильный вид</span>
               <button onClick={() => setShowPreview(false)} className="rounded-full bg-white/10 px-3 py-1 hover:bg-white/20">Закрыть ✕</button>
             </div>
-            {/* Рамка-«телефон» — аккуратный мокап вместо скомканного попапа. */}
-            <div className="overflow-hidden rounded-[2.4rem] border-[10px] border-neutral-900 bg-bg shadow-2xl" style={{ width: 380 }}>
-              <div className="max-h-[78vh] overflow-y-auto">
-                <FlowPreview flow={flow} role={s.title} />
-              </div>
-            </div>
+            <IphoneMock>
+              <FlowPreview flow={flow} role={s.title} />
+            </IphoneMock>
           </div>
         </div>
       )}
@@ -1405,6 +1402,32 @@ function OnboardingFunnelBlock({ id }: { id: string }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// Мокап iPhone (Pro, последнее поколение): титановый корпус, Dynamic Island,
+// боковые кнопки, очень скруглённые углы. Внутри — экран с прокруткой контента.
+function IphoneMock({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative" style={{ width: 360 }}>
+      {/* боковые кнопки */}
+      <div className="absolute -left-[3px] top-[112px] h-7 w-[3px] rounded-l-sm bg-neutral-600" />
+      <div className="absolute -left-[3px] top-[160px] h-12 w-[3px] rounded-l-sm bg-neutral-600" />
+      <div className="absolute -left-[3px] top-[214px] h-12 w-[3px] rounded-l-sm bg-neutral-600" />
+      <div className="absolute -right-[3px] top-[150px] h-20 w-[3px] rounded-r-sm bg-neutral-600" />
+      {/* корпус (титан) → чёрная рамка → экран */}
+      <div className="rounded-[3.3rem] bg-gradient-to-b from-neutral-600 via-neutral-800 to-neutral-900 p-[3px] shadow-[0_30px_70px_-20px_rgba(0,0,0,0.75)]">
+        <div className="rounded-[3.15rem] bg-black p-2">
+          <div className="relative overflow-hidden rounded-[2.7rem] bg-bg">
+            {/* Dynamic Island */}
+            <div className="pointer-events-none absolute left-1/2 top-2.5 z-20 flex h-[26px] w-[90px] -translate-x-1/2 items-center justify-end rounded-full bg-black pr-2.5">
+              <span className="h-2 w-2 rounded-full bg-neutral-800 ring-1 ring-neutral-700" />
+            </div>
+            <div className="max-h-[76vh] overflow-y-auto pt-3">{children}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

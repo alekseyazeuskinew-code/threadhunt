@@ -6,6 +6,19 @@
 
 const API = 'https://graph.threads.net/v1.0';
 
+// Публичный адрес API — чтобы достроить относительные ссылки на загруженное медиа
+// (/api/media/...) в абсолютные: Threads (серверы Meta) скачивают файл по URL.
+const PUBLIC_BASE = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+function toPublicUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url; // уже абсолютный (S3/R2 или внешняя ссылка)
+  if (url.startsWith('/')) {
+    if (!PUBLIC_BASE)
+      throw new Error('Загруженный файл не доступен публично: задай PUBLIC_BASE_URL (адрес API) или подключи R2/S3 — иначе Threads не сможет его скачать.');
+    return PUBLIC_BASE + url;
+  }
+  return url;
+}
+
 async function apiGet(endpoint: string, params: Record<string, string>) {
   const url = new URL(API + endpoint);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -84,12 +97,13 @@ async function createMediaItemContainer(
   opts: { text?: string; isCarouselItem?: boolean; replyToId?: string } = {},
 ): Promise<string> {
   const params: Record<string, string> = { access_token: accessToken };
+  const url = toPublicUrl(item.url); // относительный /api/media/... → абсолютный публичный
   if (item.type === 'image') {
     params.media_type = 'IMAGE';
-    params.image_url = item.url;
+    params.image_url = url;
   } else {
     params.media_type = 'VIDEO';
-    params.video_url = item.url;
+    params.video_url = url;
   }
   if (opts.isCarouselItem) params.is_carousel_item = 'true';
   else if (opts.text) params.text = opts.text;
