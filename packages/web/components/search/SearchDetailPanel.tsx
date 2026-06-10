@@ -1409,8 +1409,12 @@ function OnboardingFunnelBlock({ id }: { id: string }) {
 // Мокап iPhone (Pro, последнее поколение): титановый корпус, Dynamic Island,
 // боковые кнопки, очень скруглённые углы. Внутри — экран с прокруткой контента.
 function IphoneMock({ children }: { children: React.ReactNode }) {
+  // Фиксированные пропорции (как настоящий iPhone ~9:19.5) — корпус НЕ сплющивается
+  // под контент: экран фиксированной высоты, контент прокручивается внутри.
+  const W = 340;
+  const H = Math.round(W * 2.16); // ≈ 734
   return (
-    <div className="relative" style={{ width: 360 }}>
+    <div className="relative shrink-0" style={{ width: W }}>
       {/* боковые кнопки */}
       <div className="absolute -left-[3px] top-[112px] h-7 w-[3px] rounded-l-sm bg-neutral-600" />
       <div className="absolute -left-[3px] top-[160px] h-12 w-[3px] rounded-l-sm bg-neutral-600" />
@@ -1419,12 +1423,12 @@ function IphoneMock({ children }: { children: React.ReactNode }) {
       {/* корпус (титан) → чёрная рамка → экран */}
       <div className="rounded-[3.3rem] bg-gradient-to-b from-neutral-600 via-neutral-800 to-neutral-900 p-[3px] shadow-[0_30px_70px_-20px_rgba(0,0,0,0.75)]">
         <div className="rounded-[3.15rem] bg-black p-2">
-          <div className="relative overflow-hidden rounded-[2.7rem] bg-bg">
+          <div className="relative overflow-hidden rounded-[2.7rem] bg-bg" style={{ height: `min(${H}px, 80vh)`, aspectRatio: `${W} / ${H}` }}>
             {/* Dynamic Island */}
             <div className="pointer-events-none absolute left-1/2 top-2.5 z-20 flex h-[26px] w-[90px] -translate-x-1/2 items-center justify-end rounded-full bg-black pr-2.5">
               <span className="h-2 w-2 rounded-full bg-neutral-800 ring-1 ring-neutral-700" />
             </div>
-            <div className="max-h-[76vh] overflow-y-auto pt-3">{children}</div>
+            <div className="h-full overflow-y-auto pt-3">{children}</div>
           </div>
         </div>
       </div>

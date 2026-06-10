@@ -98,12 +98,6 @@ export default function CandidateFlow() {
     <div className="th-aurora relative min-h-screen overflow-hidden">
       <div className="th-grid pointer-events-none fixed inset-0 opacity-[0.3]" />
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
-        <div className="mb-6 flex justify-center text-lg">
-          <span className="font-display font-semibold tracking-tight">
-            <span aria-hidden className="text-accent-ink">⟋⟋</span> <span className="text-text">threadhunt</span>
-          </span>
-        </div>
-
         <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.08] backdrop-blur sm:p-7">
           <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{data.company ? data.company : 'Отклик на роль'}</div>
           <h1 className="mt-1 text-2xl font-semibold leading-tight">{data.role}</h1>
