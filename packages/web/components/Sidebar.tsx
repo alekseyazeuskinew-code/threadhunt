@@ -57,7 +57,7 @@ export function Sidebar() {
   return (
     // sticky top-0 h-screen — рельс «прилипает» к экрану, а скроллится только контент
     // справа. Так нижний блок (профиль/тариф/настройки/выход) всегда виден, без скролла вниз.
-    <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-line bg-panel/40 p-4">
+    <aside className="sticky top-0 z-30 flex h-screen w-60 shrink-0 flex-col border-r border-line bg-panel/40 p-4">
       <div className="flex items-center justify-between">
         <Link href={ws?.isMember ? '/leads' : '/'} className="px-2 py-2 text-lg">
           <Wordmark />

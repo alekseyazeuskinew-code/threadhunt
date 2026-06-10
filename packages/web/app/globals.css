@@ -2,44 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Палитра «Lime-заряд» — тёмная (по умолчанию). См. BRAND.md
-   accent      — лаймовая ЗАЛИВКА (кнопки, чипы) — одинакова в обеих темах (бренд)
-   on-accent   — текст НА лайме (тёмный — читаемо в обеих темах)
+/* Фирменный стиль — фиолетовый (как на сайте). СВЕТЛАЯ тема по умолчанию.
+   accent      — фиолетовая ЗАЛИВКА (кнопки, чипы)
+   on-accent   — текст НА фиолете (белый)
    accent-ink  — акцент как ТЕКСТ/иконка/ссылка (читаемый в каждой теме) */
 :root {
-  --bg: #0b0b0f;
-  --panel: #14141a;
-  --panel-2: #1c1c24;
-  --border: #26262f;
-  --text: #ededf2;
-  --muted: #8a8a99;
-  --accent: #c6f24e;
-  --accent-press: #b2de3c;
-  --accent-soft: rgba(198, 242, 78, 0.12);
-  --on-accent: #0b0b0f;
-  --accent-ink: #c6f24e;
-  --success: #4ade80;
-  --danger: #fb7185;
-  --warning: #fbbf24;
-}
-
-/* Светлая тема — тёплый чистый фон, лайм-акцент сохранён (заливка лаймовая,
-   а акцент-текст темнеет до читаемого глубокого лайма). */
-:root[data-theme='light'] {
-  --bg: #fafaf7;
+  --bg: #faf9fd;
   --panel: #ffffff;
-  --panel-2: #f2f2ec;
-  --border: #e7e7df;
-  --text: #16161c;
-  --muted: #6e6e78;
-  --accent: #b8e840;        /* лайм-заливка, чуть глубже для белого фона */
-  --accent-press: #a7d62f;
-  --accent-soft: rgba(132, 178, 30, 0.16);
-  --on-accent: #14210a;     /* тёмный текст на лайме */
-  --accent-ink: #4d7a0a;    /* акцент-текст/ссылки — читаемый глубокий лайм */
+  --panel-2: #f3f1fb;
+  --border: #e8e6f2;
+  --text: #15131f;
+  --muted: #6b6880;
+  --accent: #6d5cf6;
+  --accent-press: #5b49e8;
+  --accent-soft: rgba(109, 92, 246, 0.12);
+  --on-accent: #ffffff;
+  --accent-ink: #5b46d6;
   --success: #15a34a;
   --danger: #e11d48;
   --warning: #b45309;
+}
+
+/* Тёмная тема — включается data-theme="dark". Фиолетовый акцент сохранён. */
+:root[data-theme='dark'] {
+  --bg: #0c0b12;
+  --panel: #16141f;
+  --panel-2: #1e1b2b;
+  --border: #2a2740;
+  --text: #ededf2;
+  --muted: #8a86a0;
+  --accent: #6d5cf6;
+  --accent-press: #5b49e8;
+  --accent-soft: rgba(109, 92, 246, 0.18);
+  --on-accent: #ffffff;
+  --accent-ink: #a99bff;
+  --success: #4ade80;
+  --danger: #fb7185;
+  --warning: #fbbf24;
 }
 
 @layer base {

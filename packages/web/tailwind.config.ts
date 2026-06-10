@@ -18,8 +18,8 @@ export default {
           press: 'var(--accent-press)',
           soft: 'var(--accent-soft)',
         },
-        // текст на лаймовой заливке (фолбэк на тёмный — на случай несработавшей переменной)
-        'on-accent': 'var(--on-accent, #0b0b0f)',
+        // текст на фиолетовой заливке (фолбэк белый — на случай несработавшей переменной)
+        'on-accent': 'var(--on-accent, #ffffff)',
         // акцент как ТЕКСТ/иконка — читаемый в обеих темах
         'accent-ink': 'var(--accent-ink, var(--accent))',
         success: 'var(--success)',

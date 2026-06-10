@@ -35,7 +35,7 @@ export function renderWaitlistWelcomeHtml(name?: string | null, opts?: { siteUrl
   <p style="font-size:15px;line-height:1.65;color:#333;margin:16px 0 0">${hi} Спасибо, что поверил в нас — для нас это правда много значит. Мы небольшая команда и строим <b>Threadhunt</b>: наём через Threads на автопилоте — авто-отбивка в директе по кодовым словам и посты-приманки, которые сами приводят кандидатов.</p>
   <p style="font-size:15px;line-height:1.65;color:#333;margin:14px 0 0">Ты среди первых, кто получит <b>ранний доступ</b> и персональный промокод <b>${esc(benefit)}</b> — раньше всех. Напомним о запуске <b>один раз</b>, без спама.</p>
   <div style="text-align:center;margin:24px 0 8px">
-    <a href="${esc(site)}" style="display:inline-block;background:#c6f24e;color:#0b0b0f;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:12px;font-size:15px">Открыть Threadhunt</a>
+    <a href="${esc(site)}" style="display:inline-block;background:#6d5cf6;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:12px;font-size:15px">Открыть Threadhunt</a>
   </div>
   <p style="font-size:13px;line-height:1.6;color:#777;margin:18px 0 0">Обнимаем и до связи 🫶<br/>Команда Threadhunt</p>
   <div style="margin-top:22px;color:#aaa;font-size:12px;text-align:center;border-top:1px solid #eee;padding-top:14px">Ты получил это письмо, потому что оставил заявку на thread-hunt.com</div>
@@ -81,7 +81,7 @@ export function renderEmailHtml(blocks: any[]): string {
         case 'button': {
           const bs = fontStack(b?.fontFamily);
           const sz = Number(b?.fontSize) > 0 ? Number(b.fontSize) : 15;
-          return `<div style="text-align:${al};margin:16px 0"><a href="${esc(b.url)}" style="display:inline-block;background:#c6f24e;color:#0b0b0f;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:10px;font-size:${sz}px${bs ? `;font-family:${bs}` : ''}">${esc(b.text || 'Открыть')}</a></div>`;
+          return `<div style="text-align:${al};margin:16px 0"><a href="${esc(b.url)}" style="display:inline-block;background:#6d5cf6;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:10px;font-size:${sz}px${bs ? `;font-family:${bs}` : ''}">${esc(b.text || 'Открыть')}</a></div>`;
         }
         case 'image': {
           if (!b?.url) return '';

@@ -4,15 +4,17 @@ import { Sun, Moon } from 'lucide-react';
 
 // Переключатель тёмная/светлая. Тема хранится в localStorage и применяется на <html>.
 export function ThemeToggle() {
-  const [light, setLight] = useState(false);
+  // Светлая тема — по умолчанию. data-theme='dark' включает тёмную.
+  const [light, setLight] = useState(true);
   useEffect(() => {
-    setLight(document.documentElement.getAttribute('data-theme') === 'light');
+    setLight(document.documentElement.getAttribute('data-theme') !== 'dark');
   }, []);
 
   function toggle() {
     const next = !light;
     setLight(next);
-    document.documentElement.setAttribute('data-theme', next ? 'light' : 'dark');
+    if (next) document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', 'dark');
     try {
       localStorage.setItem('th_theme', next ? 'light' : 'dark');
     } catch {}

@@ -602,7 +602,7 @@ export function EmailPreview({ subject, blocks }: { subject: string; blocks: Ema
           if (b.type === 'button')
             return (
               <div key={b.id} className={al}>
-                <span className="inline-block rounded-lg bg-[#c6f24e] px-4 py-2 font-semibold text-[#0b0b0f]" style={{ fontSize: (b.fontSize && b.fontSize > 0 ? b.fontSize : 15) + 'px', fontFamily: b.fontFamily ? EMAIL_FONT_CSS[b.fontFamily] : undefined }}>{b.text || 'Кнопка'}</span>
+                <span className="inline-block rounded-lg bg-[#6d5cf6] px-4 py-2 font-semibold text-[#ffffff]" style={{ fontSize: (b.fontSize && b.fontSize > 0 ? b.fontSize : 15) + 'px', fontFamily: b.fontFamily ? EMAIL_FONT_CSS[b.fontFamily] : undefined }}>{b.text || 'Кнопка'}</span>
               </div>
             );
           if (b.type === 'image') {
