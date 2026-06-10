@@ -22,6 +22,9 @@ export default {
         'on-accent': 'var(--on-accent, #ffffff)',
         // акцент как ТЕКСТ/иконка — читаемый в обеих темах
         'accent-ink': 'var(--accent-ink, var(--accent))',
+        // «чёрная» заливка (premium-кнопки) + текст на ней
+        ink: 'var(--ink)',
+        'on-ink': 'var(--on-ink)',
         success: 'var(--success)',
         danger: 'var(--danger)',
         warning: 'var(--warning)',

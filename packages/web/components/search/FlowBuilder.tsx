@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Plus, Trash2, GripVertical, ChevronLeft, ChevronRight, Type, AlignLeft, TextCursorInput, CheckSquare, Upload, CircleDot, ListChecks, Gauge, X, Image, Video, FileText, HelpCircle, LifeBuoy } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronLeft, ChevronRight, Type, AlignLeft, TextCursorInput, CheckSquare, Upload, CircleDot, ListChecks, Gauge, X, Image, Video, FileText, HelpCircle, LifeBuoy, Sparkles } from 'lucide-react';
 import type { Flow, Page, Block, BlockType } from '@/lib/flow';
 import { newBlock, newPage, BLOCK_LABELS } from '@/lib/flow';
 import { Input, Textarea } from '@/components/ui/Input';
@@ -23,8 +23,35 @@ const PALETTE: { type: BlockType; icon: any }[] = [
   { type: 'submit', icon: Upload },
 ];
 
+// purpose-функция ИИ для текста блока (необязательная): улучшить/сгенерировать текст.
+type AiText = (purpose: string, current: string) => Promise<string | null>;
+
+// Кнопка точечной ИИ-помощи по тексту блока.
+function AiBtn({ purpose, current, ai, onText }: { purpose: string; current: string; ai: AiText; onText: (t: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      title="Сгенерировать/улучшить текст ИИ"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          const t = await ai(purpose, current);
+          if (t) onText(t);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-accent/40 px-2 py-1.5 text-xs text-accent-ink transition-colors hover:bg-accent-soft disabled:opacity-50"
+    >
+      <Sparkles size={13} /> {busy ? '…' : 'ИИ'}
+    </button>
+  );
+}
+
 // Конструктор онбординга: страницы (вкладки) + блоки (drag-and-drop внутри страницы).
-export function FlowBuilder({ value, onChange }: { value: Flow; onChange: (f: Flow) => void }) {
+export function FlowBuilder({ value, onChange, ai }: { value: Flow; onChange: (f: Flow) => void; ai?: AiText }) {
   const [sel, setSel] = useState(0);
   const [drag, setDrag] = useState<number | null>(null);
   const [pdrag, setPdrag] = useState<number | null>(null);
@@ -134,7 +161,7 @@ export function FlowBuilder({ value, onChange }: { value: Flow; onChange: (f: Fl
                     <span className="text-xs text-muted">{BLOCK_LABELS[b.type]}</span>
                     <button onClick={() => delBlock(i)} className="text-muted hover:text-danger"><Trash2 size={14} /></button>
                   </div>
-                  <BlockEditor block={b} onChange={(patch) => setBlock(i, patch)} />
+                  <BlockEditor block={b} onChange={(patch) => setBlock(i, patch)} ai={ai} />
                 </div>
               </div>
             ))}
@@ -183,9 +210,25 @@ function OptionsEditor({ block, onChange }: { block: Block; onChange: (p: Partia
   );
 }
 
-function BlockEditor({ block, onChange }: { block: Block; onChange: (p: Partial<Block>) => void }) {
-  if (block.type === 'heading') return <Input value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="Текст заголовка" />;
-  if (block.type === 'text') return <Textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="Текст для кандидата" />;
+function BlockEditor({ block, onChange, ai }: { block: Block; onChange: (p: Partial<Block>) => void; ai?: AiText }) {
+  if (block.type === 'heading')
+    return (
+      <div className="flex items-center gap-1.5">
+        <Input className="flex-1" value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="Текст заголовка" />
+        {ai && <AiBtn purpose="короткий заголовок раздела онбординга" current={block.text || ''} ai={ai} onText={(t) => onChange({ text: t })} />}
+      </div>
+    );
+  if (block.type === 'text')
+    return (
+      <div className="space-y-1.5">
+        <Textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="Текст для кандидата (условия, тестовое задание, инструкции)" />
+        {ai && (
+          <div className="flex justify-end">
+            <AiBtn purpose="абзац текста для кандидата (условия / тестовое задание / инструкция)" current={block.text || ''} ai={ai} onText={(t) => onChange({ text: t })} />
+          </div>
+        )}
+      </div>
+    );
   if (block.type === 'consent') return <Input value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="Текст галочки (согласие/NDA)" />;
   if (block.type === 'submit') return <Input value={block.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Подпись поля сдачи" />;
 

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { db } from '../db.js';
 import { env } from '../env.js';
-import { generateDoc, type DocKind, type BrandVoice } from '../ai/generate.js';
+import { generateDoc, generateFlow, generateBlockText, type DocKind, type BrandVoice } from '../ai/generate.js';
 import { consumeAi } from './limits.js';
 import { resolveCtx, canManageLeads } from './workspace.js';
 import { fireWebhook } from '../webhook.js';
@@ -98,6 +98,46 @@ export async function onboardingRoutes(app: FastifyInstance) {
       : undefined;
     const out = await generateDoc(parsed.data.kind as DocKind, { title: search.title, description: search.description, brand: voice });
     return out;
+  });
+
+  // ── Кабинет: ИИ собирает ВЕСЬ онбординг-флоу (страницы + блоки) ──
+  app.post('/api/searches/:id/generate-onboarding', async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    const search = await db.search.findFirst({ where: { id, userId } });
+    if (!search) return reply.code(404).send({ error: 'not found' });
+    const parsed = z.object({ brief: z.string().max(2000).optional() }).safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+
+    const gate = await consumeAi(userId);
+    if (!gate.ok) return reply.code(gate.status || 429).send({ error: gate.error });
+
+    const brand = await db.brandProfile.findUnique({ where: { userId } });
+    const voice: BrandVoice | undefined = brand
+      ? { companyName: brand.companyName, niche: brand.niche, tone: brand.tone, audience: brand.audience, perks: brand.perks, sample: brand.sample, avoid: brand.avoid }
+      : undefined;
+    return generateFlow({ title: search.title, description: search.description, brief: parsed.data.brief, brand: voice });
+  });
+
+  // ── Кабинет: ИИ генерирует/улучшает текст ОДНОГО блока ──
+  app.post('/api/searches/:id/generate-block', async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    const search = await db.search.findFirst({ where: { id, userId } });
+    if (!search) return reply.code(404).send({ error: 'not found' });
+    const parsed = z.object({ purpose: z.string().max(200).default('текст'), current: z.string().max(4000).optional() }).safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+
+    const gate = await consumeAi(userId);
+    if (!gate.ok) return reply.code(gate.status || 429).send({ error: gate.error });
+
+    const brand = await db.brandProfile.findUnique({ where: { userId } });
+    const voice: BrandVoice | undefined = brand
+      ? { companyName: brand.companyName, niche: brand.niche, tone: brand.tone, audience: brand.audience, perks: brand.perks }
+      : undefined;
+    return generateBlockText({ title: search.title, description: search.description, purpose: parsed.data.purpose, current: parsed.data.current, brand: voice });
   });
 
   // ── Кабинет: выдать ссылку кандидату (ленивая генерация токена) ──

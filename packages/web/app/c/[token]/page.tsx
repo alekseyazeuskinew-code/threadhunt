@@ -1,13 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Check, ArrowRight, Clock } from 'lucide-react';
+import { ArrowRight, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Flow } from '@/lib/flow';
 import { fmtInTz } from '@/lib/timezones';
-import { Wordmark } from '@/components/Wordmark';
 import { Button } from '@/components/ui/Button';
-import { BlockView } from '@/components/onboarding/FlowRenderer';
+import { BlockView, OnbProgress, CompletionView, PoweredBy } from '@/components/onboarding/FlowRenderer';
 
 interface FlowResp {
   company: string;
@@ -96,40 +95,39 @@ export default function CandidateFlow() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-lg flex-col px-5 py-10">
-      <div className="mb-6 text-lg">
-        <Wordmark />
-      </div>
+    <div className="th-aurora relative min-h-screen overflow-hidden">
+      <div className="th-grid pointer-events-none fixed inset-0 opacity-[0.3]" />
+      <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
+        <div className="mb-6 flex justify-center text-lg">
+          <span className="font-display font-semibold tracking-tight">
+            <span aria-hidden className="text-accent-ink">⟋⟋</span> <span className="text-text">threadhunt</span>
+          </span>
+        </div>
 
-      <div className="rounded-2xl border border-line bg-panel p-6">
-        <div className="text-sm text-muted">{data.company ? `${data.company} · ` : ''}отклик на роль</div>
-        <h1 className="mt-0.5 text-2xl font-semibold">{data.role}</h1>
+        <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.08] backdrop-blur sm:p-7">
+          <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{data.company ? data.company : 'Отклик на роль'}</div>
+          <h1 className="mt-1 text-2xl font-semibold leading-tight">{data.role}</h1>
 
-        {done ? (
-          <div className="py-8 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft text-accent-ink">
-              <Check size={24} />
+          {done ? (
+            <CompletionView />
+          ) : (
+            <div className="mt-5">
+              {data.deadline && <DeadlineBanner deadline={data.deadline} tz={data.timezone} now={now} />}
+              <OnbProgress step={idx} total={total} />
+              <div key={idx} className="anim-up space-y-4">
+                {page.blocks.map((b) => (
+                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} />
+                ))}
+              </div>
+              {err && <div className="mt-3 text-sm text-danger">{err}</div>}
+              <Button variant="accent" className="mt-6 w-full" disabled={busy} onClick={next}>
+                {busy ? 'Сохраняю…' : idx === pages.length - 1 ? 'Завершить' : 'Далее'} <ArrowRight size={15} />
+              </Button>
             </div>
-            <div className="mt-3 text-lg font-medium">Спасибо! Мы всё получили.</div>
-            <p className="mt-1 text-sm text-muted">Свяжемся с тобой по оставленным контактам.</p>
-          </div>
-        ) : (
-          <>
-            {data.deadline && <DeadlineBanner deadline={data.deadline} tz={data.timezone} now={now} />}
-            <div className="mt-1 text-xs text-muted">Шаг {idx + 1} из {total} · {page.title}</div>
-            <div className="mt-5 space-y-4">
-              {page.blocks.map((b) => (
-                <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} />
-              ))}
-            </div>
-            {err && <div className="mt-3 text-sm text-danger">{err}</div>}
-            <Button className="mt-5 w-full" disabled={busy} onClick={next}>
-              {idx === pages.length - 1 ? 'Завершить' : 'Далее'} <ArrowRight size={15} />
-            </Button>
-          </>
-        )}
+          )}
+          <PoweredBy />
+        </div>
       </div>
-      <div className="mt-4 text-center text-xs text-muted">Работает на Threadhunt</div>
     </div>
   );
 }

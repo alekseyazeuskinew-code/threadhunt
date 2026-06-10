@@ -7,35 +7,39 @@
    on-accent   — текст НА фиолете (белый)
    accent-ink  — акцент как ТЕКСТ/иконка/ссылка (читаемый в каждой теме) */
 :root {
-  --bg: #faf9fd;
+  --bg: #f6f6f7;          /* нейтральный светлый — без фиолетового тона */
   --panel: #ffffff;
-  --panel-2: #f3f1fb;
-  --border: #e8e6f2;
-  --text: #15131f;
-  --muted: #6b6880;
-  --accent: #6d5cf6;
+  --panel-2: #eeeef0;
+  --border: #e5e5e9;
+  --text: #16151c;
+  --muted: #6b6a75;
+  --accent: #6d5cf6;      /* фиолет — только в акцентах */
   --accent-press: #5b49e8;
-  --accent-soft: rgba(109, 92, 246, 0.12);
+  --accent-soft: rgba(109, 92, 246, 0.10);
   --on-accent: #ffffff;
   --accent-ink: #5b46d6;
+  --ink: #18171f;         /* «чёрная» заливка — основные кнопки/премиум-элементы */
+  --on-ink: #ffffff;
   --success: #15a34a;
   --danger: #e11d48;
   --warning: #b45309;
 }
 
-/* Тёмная тема — включается data-theme="dark". Фиолетовый акцент сохранён. */
+/* Тёмная тема — включается data-theme="dark". Нейтральный чёрный фон, фиолет в акцентах. */
 :root[data-theme='dark'] {
-  --bg: #0c0b12;
-  --panel: #16141f;
-  --panel-2: #1e1b2b;
-  --border: #2a2740;
+  --bg: #0c0c0e;
+  --panel: #151518;
+  --panel-2: #1d1d22;
+  --border: #2a2a31;
   --text: #ededf2;
-  --muted: #8a86a0;
+  --muted: #8a8a96;
   --accent: #6d5cf6;
   --accent-press: #5b49e8;
-  --accent-soft: rgba(109, 92, 246, 0.18);
+  --accent-soft: rgba(109, 92, 246, 0.16);
   --on-accent: #ffffff;
   --accent-ink: #a99bff;
+  --ink: #f4f4f6;         /* в тёмной теме «ink»-кнопка светлая (инверсия) */
+  --on-ink: #15131f;
   --success: #4ade80;
   --danger: #fb7185;
   --warning: #fbbf24;
@@ -73,4 +77,51 @@
   .anim-fade { animation: th-fade-in 0.25s ease-out both; }
   .anim-up { animation: th-fade-up 0.28s ease-out both; }
   .anim-pop { animation: th-pop 0.2s ease-out both; }
+  @keyframes th-pop-in {
+    0% { opacity: 0; transform: scale(0.6); }
+    60% { transform: scale(1.08); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .anim-check { animation: th-pop-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+}
+
+/* Фон витрины кандидата: лёгкий, почти нейтральный, с еле заметным фиолетовым
+   свечением по краям (не перегружает). На тёмной теме — глубокий чёрный с искрой. */
+.th-aurora {
+  background:
+    radial-gradient(40% 32% at 12% 0%, rgba(109, 92, 246, 0.07), transparent 70%),
+    radial-gradient(36% 30% at 92% 8%, rgba(139, 124, 255, 0.06), transparent 70%),
+    var(--bg);
+}
+/* Фирменный фиолетовый градиент для акцентных CTA. */
+.th-grad {
+  background-image: linear-gradient(135deg, #8b7cff 0%, #6d5cf6 48%, #4733b8 100%);
+  color: #fff;
+}
+
+/* ── Референсы с главного сайта: аккуратная сетка, плавные движения ── */
+:root { --th-ease: cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Аккуратная фоновая сетка на нейтральных линиях (как на лендинге). */
+.th-grid {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* Акцентное подчёркивание-сигнатура под заголовком. */
+.th-underline {
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-position: 0 92%;
+  background-size: 100% 0.14em;
+  padding-bottom: 0.06em;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes th-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .th-rise { animation: th-rise 0.55s var(--th-ease) both; }
+  .th-lift { transition: transform 0.3s var(--th-ease), box-shadow 0.3s var(--th-ease), border-color 0.3s var(--th-ease); }
+  .th-lift:hover { transform: translateY(-3px); box-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.22); }
 }

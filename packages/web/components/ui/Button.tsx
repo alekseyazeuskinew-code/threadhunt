@@ -1,7 +1,7 @@
 import { cn } from '@/lib/cn';
 import type { ButtonHTMLAttributes } from 'react';
 
-type Variant = 'primary' | 'ghost' | 'soft' | 'danger';
+type Variant = 'primary' | 'accent' | 'ghost' | 'soft' | 'danger';
 type Size = 'sm' | 'md';
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -10,8 +10,10 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<Variant, string> = {
-  // главное действие — лайм, текст контрастный к заливке (on-accent: тёмный в тёмной теме, белый в светлой)
-  primary: 'bg-accent text-on-accent hover:bg-accent-press font-medium',
+  // главное действие — «чёрная» заливка (premium), фиолет приберегаем для акцентов
+  primary: 'bg-ink text-on-ink hover:opacity-90 font-medium',
+  // акцентное действие — фиолетовая заливка (для выделенных CTA)
+  accent: 'bg-accent text-on-accent hover:bg-accent-press font-medium',
   ghost: 'bg-transparent text-text hover:bg-panel-2 border border-line',
   soft: 'bg-panel-2 text-text hover:bg-line',
   danger: 'bg-transparent text-danger hover:bg-danger/10 border border-danger/30',

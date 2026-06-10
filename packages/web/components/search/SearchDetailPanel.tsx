@@ -13,7 +13,7 @@ import { LeadTable } from '@/components/LeadTable';
 import { FlowBuilder } from '@/components/search/FlowBuilder';
 import { CampaignsManager } from '@/components/campaigns/CampaignsManager';
 import { GoalPlanner } from '@/components/search/GoalPlanner';
-import { type Flow, defaultFlow, FLOW_TEMPLATES } from '@/lib/flow';
+import { type Flow, type Block, type BlockType, defaultFlow, FLOW_TEMPLATES, newPage, newBlock } from '@/lib/flow';
 import { FlowPreview } from '@/components/onboarding/FlowRenderer';
 import { TIMEZONES, zonedToUtc } from '@/lib/timezones';
 
@@ -1221,6 +1221,44 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
     setTimeout(() => setSaved2(false), 1500);
   }
 
+  // ── ИИ в билдере: собрать весь онбординг + точечная помощь по блоку ──
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiBrief, setAiBrief] = useState('');
+  const [aiMsg, setAiMsg] = useState('');
+
+  async function generateOnboarding() {
+    setAiBusy(true);
+    setAiMsg('');
+    try {
+      const r = await api.post<{ pages: any[]; source?: string }>(`/api/searches/${s.id}/generate-onboarding`, { brief: aiBrief.trim() || undefined });
+      const built: Flow = {
+        pages: (r.pages || []).map((p) => ({
+          ...newPage(p.title || 'Страница'),
+          blocks: (p.blocks || []).map((b: any) => {
+            const base = newBlock((b.type as BlockType) || 'text');
+            return { ...base, ...b, id: base.id, type: base.type } as Block;
+          }),
+        })),
+      };
+      if (built.pages.length) setFlow(built);
+      if (r.source === 'demo') setAiMsg('Собрано демо-движком (ИИ-ключ не подключён).');
+    } catch (e: any) {
+      setAiMsg(e.message);
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  // точечная помощь по тексту блока — пробрасывается в FlowBuilder
+  const aiBlockText = async (purpose: string, current: string): Promise<string | null> => {
+    try {
+      const r = await api.post<{ text: string }>(`/api/searches/${s.id}/generate-block`, { purpose, current: current || undefined });
+      return r.text || null;
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-line bg-panel p-4">
@@ -1233,6 +1271,21 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
             <Toggle checked={enabled} onChange={setEnabled} />
           </div>
         </div>
+      </div>
+
+      {/* ИИ собирает весь онбординг под роль — быстрый старт */}
+      <div className="rounded-2xl border border-accent/30 bg-accent-soft/40 p-4">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Sparkles size={15} className="text-accent-ink" /> Собрать онбординг с ИИ
+        </div>
+        <p className="mt-0.5 text-xs text-muted">ИИ соберёт страницы и тексты под роль (знакомство → условия+тест → сдача). Останется только поправить.</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Input className="min-w-[12rem] flex-1" value={aiBrief} onChange={(e) => setAiBrief(e.target.value)} placeholder="Бриф (необязательно): условия, оплата, что в тесте…" />
+          <Button variant="accent" size="sm" onClick={generateOnboarding} disabled={aiBusy}>
+            <Sparkles size={14} /> {aiBusy ? 'Собираю…' : 'Собрать ИИ'}
+          </Button>
+        </div>
+        {aiMsg && <p className="mt-1.5 text-xs text-warning">{aiMsg}</p>}
       </div>
 
       <div>
@@ -1251,7 +1304,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
         </div>
       </div>
 
-      <FlowBuilder value={flow} onChange={setFlow} />
+      <FlowBuilder value={flow} onChange={setFlow} ai={aiBlockText} />
 
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="font-medium">Дедлайн сдачи тестового</div>
@@ -1294,13 +1347,18 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
       <OnboardingFunnelBlock id={s.id} />
 
       {showPreview && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8" onClick={() => setShowPreview(false)}>
-          <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex items-center justify-between text-sm text-white/90">
-              <span>Предпросмотр онбординга</span>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setShowPreview(false)}>
+          <div className="flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex w-full items-center justify-between text-sm text-white/90">
+              <span>Так увидит кандидат · мобильный вид</span>
               <button onClick={() => setShowPreview(false)} className="rounded-full bg-white/10 px-3 py-1 hover:bg-white/20">Закрыть ✕</button>
             </div>
-            <FlowPreview flow={flow} role={s.title} />
+            {/* Рамка-«телефон» — аккуратный мокап вместо скомканного попапа. */}
+            <div className="overflow-hidden rounded-[2.4rem] border-[10px] border-neutral-900 bg-bg shadow-2xl" style={{ width: 380 }}>
+              <div className="max-h-[78vh] overflow-y-auto">
+                <FlowPreview flow={flow} role={s.title} />
+              </div>
+            </div>
           </div>
         </div>
       )}

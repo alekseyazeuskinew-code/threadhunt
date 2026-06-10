@@ -5,6 +5,77 @@ import type { Block, Flow } from '@/lib/flow';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
 
+// Маркетинговый сайт — вирусный хук: кандидат видит, чем собрали отклик, и идёт к нам.
+export const THREADHUNT_SITE = 'https://threadhunt.app';
+
+// Тонкий прогресс-бар шагов.
+export function OnbProgress({ step, total }: { step: number; total: number }) {
+  const pct = total ? Math.round((Math.min(step, total) / total) * 100) : 0;
+  return (
+    <div className="mb-5">
+      <div className="mb-1.5 flex items-center justify-between text-xs text-muted">
+        <span>Шаг {Math.min(step + 1, total)} из {total}</span>
+        <span className="tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-panel-2">
+        <div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// Вирусный бейдж в подвале: «Работает на Threadhunt» — кликабельный хук на сайт.
+export function PoweredBy() {
+  return (
+    <a
+      href={THREADHUNT_SITE}
+      target="_blank"
+      rel="noreferrer"
+      className="group mt-5 inline-flex w-full items-center justify-center gap-1.5 text-xs text-muted transition-colors hover:text-text"
+    >
+      <span className="font-display text-accent-ink">⟋⟋</span>
+      <span>Работает на <b className="font-semibold text-text">Threadhunt</b> — наём через Threads на автопилоте</span>
+      <ArrowRight size={12} className="-translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+    </a>
+  );
+}
+
+// Вирусный CTA на экране успеха: зовём кандидата (он же мб наниматель) к нам.
+export function ViralCTA() {
+  return (
+    <a href={THREADHUNT_SITE} target="_blank" rel="noreferrer" className="th-lift mt-6 block overflow-hidden rounded-2xl border border-line">
+      <div className="th-grad p-5">
+        <div className="text-[15px] font-semibold">Тоже нанимаешь людей? 👀</div>
+        <p className="mt-1 text-sm text-white/85">
+          Threadhunt сам постит вакансии в Threads и отвечает кандидатам в директе. Собери команду на автопилоте.
+        </p>
+        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#4733b8]">
+          Попробовать бесплатно <ArrowRight size={15} />
+        </span>
+      </div>
+    </a>
+  );
+}
+
+// Экран успеха — анимированная галочка + вирусный CTA.
+export function CompletionView({ onRestart }: { onRestart?: () => void }) {
+  return (
+    <div className="py-6 text-center">
+      <div className="anim-check mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-accent-ink">
+        <Check size={32} strokeWidth={2.5} />
+      </div>
+      <div className="anim-up mt-4 text-xl font-semibold">Готово! Мы всё получили 🎉</div>
+      <p className="anim-up mt-1.5 text-sm text-muted">Свяжемся с тобой по оставленным контактам.</p>
+      <ViralCTA />
+      {onRestart && (
+        <button onClick={onRestart} className="mt-4 text-sm text-muted hover:text-text">
+          Пройти заново
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Рендер одного блока онбординга. Общий для публичной страницы кандидата и для
 // предпросмотра в конструкторе — чтобы превью было 1:1 тем, что увидит кандидат.
 export function BlockView({
@@ -189,46 +260,45 @@ export function FlowPreview({ flow, role, company }: { flow: Flow; role: string;
   const setVal = (k: string, v: string) => setValues((s) => ({ ...s, [k]: v }));
 
   return (
-    <div className="w-full">
-      <div className="rounded-2xl border border-line bg-panel p-6">
-        <div className="text-sm text-muted">{company ? `${company} · ` : ''}отклик на роль</div>
-        <h1 className="mt-0.5 text-2xl font-semibold">{role || 'Роль'}</h1>
+    <div className="th-aurora w-full">
+      <div className="th-grid pointer-events-none absolute inset-0 opacity-[0.25]" />
+      <div className="relative mx-auto max-w-md px-5 py-8">
+        <div className="mb-5 flex justify-center text-lg">
+          <span className="font-display font-semibold tracking-tight">
+            <span aria-hidden className="text-accent-ink">⟋⟋</span> <span className="text-text">threadhunt</span>
+          </span>
+        </div>
 
-        {total === 0 ? (
-          <p className="py-8 text-center text-sm text-muted">Пока нет страниц. Добавь блоки в конструкторе слева.</p>
-        ) : done ? (
-          <div className="py-8 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft text-accent-ink">
-              <Check size={24} />
+        <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.06] backdrop-blur sm:p-7">
+          <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{company ? company : 'Отклик на роль'}</div>
+          <h1 className="mt-1 text-2xl font-semibold leading-tight">{role || 'Роль'}</h1>
+
+          {total === 0 ? (
+            <p className="py-8 text-center text-sm text-muted">Пока нет страниц. Добавь блоки в конструкторе слева.</p>
+          ) : done ? (
+            <CompletionView onRestart={() => setIdx(0)} />
+          ) : (
+            <div className="mt-5">
+              <OnbProgress step={idx} total={total} />
+              <div key={idx} className="anim-up space-y-4">
+                {page.blocks.map((b) => (
+                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} />
+                ))}
+              </div>
+              <div className="mt-6 flex gap-2">
+                <Button variant="ghost" disabled={idx === 0} onClick={() => setIdx((i) => Math.max(0, i - 1))}>
+                  Назад
+                </Button>
+                <Button variant="accent" className="flex-1" onClick={() => setIdx((i) => i + 1)}>
+                  {idx === total - 1 ? 'Завершить' : 'Далее'} <ArrowRight size={15} />
+                </Button>
+              </div>
             </div>
-            <div className="mt-3 text-lg font-medium">Спасибо! Мы всё получили.</div>
-            <p className="mt-1 text-sm text-muted">Свяжемся с тобой по оставленным контактам.</p>
-            <Button variant="ghost" className="mt-4" onClick={() => setIdx(0)}>
-              Пройти заново
-            </Button>
-          </div>
-        ) : (
-          <>
-            <div className="mt-1 text-xs text-muted">
-              Шаг {idx + 1} из {total} · {page.title}
-            </div>
-            <div className="mt-5 space-y-4">
-              {page.blocks.map((b) => (
-                <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} />
-              ))}
-            </div>
-            <div className="mt-5 flex gap-2">
-              <Button variant="ghost" disabled={idx === 0} onClick={() => setIdx((i) => Math.max(0, i - 1))}>
-                Назад
-              </Button>
-              <Button className="flex-1" onClick={() => setIdx((i) => i + 1)}>
-                {idx === total - 1 ? 'Завершить' : 'Далее'} <ArrowRight size={15} />
-              </Button>
-            </div>
-          </>
-        )}
+          )}
+          <PoweredBy />
+        </div>
+        <div className="mt-3 text-center text-xs text-muted">Предпросмотр — так страницу увидит кандидат. Ответы не сохраняются.</div>
       </div>
-      <div className="mt-3 text-center text-xs text-muted">Предпросмотр — так страницу увидит кандидат. Ответы не сохраняются.</div>
     </div>
   );
 }

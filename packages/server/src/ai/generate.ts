@@ -292,6 +292,149 @@ export async function generateDoc(
   }
 }
 
+// ── Генерация ЦЕЛОГО онбординга кандидата (страницы + блоки) ──
+// Чтобы настраивать в разы быстрее: ИИ собирает разумный флоу под роль, а человек
+// только правит. Возвращаем структуру без id — веб разложит её по своим блокам.
+const FLOW_BLOCK_TYPES = ['heading', 'text', 'field', 'choice', 'multi', 'scale', 'consent', 'submit', 'support', 'faq'];
+
+const SYSTEM_FLOW = `Ты собираешь онбординг-флоу кандидата для найма (как в Typeform/Tally), коротко и по делу. На вход — роль и условия. Сделай 3 страницы:
+1) «Знакомство»: heading + 1-2 поля (имя, контакт Telegram/почта) + consent (согласие на обработку данных).
+2) «Условия и тест»: heading + text с условиями (формат, оплата, занятость) + heading + text с тестовым заданием под роль (конкретное, выполнимое за ~2 часа, с критериями).
+3) «Сдача»: heading + submit (поле ссылки на работу) + support (куда написать при вопросах).
+
+Тон — на «ты», по-человечески, без канцелярита. Тексты живые и конкретные (числа, сроки).
+
+Верни СТРОГО JSON без markdown:
+{"pages":[{"title":"...","blocks":[{"type":"heading","text":"..."},{"type":"field","label":"Как тебя зовут","key":"name","input":"text","required":true},{"type":"field","label":"Telegram или email","key":"contact","input":"text","required":true},{"type":"consent","text":"Согласен(а) на обработку данных"}]},{"title":"...","blocks":[{"type":"heading","text":"Условия"},{"type":"text","text":"..."},{"type":"heading","text":"Тестовое задание"},{"type":"text","text":"..."}]},{"title":"...","blocks":[{"type":"heading","text":"Пришли работу"},{"type":"submit","label":"Ссылка на работу"},{"type":"support","text":"Вопросы?","label":"Написать","url":""}]}]}
+Разрешённые type: ${FLOW_BLOCK_TYPES.join(', ')}.`;
+
+export interface FlowBlockDraft {
+  type: string;
+  text?: string;
+  label?: string;
+  key?: string;
+  input?: string;
+  required?: boolean;
+  options?: string[];
+  url?: string;
+  max?: number;
+  faq?: { q: string; a: string }[];
+}
+export interface FlowGenOutput {
+  pages: { title: string; blocks: FlowBlockDraft[] }[];
+  source: 'ai' | 'demo';
+}
+
+function normalizeFlow(obj: any): { title: string; blocks: FlowBlockDraft[] }[] | null {
+  const rawPages = Array.isArray(obj?.pages) ? obj.pages : [];
+  const pages = rawPages
+    .map((p: any) => {
+      const blocks: FlowBlockDraft[] = (Array.isArray(p?.blocks) ? p.blocks : [])
+        .filter((b: any) => FLOW_BLOCK_TYPES.includes(String(b?.type)))
+        .map((b: any) => {
+          const blk: FlowBlockDraft = { type: String(b.type) };
+          if (typeof b.text === 'string') blk.text = b.text.slice(0, 4000);
+          if (typeof b.label === 'string') blk.label = b.label.slice(0, 200);
+          if (typeof b.key === 'string') blk.key = b.key.slice(0, 40).replace(/[^a-z0-9_]/gi, '');
+          if (typeof b.input === 'string') blk.input = b.input;
+          if (typeof b.url === 'string') blk.url = b.url.slice(0, 500);
+          if (b.required === true) blk.required = true;
+          if (typeof b.max === 'number') blk.max = Math.max(2, Math.min(10, b.max));
+          if (Array.isArray(b.options)) blk.options = b.options.map((o: any) => String(o).slice(0, 120)).slice(0, 12);
+          if (Array.isArray(b.faq)) blk.faq = b.faq.map((it: any) => ({ q: String(it?.q || '').slice(0, 200), a: String(it?.a || '').slice(0, 2000) })).slice(0, 10);
+          return blk;
+        });
+      return { title: String(p?.title || 'Страница').slice(0, 80), blocks };
+    })
+    .filter((p: { blocks: FlowBlockDraft[] }) => p.blocks.length);
+  return pages.length ? pages : null;
+}
+
+export async function generateFlow(input: { title: string; description: string; brief?: string; brand?: BrandVoice }): Promise<FlowGenOutput> {
+  if (!client) return { pages: demoFlow(input.title), source: 'demo' };
+  try {
+    const msg = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1800,
+      system: [{ type: 'text', text: SYSTEM_FLOW, cache_control: { type: 'ephemeral' } }],
+      messages: [
+        {
+          role: 'user',
+          content:
+            `Роль: ${input.title}\nОписание: ${input.description || '—'}\n` +
+            (input.brief ? `Условия/бриф (учти в текстах): ${input.brief}\n` : '') +
+            brandBlock(input.brand) +
+            `Собери онбординг-флоу.`,
+        },
+      ],
+    });
+    const obj = parseJsonObject(textOf(msg));
+    const pages = obj ? normalizeFlow(obj) : null;
+    return pages ? { pages, source: 'ai' } : { pages: demoFlow(input.title), source: 'demo' };
+  } catch {
+    return { pages: demoFlow(input.title), source: 'demo' };
+  }
+}
+
+function demoFlow(title: string): { title: string; blocks: FlowBlockDraft[] }[] {
+  const role = title || 'роль';
+  return [
+    {
+      title: 'Знакомство',
+      blocks: [
+        { type: 'heading', text: 'Привет! Пару слов о тебе' },
+        { type: 'field', label: 'Как тебя зовут', key: 'name', input: 'text', required: true },
+        { type: 'field', label: 'Telegram или email', key: 'contact', input: 'text', required: true },
+        { type: 'consent', text: 'Согласен(а) на обработку данных для отбора' },
+      ],
+    },
+    {
+      title: 'Условия и тест',
+      blocks: [
+        { type: 'heading', text: 'Условия' },
+        { type: 'text', text: 'Удалёнка, сдельная оплата, быстрые выплаты, чёткое ТЗ.' },
+        { type: 'heading', text: 'Тестовое задание' },
+        { type: 'text', text: `Небольшая задача по профилю «${role}» по нашему референсу. Срок — 2 часа. Оцениваем: качество, скорость, соответствие ТЗ.` },
+      ],
+    },
+    {
+      title: 'Сдача',
+      blocks: [
+        { type: 'heading', text: 'Пришли ссылку на работу' },
+        { type: 'submit', label: 'Ссылка на работу' },
+        { type: 'support', text: 'Что-то непонятно?', label: 'Написать нам', url: '' },
+      ],
+    },
+  ];
+}
+
+// Сгенерировать/улучшить текст ОДНОГО блока (heading/text) — точечная помощь в билдере.
+export async function generateBlockText(input: { title: string; description: string; purpose: string; current?: string; brand?: BrandVoice }): Promise<{ text: string; source: 'ai' | 'demo' }> {
+  if (!client) return { text: input.current || `${input.purpose} для роли «${input.title}»`, source: 'demo' };
+  try {
+    const msg = await client.messages.create({
+      model: MODEL,
+      max_tokens: 500,
+      system: [{ type: 'text', text: 'Ты пишешь короткий, живой текст для страницы онбординга кандидата (найм). На «ты», по делу, без канцелярита. Верни ТОЛЬКО текст, без markdown и кавычек.', cache_control: { type: 'ephemeral' } }],
+      messages: [
+        {
+          role: 'user',
+          content:
+            `Роль: ${input.title}\nОписание: ${input.description || '—'}\n` +
+            `Назначение блока: ${input.purpose}\n` +
+            (input.current ? `Текущий текст (улучши/перепиши): ${input.current}\n` : '') +
+            brandBlock(input.brand) +
+            `Напиши текст для этого блока.`,
+        },
+      ],
+    });
+    const text = textOf(msg).trim();
+    return text ? { text, source: 'ai' } : { text: input.current || '', source: 'demo' };
+  } catch {
+    return { text: input.current || '', source: 'demo' };
+  }
+}
+
 function demoDoc(kind: DocKind, title: string): string {
   const role = title.toLowerCase();
   if (kind === 'conditions') return `Удалёнка, гибкий график, оплата сдельно, быстрые выплаты, чёткое ТЗ. Ищем ${role} в команду на постоянку.`;
