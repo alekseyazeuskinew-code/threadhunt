@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Search, KanbanSquare, Plug, CreditCard, Users2, LogOut, Settings, Shield, Send, Megaphone, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Search, KanbanSquare, Plug, Users2, LogOut, Settings, Shield, Send, Megaphone, type LucideIcon } from 'lucide-react';
 import { Wordmark } from './Wordmark';
 import { ThemeToggle } from './ThemeToggle';
 import { AnnouncementsBell } from './AnnouncementsBell';
@@ -12,16 +12,19 @@ import { cn } from '@/lib/cn';
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
-// Навигация владельца и приглашённого участника (ограниченный доступ).
+// Повседневная навигация владельца — то, чем пользуются каждый день.
 const OWNER_NAV: NavItem[] = [
   { href: '/', label: 'Обзор', icon: LayoutDashboard },
   { href: '/searches', label: 'Поиски', icon: Search },
   { href: '/posts', label: 'Публикации', icon: Send },
   { href: '/campaigns', label: 'Кампании', icon: Megaphone },
   { href: '/leads', label: 'Кандидаты', icon: KanbanSquare },
+];
+// Редкие разделы — отдельной приглушённой группой, чтобы не мозолили глаз.
+// Тариф/оплата сюда НЕ входит — он доступен незаметной ссылкой на бейдже тарифа внизу.
+const OWNER_SECONDARY: NavItem[] = [
   { href: '/connections', label: 'Подключения', icon: Plug },
   { href: '/team', label: 'Команда', icon: Users2 },
-  { href: '/billing', label: 'Тариф', icon: CreditCard },
 ];
 // Ассистент (MANAGER): операционные разделы — поиски (посты/слова/онбординг), публикации, кандидаты.
 const ASSISTANT_NAV: NavItem[] = [
@@ -83,16 +86,35 @@ export function Sidebar() {
             {label}
           </Link>
         ))}
-        {!ws?.isMember && me?.role === 'ADMIN' && (
-          <Link
-            href="/admin"
-            className={cn(
-              'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
-              isActive('/admin') ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-panel-2 hover:text-text',
+        {/* Редкие разделы — приглушённая вторичная группа (только у владельца). */}
+        {!ws?.isMember && (
+          <>
+            <div className="mx-3 my-3 border-t border-line/60" />
+            {OWNER_SECONDARY.map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors',
+                  isActive(href) ? 'bg-accent-soft text-accent-ink' : 'text-muted/70 hover:bg-panel-2 hover:text-text',
+                )}
+              >
+                <Icon size={16} strokeWidth={2} />
+                {label}
+              </Link>
+            ))}
+            {me?.role === 'ADMIN' && (
+              <Link
+                href="/admin"
+                className={cn(
+                  'flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors',
+                  isActive('/admin') ? 'bg-accent-soft text-accent-ink' : 'text-muted/70 hover:bg-panel-2 hover:text-text',
+                )}
+              >
+                <Shield size={16} strokeWidth={2} /> Админка
+              </Link>
             )}
-          >
-            <Shield size={18} strokeWidth={2} /> Админка
-          </Link>
+          </>
         )}
       </nav>
 
@@ -100,7 +122,11 @@ export function Sidebar() {
         <div className="flex items-center justify-between rounded-xl border border-line bg-panel p-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{me?.email || '—'}</div>
-            <div className="text-xs text-accent-ink">{me ? `тариф ${me.plan}` : ''}</div>
+            {me && !ws?.isMember ? (
+              <Link href="/billing" className="text-xs text-accent-ink hover:underline">тариф {me.plan}</Link>
+            ) : (
+              <div className="text-xs text-accent-ink">{me ? `тариф ${me.plan}` : ''}</div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />

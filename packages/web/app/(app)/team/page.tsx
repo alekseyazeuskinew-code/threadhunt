@@ -11,8 +11,8 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 
 const ROLE_OPTS = [
-  { value: 'MANAGER', label: 'Ассистент — посты, кандидаты, онбординг, слова' },
-  { value: 'VIEWER', label: 'Наблюдатель — только просмотр кандидатов' },
+  { value: 'MANAGER', label: 'Ассистент' },
+  { value: 'VIEWER', label: 'Наблюдатель' },
 ];
 
 // Команда: владелец приглашает участников с ограниченными правами. Места — по тарифу.
@@ -76,13 +76,20 @@ export default function TeamPage() {
               на Pro/VIP.
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <Input className="flex-1" type="email" placeholder="email@команды.рф" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <Select className="w-40" value={role} onChange={(v) => setRole(v as any)} options={ROLE_OPTS} />
-              <Button onClick={invite} disabled={!email}>
-                <UserPlus size={16} /> Пригласить
-              </Button>
-            </div>
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input className="flex-1" type="email" placeholder="email@команды.рф" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Select className="w-40" value={role} onChange={(v) => setRole(v as any)} options={ROLE_OPTS} />
+                <Button onClick={invite} disabled={!email}>
+                  <UserPlus size={16} /> Пригласить
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-muted">
+                {role === 'MANAGER'
+                  ? 'Ассистент: посты, кандидаты, онбординг и кодовые слова. Без биллинга, подключений и команды.'
+                  : 'Наблюдатель: только просмотр кандидатов, без изменений.'}
+              </p>
+            </>
           )}
           {error && <div className="mt-2 text-sm text-danger">{error}</div>}
         </Card>

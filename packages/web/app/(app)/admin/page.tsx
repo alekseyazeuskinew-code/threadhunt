@@ -6,10 +6,14 @@ import { PageHeader } from '@/components/PageHeader';
 import { Stat } from '@/components/ui/Stat';
 import { Card } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
+import { Tabs } from '@/components/ui/Tabs';
 import { AnnouncementsAdmin } from '@/components/admin/AnnouncementsAdmin';
 
-// Админ-панель: все аккаунты + сводная аналитика. Гейт по роли (сервер отдаёт 403).
+type AdminTab = 'overview' | 'users' | 'marketing' | 'analytics' | 'news' | 'tools';
+
+// Админ-панель: разнесена по вкладкам, чтобы не было перегруза одной страницей.
 export default function AdminPage() {
+  const [tab, setTab] = useState<AdminTab>('overview');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [growth, setGrowth] = useState<AdminGrowth | null>(null);
@@ -177,11 +181,26 @@ export default function AdminPage() {
           </a>
         }
       />
+      <div className="px-8 pt-4">
+        <Tabs
+          active={tab}
+          onChange={(k) => setTab(k as AdminTab)}
+          tabs={[
+            { key: 'overview', label: 'Обзор' },
+            { key: 'users', label: 'Аккаунты' },
+            { key: 'marketing', label: 'Маркетинг' },
+            { key: 'analytics', label: 'Аналитика' },
+            { key: 'news', label: 'Объявления' },
+            { key: 'tools', label: 'Инструменты' },
+          ]}
+        />
+      </div>
       <div className="space-y-6 p-8">
         {/* Объявления пользователям */}
-        <AnnouncementsAdmin />
+        {tab === 'news' && <AnnouncementsAdmin />}
 
         {/* Демо-данные для тура */}
+        {tab === 'tools' && (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -199,16 +218,20 @@ export default function AdminPage() {
           </div>
           {demoMsg && <div className="mt-2 text-xs text-muted">{demoMsg}</div>}
         </Card>
+        )}
 
         {/* KPI сервиса */}
+        {tab === 'overview' && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Аккаунтов" value={stats?.users ?? '—'} accent hint={stats ? `+${stats.new7} за 7 дней` : ''} />
           <Stat label="Поисков" value={stats?.searches ?? '—'} />
           <Stat label="Лидов всего" value={stats?.leads ?? '—'} />
           <Stat label="ИИ-генераций сегодня" value={stats?.aiToday ?? '—'} hint="по всему сервису" />
         </div>
+        )}
 
         {/* Лист ожидания (заявки с лендинга) */}
+        {tab === 'marketing' && (
         <Card>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
@@ -283,7 +306,10 @@ export default function AdminPage() {
           </div>
         </Card>
 
+        )}
+
         {/* Промокоды запуска */}
+        {tab === 'marketing' && (
         <Card>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -349,7 +375,9 @@ export default function AdminPage() {
           )}
         </Card>
 
-        {stats && (
+        )}
+
+        {tab === 'overview' && stats && (
           <Card>
             <div className="text-sm text-muted">Распределение по тарифам</div>
             <div className="mt-2 flex gap-6 text-sm">
@@ -362,7 +390,7 @@ export default function AdminPage() {
         )}
 
         {/* Оплаты и подписки */}
-        {stats && (
+        {tab === 'overview' && stats && (
           <Card>
             <div className="mb-3 text-base font-semibold">Оплаты и подписки</div>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -379,7 +407,7 @@ export default function AdminPage() {
         )}
 
         {/* Рост и здоровье SaaS */}
-        {growth && (
+        {tab === 'analytics' && growth && (
           <Card>
             <div className="mb-1 text-base font-semibold">Рост и здоровье продукта</div>
             <p className="mb-3 text-xs text-muted">Актуальный SaaS-набор: воронка активации (ведущий индикатор удержания), рост, активные, выручка, adoption.</p>
@@ -464,7 +492,7 @@ export default function AdminPage() {
         )}
 
         {/* Расходники и баланс */}
-        {costs && (
+        {tab === 'analytics' && costs && (
           <Card>
             <div className="mb-1 text-base font-semibold">Расходники и баланс</div>
             <p className="mb-3 text-xs text-muted">Расход ИИ и сервисы, которые надо держать пополненными. Балансы провайдеров проверяй по ссылкам — авто-чтение добавим позже.</p>
@@ -538,7 +566,7 @@ export default function AdminPage() {
         )}
 
         {/* Аналитика найма (обезличенные агрегаты) */}
-        {analytics && (
+        {tab === 'analytics' && analytics && (
           <Card>
             <div className="mb-1 text-base font-semibold">Аналитика найма</div>
             <p className="mb-3 text-xs text-muted">Обезличенные агрегаты по всем поискам — для внутреннего анализа эффективности.</p>
@@ -609,6 +637,7 @@ export default function AdminPage() {
         )}
 
         {/* Таблица аккаунтов */}
+        {tab === 'users' && (
         <div className="overflow-hidden rounded-2xl border border-line">
           <table className="w-full text-sm">
             <thead className="bg-panel text-left text-muted">
@@ -693,6 +722,7 @@ export default function AdminPage() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </>
   );
