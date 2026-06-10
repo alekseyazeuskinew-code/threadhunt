@@ -244,9 +244,9 @@ export function FlowPreview({ flow, role, company }: { flow: Flow; role: string;
   const setVal = (k: string, v: string) => setValues((s) => ({ ...s, [k]: v }));
 
   return (
-    <div className="th-aurora w-full">
+    <div className="th-aurora relative flex min-h-full w-full flex-col">
       <div className="th-grid pointer-events-none absolute inset-0 opacity-[0.25]" />
-      <div className="relative mx-auto max-w-md px-5 py-7">
+      <div className="relative mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-7">
         <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.06] backdrop-blur sm:p-7">
           <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{company ? company : 'Отклик на роль'}</div>
           <h1 className="mt-1 text-2xl font-semibold leading-tight">{role || 'Роль'}</h1>
