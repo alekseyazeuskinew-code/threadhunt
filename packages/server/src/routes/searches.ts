@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db.js';
-import { getUserId } from '../auth/session.js';
+import { resolveCtx, canManageLeads } from './workspace.js';
 import { generatePosts, generateReplies, generateChain, type BrandVoice } from '../ai/generate.js';
 import { aiLimitFor, today } from '../ai/limits.js';
 import { decrypt } from '../crypto.js';
@@ -14,21 +14,34 @@ import { resolveConnection } from '../threads/resolve.js';
 import { publishForSearch } from '../scheduler.js';
 
 export async function searchRoutes(app: FastifyInstance) {
-  // Хелпер: вернуть userId или null (и сразу ответить 401 при null — через requireUser).
-  const requireUser = (req: FastifyRequest, reply: FastifyReply): string | null => {
-    const userId = getUserId(app, req);
-    if (!userId) {
+  // Командный доступ: данные всегда в пространстве ВЛАДЕЛЬЦА (ctx.ownerId), кто бы
+  // ни делал запрос — сам владелец или приглашённый ассистент. requireUser отдаёт
+  // ownerId для чтения; requireManage дополнительно требует право записи (OWNER или
+  // MANAGER/ассистент) — VIEWER получает только чтение.
+  const requireUser = async (req: FastifyRequest, reply: FastifyReply): Promise<string | null> => {
+    const ctx = await resolveCtx(app, req);
+    if (!ctx) {
       reply.code(401).send({ error: 'unauthorized' });
       return null;
     }
-    return userId;
+    return ctx.ownerId;
   };
-  // Проверка владения поиском.
-  const own = async (userId: string, id: string) => db.search.findFirst({ where: { id, userId } });
+  // Запись (любой не-GET) в пространстве — только для OWNER и MANAGER (ассистента).
+  // VIEWER получает 403 на изменения, но GET-чтение ему разрешено. Хук
+  // инкапсулирован в плагине поисков, так что покрывает только эти роуты.
+  app.addHook('preHandler', async (req, reply) => {
+    if (req.method === 'GET') return;
+    const ctx = await resolveCtx(app, req);
+    if (ctx && !canManageLeads(ctx.role)) {
+      return reply.code(403).send({ error: 'Только просмотр: недостаточно прав для изменения' });
+    }
+  });
+  // Проверка принадлежности поиска пространству владельца.
+  const own = async (ownerId: string, id: string) => db.search.findFirst({ where: { id, userId: ownerId } });
 
   // ── Список поисков со сводкой ──
   app.get('/api/searches', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     return db.search.findMany({
       where: { userId },
@@ -50,7 +63,7 @@ export async function searchRoutes(app: FastifyInstance) {
     keywords: z.array(z.object({ text: z.string().min(1), mode: z.string().default('root'), replyText: z.string().optional() })).default([]),
   });
   app.post('/api/searches', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const parsed = createInput.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
@@ -63,7 +76,7 @@ export async function searchRoutes(app: FastifyInstance) {
 
   // ── Деталь поиска ──
   app.get('/api/searches/:id', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await db.search.findFirst({
@@ -91,7 +104,7 @@ export async function searchRoutes(app: FastifyInstance) {
     replyText: z.string().max(500).optional(),
   });
   app.put('/api/searches/:id/comment-rule', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -116,7 +129,7 @@ export async function searchRoutes(app: FastifyInstance) {
     connectionId: z.string().nullable().optional(),
   });
   app.patch('/api/searches/:id', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -127,7 +140,7 @@ export async function searchRoutes(app: FastifyInstance) {
 
   // ── Вкл/выкл (один тумблер) ──
   app.post('/api/searches/:id/toggle', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await own(userId, id);
@@ -144,7 +157,7 @@ export async function searchRoutes(app: FastifyInstance) {
     keywords: z.array(z.object({ text: z.string().min(1), mode: z.string().default('root'), replyText: z.string().optional() })),
   });
   app.put('/api/searches/:id/keywords', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -160,7 +173,7 @@ export async function searchRoutes(app: FastifyInstance) {
     templates: z.array(z.object({ text: z.string().min(1), redirectTarget: z.string().default('') })),
   });
   app.put('/api/searches/:id/reply-templates', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -192,7 +205,7 @@ export async function searchRoutes(app: FastifyInstance) {
     ),
   });
   app.put('/api/searches/:id/post-templates', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -232,7 +245,7 @@ export async function searchRoutes(app: FastifyInstance) {
     rotation: z.enum(['sequential', 'random']).optional(),
   });
   app.patch('/api/searches/:id/publish-config', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -243,7 +256,7 @@ export async function searchRoutes(app: FastifyInstance) {
 
   // ── Лиды поиска ──
   app.get('/api/searches/:id/leads', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -254,7 +267,7 @@ export async function searchRoutes(app: FastifyInstance) {
   // lastPass — последний проход (глобальный по аккаунту). byKeyword — всего ответов
   // по кодовым словам этого поиска (как «дизайн 96 / монтаж 65» на эталоне).
   app.get('/api/searches/:id/dm-stats', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -280,7 +293,7 @@ export async function searchRoutes(app: FastifyInstance) {
   // ── Хронология «что происходит на бэке» ──
   // Единая лента: публикации постов + лиды отбивки + проходы агента, по времени.
   app.get('/api/searches/:id/activity', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
@@ -333,7 +346,7 @@ export async function searchRoutes(app: FastifyInstance) {
   // учёт расхода. Персонализация: подставляем «Голос бренда». Graceful: при сбое ИИ
   // отдаём демо-вариации (generate*() не бросают исключений).
   app.post('/api/searches/:id/generate', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const [search, user, brand] = await Promise.all([
@@ -395,7 +408,7 @@ export async function searchRoutes(app: FastifyInstance) {
   });
 
   app.get('/api/ai-jobs/:id', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const job = await db.aiJob.findUnique({ where: { id } });
@@ -407,7 +420,7 @@ export async function searchRoutes(app: FastifyInstance) {
   // ── История публикаций (с превью и ссылкой на пост) ──
   // Хронология нужна, чтобы видеть, что уже выходило, и не повторять тексты.
   app.get('/api/posts', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const searchId = (req.query as any)?.searchId as string | undefined;
     const mine = await db.search.findMany({ where: { userId }, select: { id: true } });
@@ -436,7 +449,7 @@ export async function searchRoutes(app: FastifyInstance) {
   // Прогоняет ВСЮ подготовку публикации, но НИЧЕГО не постит и не пишет в базу:
   // проверяет подключение/токен/шаблоны/лимиты и показывает, что бы вышло следующим.
   app.post('/api/searches/:id/test-publish', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await db.search.findFirst({
@@ -508,7 +521,7 @@ export async function searchRoutes(app: FastifyInstance) {
   // В отличие от test-publish, реально постит один пост (следующий по ротации)
   // через ту же логику, что и планировщик. Удобно для проверки и скринкаста.
   app.post('/api/searches/:id/publish-now', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await db.search.findFirst({ where: { id, userId }, select: { id: true } });
@@ -566,7 +579,7 @@ export async function searchRoutes(app: FastifyInstance) {
   }
 
   app.get('/api/searches/:id/goal', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await own(userId, id);
@@ -588,7 +601,7 @@ export async function searchRoutes(app: FastifyInstance) {
     goalDueAt: z.string().datetime().nullable().optional(),
   });
   app.put('/api/searches/:id/goal', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await own(userId, id);
@@ -610,7 +623,7 @@ export async function searchRoutes(app: FastifyInstance) {
 
   // Сводка целей по всем поискам — для блока на Обзоре.
   app.get('/api/analytics/goals', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const searches = await db.search.findMany({ where: { userId, goalEnabled: true } });
     const rows = await Promise.all(

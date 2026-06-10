@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Stat } from '@/components/ui/Stat';
 import { Card } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
+import { AnnouncementsAdmin } from '@/components/admin/AnnouncementsAdmin';
 
 // Админ-панель: все аккаунты + сводная аналитика. Гейт по роли (сервер отдаёт 403).
 export default function AdminPage() {
@@ -177,6 +178,9 @@ export default function AdminPage() {
         }
       />
       <div className="space-y-6 p-8">
+        {/* Объявления пользователям */}
+        <AnnouncementsAdmin />
+
         {/* Демо-данные для тура */}
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">

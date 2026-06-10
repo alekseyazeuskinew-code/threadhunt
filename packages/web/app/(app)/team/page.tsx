@@ -11,8 +11,8 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 
 const ROLE_OPTS = [
-  { value: 'MANAGER', label: 'Менеджер' },
-  { value: 'VIEWER', label: 'Наблюдатель' },
+  { value: 'MANAGER', label: 'Ассистент — посты, кандидаты, онбординг, слова' },
+  { value: 'VIEWER', label: 'Наблюдатель — только просмотр кандидатов' },
 ];
 
 // Команда: владелец приглашает участников с ограниченными правами. Места — по тарифу.

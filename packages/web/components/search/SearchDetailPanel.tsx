@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -149,7 +149,7 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
             tabs={[
               { key: 'overview', label: 'Обзор' },
               { key: 'otbivka', label: 'Отбивка', count: s.keywords.length },
-              { key: 'baits', label: 'Приманки', count: s.postTemplates.length },
+              { key: 'baits', label: 'Посты', count: s.postTemplates.length },
               { key: 'leads', label: 'Лиды', count: s._count?.leads ?? 0 },
             ]}
           />
@@ -201,7 +201,7 @@ function OverviewTab({
           onClick={() => goTo('otbivka')}
         />
         <EngineCard
-          title="Автопостинг приманок"
+          title="Автопостинг"
           on={cfg.enabled}
           onToggle={toggleAutopost}
           meta={`${s.postTemplates.length} шаблонов · каждые ${Math.round((cfg.intervalMinutes || 0) / 60)} ч`}
@@ -246,10 +246,14 @@ function EngineCard({ title, on, onToggle, meta, onClick }: { title: string; on:
   );
 }
 
-// Лента активности бэка: публикации + лиды + проходы агента.
+// Лента активности бэка: публикации + лиды + проходы агента. Сворачиваемая —
+// по умолчанию показывает короткую сводку (последние события), полный список — по кнопке.
+const ACTIVITY_PREVIEW = 5;
 function ActivityTimeline({ id }: { id: string }) {
   const [items, setItems] = useState<ActivityItem[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(true); // свёрнут/развёрнут весь блок
+  const [showAll, setShowAll] = useState(false); // показать все события или только превью
   async function load() {
     setBusy(true);
     try {
@@ -266,36 +270,59 @@ function ActivityTimeline({ id }: { id: string }) {
   }, [id]);
 
   const icon = (k: ActivityItem['kind']) => (k === 'post' ? <FileText size={14} /> : k === 'lead' ? <MessageSquare size={14} /> : <Activity size={14} />);
+  const errors = items?.filter((it) => !it.ok).length ?? 0;
+  const shown = items ? (showAll ? items : items.slice(0, ACTIVITY_PREVIEW)) : [];
 
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <SectionTitle icon={<Activity size={16} />} title="Что происходит на бэке" hint="Публикации, ответы в директе и проходы бота — по времени." />
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setOpen((v) => !v)} className="flex min-w-0 items-center gap-2 text-left">
+          <span className="text-accent-ink">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
+          <Activity size={16} className="shrink-0 text-accent-ink" />
+          <span className="font-semibold">Что происходит на бэке</span>
+          {items && items.length > 0 && (
+            <span className="text-xs text-muted">
+              · {items.length} событий{errors > 0 && <span className="text-danger"> · {errors} с ошибкой</span>}
+            </span>
+          )}
+        </button>
         <Button variant="ghost" size="sm" onClick={load} disabled={busy}>
           {busy ? 'Обновляю…' : 'Обновить'}
         </Button>
       </div>
-      {!items ? (
-        <div className="text-sm text-muted">Загрузка…</div>
-      ) : items.length === 0 ? (
-        <div className="text-sm text-muted">Пока тихо. Как только бот опубликует пост или ответит в директе — появится здесь.</div>
-      ) : (
-        <div className="space-y-2">
-          {items.map((it, i) => (
-            <div key={i} className="flex items-start gap-2.5 text-sm">
-              <span className={`mt-0.5 shrink-0 ${it.ok ? 'text-muted' : 'text-danger'}`}>{icon(it.kind)}</span>
-              <div className="min-w-0 flex-1">
-                <span className="font-medium">{it.title}</span>
-                {it.detail && <span className="text-muted"> · {it.detail}</span>}
-                {it.permalink && (
-                  <a href={it.permalink} target="_blank" rel="noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 text-accent-ink hover:underline">
-                    открыть <ExternalLink size={11} />
-                  </a>
-                )}
+
+      {open && (
+        <div className="mt-3">
+          {!items ? (
+            <div className="text-sm text-muted">Загрузка…</div>
+          ) : items.length === 0 ? (
+            <div className="text-sm text-muted">Пока тихо. Как только бот опубликует пост или ответит в директе — появится здесь.</div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {shown.map((it, i) => (
+                  <div key={i} className="flex items-start gap-2.5 text-sm">
+                    <span className={`mt-0.5 shrink-0 ${it.ok ? 'text-muted' : 'text-danger'}`}>{icon(it.kind)}</span>
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{it.title}</span>
+                      {it.detail && <span className="text-muted"> · {it.detail}</span>}
+                      {it.permalink && (
+                        <a href={it.permalink} target="_blank" rel="noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 text-accent-ink hover:underline">
+                          открыть <ExternalLink size={11} />
+                        </a>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-xs text-muted">{relTime(it.at)}</span>
+                  </div>
+                ))}
               </div>
-              <span className="shrink-0 text-xs text-muted">{relTime(it.at)}</span>
-            </div>
-          ))}
+              {items.length > ACTIVITY_PREVIEW && (
+                <button onClick={() => setShowAll((v) => !v)} className="mt-3 text-sm font-medium text-accent-ink hover:underline">
+                  {showAll ? 'Свернуть' : `Показать все (${items.length})`}
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

@@ -7,7 +7,6 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { db } from '../db.js';
-import { getUserId } from '../auth/session.js';
 import { env } from '../env.js';
 import { generateDoc, type DocKind, type BrandVoice } from '../ai/generate.js';
 import { consumeAi } from './limits.js';
@@ -15,14 +14,26 @@ import { resolveCtx, canManageLeads } from './workspace.js';
 import { fireWebhook } from '../webhook.js';
 
 export async function onboardingRoutes(app: FastifyInstance) {
-  const requireUser = (req: FastifyRequest, reply: FastifyReply): string | null => {
-    const userId = getUserId(app, req);
-    if (!userId) {
+  // Кабинетные роуты работают в пространстве владельца (ownerId), чтобы ассистент
+  // мог настраивать онбординг чужого аккаунта. Чтение — всем, запись — OWNER/MANAGER.
+  const requireUser = async (req: FastifyRequest, reply: FastifyReply): Promise<string | null> => {
+    const ctx = await resolveCtx(app, req);
+    if (!ctx) {
       reply.code(401).send({ error: 'unauthorized' });
       return null;
     }
-    return userId;
+    return ctx.ownerId;
   };
+  // Запись (не-GET) по кабинетным роутам — только OWNER/MANAGER (ассистент). VIEWER — 403.
+  app.addHook('preHandler', async (req, reply) => {
+    if (req.method === 'GET') return;
+    const p = req.url.split('?')[0];
+    if (!p.startsWith('/api/searches/') && !p.startsWith('/api/flow-templates')) return; // публичные онбординг-роуты не трогаем
+    const ctx = await resolveCtx(app, req);
+    if (ctx && !canManageLeads(ctx.role)) {
+      return reply.code(403).send({ error: 'Только просмотр: недостаточно прав для изменения' });
+    }
+  });
 
   // ── Кабинет: настройка онбординга поиска ──
   const cfg = z.object({
@@ -37,7 +48,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
     obTimezone: z.string().max(64).optional(),
   });
   app.put('/api/searches/:id/onboarding', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const own = await db.search.findFirst({ where: { id, userId } });
@@ -51,7 +62,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
 
   // ── Кабинет: воронка онбординга (отвалы по шагам) ──
   app.get('/api/searches/:id/onboarding-funnel', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await db.search.findFirst({ where: { id, userId } });
@@ -70,7 +81,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
 
   // ── Кабинет: ИИ-генерация документа онбординга (тест / условия / NDA) ──
   app.post('/api/searches/:id/generate-doc', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const search = await db.search.findFirst({ where: { id, userId } });
@@ -221,19 +232,19 @@ export async function onboardingRoutes(app: FastifyInstance) {
 
   // ── Шаблоны флоу (библиотека под роли) ──
   app.get('/api/flow-templates', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     return db.flowTemplate.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
   });
   app.post('/api/flow-templates', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const parsed = z.object({ name: z.string().min(1).max(80), flow: z.string().max(40000) }).safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
     return db.flowTemplate.create({ data: { userId, name: parsed.data.name, flow: parsed.data.flow } });
   });
   app.delete('/api/flow-templates/:id', async (req, reply) => {
-    const userId = requireUser(req, reply);
+    const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     const t = await db.flowTemplate.findFirst({ where: { id, userId } });

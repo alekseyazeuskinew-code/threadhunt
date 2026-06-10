@@ -40,6 +40,15 @@ export interface DmStats {
   runNowAt: string | null;
 }
 
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  level: 'info' | 'update' | 'important';
+  published?: boolean;
+  createdAt: string;
+}
+
 export interface ActivityItem {
   kind: 'post' | 'lead' | 'pass';
   at: string;

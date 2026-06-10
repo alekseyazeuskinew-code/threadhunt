@@ -9,6 +9,7 @@ import { env } from './env.js';
 import { db } from './db.js';
 import { LOCAL_UPLOAD_DIR, storageBackend } from './storage.js';
 import { uploadRoutes } from './routes/uploads.js';
+import { announcementRoutes } from './routes/announcements.js';
 import { agentRoutes } from './routes/agent.js';
 import { authRoutes } from './routes/auth.js';
 import { searchRoutes } from './routes/searches.js';
@@ -155,6 +156,17 @@ async function ensureSchema() {
       "at" TIMESTAMP NOT NULL DEFAULT now()
     )`,
     'CREATE INDEX IF NOT EXISTS "AgentPass_userId_at_idx" ON "AgentPass" ("userId","at")',
+    // Объявления основателя + отметка прочтения у пользователя.
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "lastSeenAnnouncementAt" TIMESTAMP',
+    `CREATE TABLE IF NOT EXISTS "Announcement" (
+      "id" TEXT PRIMARY KEY,
+      "title" TEXT NOT NULL,
+      "body" TEXT NOT NULL,
+      "level" TEXT NOT NULL DEFAULT 'info',
+      "published" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
+    'CREATE INDEX IF NOT EXISTS "Announcement_createdAt_idx" ON "Announcement" ("createdAt")',
   ];
   for (const sql of stmts) {
     try {
@@ -184,6 +196,7 @@ await app.register(waitlistRoutes);
 await app.register(promoRoutes);
 await app.register(integrationRoutes);
 await app.register(uploadRoutes);
+await app.register(announcementRoutes);
 // Расширение (device-token).
 await app.register(agentRoutes);
 

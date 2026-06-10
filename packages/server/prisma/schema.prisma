@@ -31,6 +31,7 @@ model User {
   webhookEvents String?  // CSV выбранных событий (пусто = все): lead.created,candidate.response,candidate.completed
   resetTokenHash      String?   // сброс пароля: хеш одноразового токена
   resetTokenExpiresAt DateTime? // срок действия токена сброса
+  lastSeenAnnouncementAt DateTime? // когда пользователь последний раз открывал колокольчик (для непрочитанных)
   isDemo       Boolean   @default(false) // демо-аккаунт для тура (можно массово очистить)
   createdAt    DateTime  @default(now())
 
@@ -85,6 +86,19 @@ model Limits {
   sweepRequests        Boolean @default(true)  // обходить «Запросы»
   sweepHidden          Boolean @default(true)  // обходить «Скрытые»
   runNowAt             DateTime? // «Прогон сейчас»: метка, по которой расширение запустит обход вне расписания
+}
+
+// Объявления основателя → всем пользователям (новости/обновления/важное).
+// Видны в колокольчике. Непрочитанность считается по User.lastSeenAnnouncementAt.
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  level     String   @default("info") // info | update | important
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 // Журнал проходов отбивки (телеметрия от расширения): статистика последнего
