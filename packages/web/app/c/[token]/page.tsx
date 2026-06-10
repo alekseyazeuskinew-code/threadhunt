@@ -28,6 +28,8 @@ export default function CandidateFlow() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [now, setNow] = useState(Date.now());
+  const [resumedAt, setResumedAt] = useState<number | null>(null); // с какого шага возобновили
+  const LS = `th_onb_${token}`; // ключ локального сохранения прогресса
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -39,11 +41,37 @@ export default function CandidateFlow() {
       .get<FlowResp>(`/api/c/${token}`)
       .then((d) => {
         setData(d);
-        setValues(d.progress.responses || {});
-        setIdx(Math.min(d.progress.obStep, d.flow.pages.length));
+        // Источник правды по завершённым шагам — сервер. Поверх накладываем локально
+        // сохранённый ввод (в т.ч. недозаполненную текущую страницу), чтобы НИЧЕГО
+        // не потерялось, даже если кандидат закрыл вкладку посреди шага.
+        let vals: Record<string, string> = d.progress.responses || {};
+        let i = Math.min(d.progress.obStep, d.flow.pages.length);
+        try {
+          const raw = localStorage.getItem(LS);
+          if (raw) {
+            const saved = JSON.parse(raw);
+            if (saved.values) vals = { ...vals, ...saved.values };
+            if (typeof saved.idx === 'number') i = Math.min(Math.max(i, saved.idx), d.flow.pages.length);
+          }
+        } catch {}
+        setValues(vals);
+        setIdx(i);
+        if (i > 0 && i < d.flow.pages.length) setResumedAt(i);
       })
       .catch(() => setNotFound(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Мгновенно сохраняем прогресс (ввод + текущий шаг) локально — ничего не теряется.
+  useEffect(() => {
+    if (!data) return;
+    const finished = idx >= data.flow.pages.length;
+    try {
+      if (finished) localStorage.removeItem(LS);
+      else localStorage.setItem(LS, JSON.stringify({ values, idx }));
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values, idx, data]);
 
   if (notFound) return <Center>Ссылка недействительна или устарела.</Center>;
   if (!data) return <Center>Загрузка…</Center>;
@@ -111,6 +139,11 @@ export default function CandidateFlow() {
                   <DeadlineBanner deadline={data.deadline} tz={data.timezone} now={now} />
                   <CalendarLinks deadline={data.deadline} role={data.role} token={token} />
                 </>
+              )}
+              {resumedAt != null && idx === resumedAt && (
+                <div className="mb-3 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent-soft/50 px-3 py-2 text-sm text-accent-ink">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Продолжаем с шага {idx + 1} — твои ответы сохранены.
+                </div>
               )}
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
