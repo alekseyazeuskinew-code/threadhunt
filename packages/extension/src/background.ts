@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.5';
+const VERSION = '0.1.6';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -54,6 +54,42 @@ async function tick() {
   if (!res || !res.ok) return;
   const tasks = (await res.json()) as AgentTasksResponse;
   await chrome.storage.local.set({ tasks });
+  await maybeRunTestInBackground(tasks);
+}
+
+// Холостой тест отбивки БЕЗ участия клиента: если дашборд запросил тест, сами
+// открываем ФОНОВУЮ вкладку Threads/Сообщения — content-script там прогонит проход
+// и пришлёт результат, после чего вкладку закрываем. Клиенту не нужно ничего открывать.
+async function maybeRunTestInBackground(tasks: AgentTasksResponse) {
+  const dmTestAt = tasks.dmTestAt;
+  if (!dmTestAt) {
+    await closeTestTab(); // запроса нет — подчистим вкладку, если зависла
+    return;
+  }
+  const { testHandledAt, testTabOpenedAt } = await chrome.storage.local.get(['testHandledAt', 'testTabOpenedAt']);
+  if (testHandledAt === dmTestAt) {
+    if (testTabOpenedAt && Date.now() - testTabOpenedAt > 4 * 60_000) await closeTestTab(); // таймаут
+    return;
+  }
+  await closeTestTab();
+  try {
+    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: false });
+    await chrome.storage.local.set({ testHandledAt: dmTestAt, testTabId: tab.id ?? null, testTabOpenedAt: Date.now() });
+  } catch {
+    /* не удалось открыть вкладку */
+  }
+}
+
+async function closeTestTab() {
+  const { testTabId } = await chrome.storage.local.get('testTabId');
+  if (testTabId != null) {
+    try {
+      await chrome.tabs.remove(testTabId);
+    } catch {
+      /* уже закрыта */
+    }
+    await chrome.storage.local.remove(['testTabId', 'testTabOpenedAt']);
+  }
 }
 
 // Heartbeat и репорт событий — приходят сообщениями от content-script.
@@ -82,8 +118,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: msg.posts || [] }) });
   }
   if (msg?.type === 'testResult') {
-    // Результат холостого теста отбивки → сервер.
+    // Результат холостого теста отбивки → сервер; закрываем фоновую тест-вкладку.
     void authed('/api/agent/test-result', { method: 'POST', body: JSON.stringify({ scanned: msg.scanned || 0, matched: msg.matched || 0 }) }).then(() => void tick());
+    void closeTestTab();
   }
   if (msg?.type === 'getTasks') {
     chrome.storage.local.get('tasks').then((s) => sendResponse(s.tasks || null));

@@ -78,7 +78,7 @@ export default function ConnectionsPage() {
   // Холостой тест отбивки: просим расширение прогнать директ без отправки и ждём результат.
   async function runDmTest() {
     dmTestCancel.current = false;
-    setDmTest({ busy: true, msg: 'Запущено. Держи открытой вкладку threads.com (любую страницу) — тест прогонит директ. Результат появится здесь.' });
+    setDmTest({ busy: true, msg: 'Проверяю… расширение само прогонит директ в фоне (до ~1.5 мин). Открывать ничего не нужно — главное быть залогиненным в Threads в этом браузере.' });
     // Запоминаем предыдущую метку результата — поймём, что пришёл НОВЫЙ (без завязки на часы).
     let prevTestAt: string | null = null;
     try {
@@ -102,15 +102,13 @@ export default function ConnectionsPage() {
           return;
         }
         if (!r.agent.online && tries > 2) {
-          setDmTest({ busy: true, msg: 'Расширение офлайн. Обнови расширение (↻ в chrome://extensions) и открой вкладку Threads.' });
-        } else if (!r.agent.threadsLoggedIn && tries > 3) {
-          setDmTest({ busy: true, msg: 'Похоже, нет открытого Threads или не выполнен вход. Открой threads.com, войди и держи вкладку открытой.' });
+          setDmTest({ busy: true, msg: 'Расширение офлайн. Обнови расширение (↻ в chrome://extensions) и подожди минуту.' });
         }
       } catch {
         /* продолжаем опрос */
       }
       if (tries < 40) setTimeout(poll, 5000); // до ~3 минут
-      else setDmTest({ ok: false, msg: 'Результат не пришёл. Открой вкладку threads.com (войди в профиль) и держи её открытой — тест прогоняется именно в ней. Затем запусти ещё раз.' });
+      else setDmTest({ ok: false, msg: 'Результат не пришёл. Убедись, что расширение онлайн (статус выше) и ты залогинен в Threads в этом браузере, затем запусти ещё раз.' });
     };
     setTimeout(poll, 4000);
   }
