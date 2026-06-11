@@ -706,8 +706,19 @@ async function researchTick() {
   navigate(searchUrl(state.queue[0].query));
 }
 
+// Наблюдатель за запросом холостого теста из дашборда. Работает на ЛЮБОЙ странице
+// threads.com (не только /messages), чтобы тест стартовал, даже если открыта главная
+// лента — content-script сам перейдёт в /messages для прогона.
+async function dmTestWatcher() {
+  if (await getSweep()) return; // проход уже идёт (в т.ч. тест)
+  const tasks = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
+  if (tasks) await maybeStartDmTest(tasks);
+}
+
 // Запуск шага после загрузки страницы (+ периодически на случай, если юзер «припарковался»).
 void step();
 setInterval(() => void step(), 30_000);
 void researchTick();
 setInterval(() => void researchTick(), 60_000);
+void dmTestWatcher();
+setInterval(() => void dmTestWatcher(), 20_000);

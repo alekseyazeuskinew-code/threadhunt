@@ -78,34 +78,39 @@ export default function ConnectionsPage() {
   // Холостой тест отбивки: просим расширение прогнать директ без отправки и ждём результат.
   async function runDmTest() {
     dmTestCancel.current = false;
-    setDmTest({ busy: true, msg: 'Запущено. Открой вкладку Threads → «Сообщения», если ещё не открыта — результат появится здесь.' });
+    setDmTest({ busy: true, msg: 'Запущено. Держи открытой вкладку threads.com (любую страницу) — тест прогонит директ. Результат появится здесь.' });
+    // Запоминаем предыдущую метку результата — поймём, что пришёл НОВЫЙ (без завязки на часы).
+    let prevTestAt: string | null = null;
+    try {
+      const before = await api.get<{ lastTestAt: string | null }>('/api/dm/test-result');
+      prevTestAt = before.lastTestAt;
+    } catch {}
     try {
       await api.post('/api/dm/test');
     } catch (e: any) {
       setDmTest({ ok: false, msg: e.message });
       return;
     }
-    const startedAt = Date.now();
     let tries = 0;
     const poll = async () => {
       if (dmTestCancel.current) return; // остановлено пользователем
       tries++;
       try {
         const r = await api.get<{ pending: boolean; lastTestAt: string | null; scanned: number; matched: number; agent: { online: boolean; threadsLoggedIn: boolean } }>('/api/dm/test-result');
-        if (r.lastTestAt && new Date(r.lastTestAt).getTime() >= startedAt - 2000) {
+        if (r.lastTestAt && r.lastTestAt !== prevTestAt) {
           setDmTest({ ok: true, msg: `Проверено диалогов: ${r.scanned} · найдено совпадений: ${r.matched} · отправлено: 0 (тест). Связь работает ✓` });
           return;
         }
         if (!r.agent.online && tries > 2) {
-          setDmTest({ busy: true, msg: 'Расширение офлайн. Установи/обнови расширение и открой Threads в браузере.' });
-        } else if (!r.agent.threadsLoggedIn && tries > 2) {
-          setDmTest({ busy: true, msg: 'Похоже, ты не залогинен в Threads. Войди на threads.com и открой «Сообщения».' });
+          setDmTest({ busy: true, msg: 'Расширение офлайн. Обнови расширение (↻ в chrome://extensions) и открой вкладку Threads.' });
+        } else if (!r.agent.threadsLoggedIn && tries > 3) {
+          setDmTest({ busy: true, msg: 'Похоже, нет открытого Threads или не выполнен вход. Открой threads.com, войди и держи вкладку открытой.' });
         }
       } catch {
         /* продолжаем опрос */
       }
-      if (tries < 36) setTimeout(poll, 5000); // до ~3 минут
-      else setDmTest({ ok: false, msg: 'Результат не пришёл за 3 минуты. Проверь, что расширение установлено и Threads открыт.' });
+      if (tries < 40) setTimeout(poll, 5000); // до ~3 минут
+      else setDmTest({ ok: false, msg: 'Результат не пришёл. Открой вкладку threads.com (войди в профиль) и держи её открытой — тест прогоняется именно в ней. Затем запусти ещё раз.' });
     };
     setTimeout(poll, 4000);
   }
