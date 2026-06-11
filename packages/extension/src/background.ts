@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -16,7 +16,15 @@ chrome.storage.session.setAccessLevel?.({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CO
 
 async function cfg(): Promise<{ api: string; token: string | null }> {
   const { api, token } = await chrome.storage.local.get(['api', 'token']);
-  return { api: api || DEFAULT_API, token: token || null };
+  let resolved: string = api || DEFAULT_API;
+  // Защита: старое спаривание могло сохранить localhost (когда NEXT_PUBLIC_AGENT_API
+  // не был задан на вебе). В реальном браузере клиента такой адрес недостижим —
+  // игнорируем и используем прод-API. Так не нужно переспаривать.
+  if (/localhost|127\.0\.0\.1/.test(resolved)) {
+    resolved = DEFAULT_API;
+    void chrome.storage.local.set({ api: resolved }); // и чиним сохранённое значение
+  }
+  return { api: resolved, token: token || null };
 }
 
 async function authed(path: string, init: RequestInit = {}) {
