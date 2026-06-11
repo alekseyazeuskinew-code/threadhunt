@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin, LogIn, FlaskConical } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -53,6 +53,14 @@ export default function ConnectionsPage() {
   // Тесты «работает или нет» (без реальных действий).
   const [apiTest, setApiTest] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
   const [dmTest, setDmTest] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
+  const dmTestCancel = useRef(false); // флаг остановки опроса теста
+
+  // Остановить тест: прекратить опрос + снять запрос на сервере.
+  function stopDmTest() {
+    dmTestCancel.current = true;
+    setDmTest(null);
+    api.post('/api/dm/test-cancel').catch(() => {});
+  }
 
   async function runApiTest() {
     setApiTest({ busy: true });
@@ -66,6 +74,7 @@ export default function ConnectionsPage() {
 
   // Холостой тест отбивки: просим расширение прогнать директ без отправки и ждём результат.
   async function runDmTest() {
+    dmTestCancel.current = false;
     setDmTest({ busy: true, msg: 'Запущено. Открой вкладку Threads → «Сообщения», если ещё не открыта — результат появится здесь.' });
     try {
       await api.post('/api/dm/test');
@@ -76,6 +85,7 @@ export default function ConnectionsPage() {
     const startedAt = Date.now();
     let tries = 0;
     const poll = async () => {
+      if (dmTestCancel.current) return; // остановлено пользователем
       tries++;
       try {
         const r = await api.get<{ pending: boolean; lastTestAt: string | null; scanned: number; matched: number; agent: { online: boolean; threadsLoggedIn: boolean } }>('/api/dm/test-result');
@@ -248,9 +258,15 @@ export default function ConnectionsPage() {
                 <div className="font-medium">Проверить отбивку</div>
                 <div className="text-xs text-muted">Холостой проход по директу: посчитает совпадения. Ничего не отправляет и не принимает.</div>
               </div>
-              <Button variant="ghost" size="sm" onClick={runDmTest} disabled={dmTest?.busy}>
-                <FlaskConical size={15} /> {dmTest?.busy ? 'Проверяю…' : 'Запустить тест'}
-              </Button>
+              {dmTest?.busy ? (
+                <Button variant="danger" size="sm" onClick={stopDmTest}>
+                  <X size={15} /> Остановить тест
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={runDmTest}>
+                  <FlaskConical size={15} /> Запустить тест
+                </Button>
+              )}
             </div>
             {dmTest?.msg && (
               <p className={`mt-2 text-xs ${dmTest.ok === false ? 'text-danger' : dmTest.ok ? 'text-success' : 'text-muted'}`}>{dmTest.msg}</p>

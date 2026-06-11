@@ -80,6 +80,14 @@ export async function limitsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Отменить запрошенный тест отбивки (снять метку, если ещё не выполнился).
+  app.post('/api/dm/test-cancel', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    await db.limits.updateMany({ where: { userId }, data: { dmTestAt: null } });
+    return { ok: true };
+  });
+
   // Прочитать статус/результат теста отбивки (дашборд опрашивает).
   app.get('/api/dm/test-result', async (req, reply) => {
     const userId = getUserId(app, req);
