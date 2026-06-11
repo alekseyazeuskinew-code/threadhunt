@@ -95,9 +95,62 @@ export async function agentRoutes(app: FastifyInstance) {
         sections: { main: lim.sweepMain, requests: lim.sweepRequests, hidden: lim.sweepHidden },
         runNowAt: lim.runNowAt ? new Date(lim.runNowAt).toISOString() : null,
       },
+      research: {
+        enabled: !!lim.researchEnabled,
+        // Запросы — названия активных поисков (роли). По ним ищем вакансии-ветки в Threads.
+        queries: searches.slice(0, 12).map((s) => ({ searchId: s.id, query: s.title })),
+        intervalMinutes: 720, // раз в ~12 часов
+        maxPerQuery: 15,
+      },
       pollIntervalSec: POLL_INTERVAL_SEC,
     };
     return res;
+  });
+
+  // Расширение присылает собранные research-постом (топовые вакансии-ветки) → upsert.
+  const researchSchema = z.object({
+    posts: z.array(
+      z.object({
+        searchId: z.string().optional(),
+        query: z.string().max(200),
+        threadsPostId: z.string().max(120),
+        author: z.string().max(120).optional(),
+        text: z.string().max(4000),
+        permalink: z.string().max(500).optional(),
+        likes: z.number().int().min(0).optional(),
+        replies: z.number().int().min(0).optional(),
+        reposts: z.number().int().min(0).optional(),
+        postedAt: z.string().optional(),
+      }),
+    ).max(200),
+  });
+  app.post('/api/agent/research', async (req, reply) => {
+    const device = await authDevice(req.headers.authorization);
+    if (!device) return reply.code(401).send({ error: 'unauthorized' });
+    const parsed = researchSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+    const userId = device.userId;
+    for (const p of parsed.data.posts) {
+      if (!p.threadsPostId || !p.text.trim()) continue;
+      const data = {
+        searchId: p.searchId || null,
+        query: p.query,
+        author: p.author || null,
+        text: p.text.slice(0, 4000),
+        permalink: p.permalink || null,
+        likes: p.likes ?? 0,
+        replies: p.replies ?? 0,
+        reposts: p.reposts ?? 0,
+        postedAt: p.postedAt ? new Date(p.postedAt) : null,
+        fetchedAt: new Date(),
+      };
+      await db.researchPost.upsert({
+        where: { userId_threadsPostId: { userId, threadsPostId: p.threadsPostId } },
+        create: { userId, threadsPostId: p.threadsPostId, ...data },
+        update: data, // обновляем метрики/текст при повторном сборе
+      }).catch(() => {});
+    }
+    return { ok: true };
   });
 
   // Расширение присылает результаты отбивки → создаём лиды (с дедупом).

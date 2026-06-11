@@ -334,6 +334,37 @@ export async function searchRoutes(app: FastifyInstance) {
     return items.slice(0, 40);
   });
 
+  // ── Research: топовые вакансии-ветки (собраны расширением) за 30 дней ──
+  app.get('/api/searches/:id/research', async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
+    const since = new Date(Date.now() - 30 * 86_400_000);
+    const rows = await db.researchPost.findMany({
+      where: { userId, searchId: id, fetchedAt: { gte: since } },
+      orderBy: { fetchedAt: 'desc' },
+      take: 100,
+    });
+    // Сортируем по вовлечённости (ответы и репосты весомее лайков).
+    const scored = rows
+      .map((r) => ({ ...r, score: r.likes + r.replies * 2 + r.reposts * 3 }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20)
+      .map((r) => ({
+        id: r.id,
+        text: r.text,
+        author: r.author,
+        permalink: r.permalink,
+        likes: r.likes,
+        replies: r.replies,
+        reposts: r.reposts,
+        score: r.score,
+        postedAt: r.postedAt,
+      }));
+    return scored;
+  });
+
   // ── ИИ-генерация постов / ответов / цепочек веток ──
   const genSchema = z.object({
     kind: z.enum(['posts', 'replies', 'chain']).default('posts'),

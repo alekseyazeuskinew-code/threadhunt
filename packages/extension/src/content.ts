@@ -552,6 +552,108 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
+// ───────────── Research: сбор топовых вакансий-веток из поиска Threads ─────────────
+// Отдельный лёгкий поток, НЕ мешает отбивке: когда мы на /messages и DM-проход не идёт,
+// по расписанию обходим поиск Threads по запросам (названия ролей), собираем посты с
+// вовлечённостью и шлём на сервер. Селекторы — best-effort (вёрстка Threads меняется —
+// чинить здесь). Источник «насмотренности» для генерации постов в дашборде.
+const RESEARCH_KEY = 'research';
+const LAST_RESEARCH_KEY = 'lastResearchAt';
+
+type ResearchState = { queue: { searchId: string; query: string }[]; idx: number; maxPerQuery: number };
+
+function searchUrl(q: string): string {
+  return `/search?q=${encodeURIComponent(q)}&serp_type=default`;
+}
+async function getResearch(): Promise<ResearchState | null> {
+  const s = await chrome.storage.session.get(RESEARCH_KEY);
+  return (s[RESEARCH_KEY] as ResearchState) || null;
+}
+// «1.2K» / «3,4 тыс» → число (грубая эвристика).
+function parseCount(s: string): number {
+  const m = s.replace(/ /g, ' ').match(/([\d][\d.,]*)\s*([KkКкMmМм]?)/);
+  if (!m) return 0;
+  let n = parseFloat(m[1].replace(/\s/g, '').replace(',', '.')) || 0;
+  const suf = m[2].toLowerCase();
+  if (suf === 'k' || suf === 'к') n *= 1000;
+  if (suf === 'm' || suf === 'м') n *= 1_000_000;
+  return Math.round(n);
+}
+
+// Собрать посты со страницы результатов поиска (best-effort).
+function collectSearchPosts(cur: { searchId: string; query: string }, max: number) {
+  const out: any[] = [];
+  const seen = new Set<string>();
+  for (const a of document.querySelectorAll<HTMLAnchorElement>('a[href*="/post/"]')) {
+    const href = a.getAttribute('href') || '';
+    const m = href.match(/\/post\/([A-Za-z0-9_-]+)/);
+    if (!m) continue;
+    const id = m[1];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    let c: HTMLElement | null = a;
+    for (let i = 0; i < 9 && c; i++) c = c.parentElement;
+    const container = c || a;
+    const text = (container.innerText || '').replace(/\s+/g, ' ').trim();
+    if (text.length < 20) continue;
+    const author = (href.match(/\/@([\w.]+)/) || [])[1] || undefined;
+    // вовлечённость — по числам у кнопок действий (aria-label), эвристика
+    let likes = 0, replies = 0, reposts = 0;
+    for (const b of container.querySelectorAll<HTMLElement>('[aria-label]')) {
+      const al = (b.getAttribute('aria-label') || '').toLowerCase();
+      const num = parseCount(al);
+      if (!num) continue;
+      if (/like|нрав/.test(al)) likes = Math.max(likes, num);
+      else if (/repl|comment|ответ|коммент/.test(al)) replies = Math.max(replies, num);
+      else if (/repost|репост/.test(al)) reposts = Math.max(reposts, num);
+    }
+    out.push({ searchId: cur.searchId, query: cur.query, threadsPostId: id, author, text: text.slice(0, 1200), permalink: BASE + href.split('?')[0], likes, replies, reposts });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+async function researchTick() {
+  // На странице поиска — собираем и переходим к следующему запросу.
+  if (location.pathname.startsWith('/search')) {
+    const st = await getResearch();
+    if (!st || st.idx >= st.queue.length) return;
+    const cur = st.queue[st.idx];
+    await sleep(3500);
+    await scrollList(4);
+    const posts = collectSearchPosts(cur, st.maxPerQuery);
+    if (posts.length) chrome.runtime.sendMessage({ type: 'research', posts });
+    st.idx++;
+    if (st.idx < st.queue.length) {
+      await chrome.storage.session.set({ [RESEARCH_KEY]: st });
+      navigate(searchUrl(st.queue[st.idx].query));
+    } else {
+      await chrome.storage.session.remove(RESEARCH_KEY);
+      await chrome.storage.session.set({ [LAST_RESEARCH_KEY]: Date.now() });
+      navigate('/messages/'); // вернуться «домой»
+    }
+    return;
+  }
+  if (!location.pathname.startsWith('/messages')) return;
+  const existing = await getResearch();
+  if (existing) {
+    // research начат, но мы не на /search (навигация прервалась) — возобновим сбор.
+    if (existing.idx < existing.queue.length) navigate(searchUrl(existing.queue[existing.idx].query));
+    return;
+  }
+  if (await getSweep()) return; // идёт отбивка — не мешаем
+  const tasks = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
+  const r = tasks?.research;
+  if (!r?.enabled || !r.queries?.length) return;
+  const { [LAST_RESEARCH_KEY]: last } = await chrome.storage.session.get(LAST_RESEARCH_KEY);
+  if (last && Date.now() - last < Math.max(60, r.intervalMinutes || 720) * 60_000) return;
+  const state: ResearchState = { queue: r.queries.slice(0, 12), idx: 0, maxPerQuery: r.maxPerQuery || 15 };
+  await chrome.storage.session.set({ [RESEARCH_KEY]: state });
+  navigate(searchUrl(state.queue[0].query));
+}
+
 // Запуск шага после загрузки страницы (+ периодически на случай, если юзер «припарковался»).
 void step();
 setInterval(() => void step(), 30_000);
+void researchTick();
+setInterval(() => void researchTick(), 60_000);

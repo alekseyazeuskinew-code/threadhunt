@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem } from '@/lib/types';
+import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
 import { Badge } from '@/components/ui/Badge';
@@ -398,6 +398,7 @@ function DmPassCard({ searchId }: { searchId: string }) {
       sweepMain: lim!.sweepMain,
       sweepRequests: lim!.sweepRequests,
       sweepHidden: lim!.sweepHidden,
+      researchEnabled: lim!.researchEnabled,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
@@ -469,6 +470,11 @@ function DmPassCard({ searchId }: { searchId: string }) {
       <label className="mt-3 flex items-center gap-2 text-sm">
         <input type="checkbox" checked={lim.safeMode} onChange={(e) => set({ safeMode: e.target.checked })} />
         <span>Безопасный режим — проходить и считать совпадения, но <b>не отправлять</b> ответы</span>
+      </label>
+
+      <label className="mt-2 flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={lim.researchEnabled} onChange={(e) => set({ researchEnabled: e.target.checked })} />
+        <span>Research — раз в ~12 ч собирать <b>топовые вакансии-ветки</b> в Threads по твоим ролям (для вдохновения постов)</span>
       </label>
 
       {lim.sweepIntervalMinutes <= intervalMin && (
@@ -961,6 +967,9 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
         </div>
       </div>
 
+      {/* Research: топовые вакансии-ветки за 30 дней */}
+      <ResearchPanel searchId={s.id} onUse={(t) => setBrief('Сделай в духе этой залетевшей ветки (не копируй дословно, возьми приём/тон):\n' + t)} />
+
       {/* Бриф + ИИ */}
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="mb-1 text-sm font-medium">Бриф для ИИ (необязательно)</div>
@@ -1067,6 +1076,62 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
 }
 
 // Редактор медиа сегмента: загрузка файла + вставка по ссылке + превью + карусель.
+// Топовые вакансии-ветки за 30 дней (собраны расширением через research). Источник
+// «насмотренности»: видно, что заходит у других по этой роли, и можно скормить в ИИ.
+function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: string) => void }) {
+  const [rows, setRows] = useState<ResearchPostRow[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    api.get<ResearchPostRow[]>(`/api/searches/${searchId}/research`).then(setRows).catch(() => setRows([]));
+  }, [searchId]);
+  if (!rows) return null;
+
+  return (
+    <div className="rounded-2xl border border-line bg-panel p-4">
+      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 text-left">
+        <span className="text-accent-ink">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
+        <TrendingUp size={16} className="shrink-0 text-accent-ink" />
+        <span className="font-semibold">Топ веток за 30 дней</span>
+        {rows.length > 0 && <span className="text-xs text-muted">· {rows.length} собрано</span>}
+      </button>
+      {open && (
+        <div className="mt-3">
+          {rows.length === 0 ? (
+            <p className="text-sm text-muted">
+              Пока пусто. Включи <b>Research</b> во вкладке «Отбивка» — расширение раз в ~12 ч соберёт самые заходящие
+              вакансии-ветки по этой роли (нужен открытый Threads в браузере).
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {rows.map((r) => (
+                <div key={r.id} className="rounded-xl border border-line bg-bg p-3">
+                  <p className="line-clamp-3 whitespace-pre-wrap text-sm">{r.text}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+                    {r.author && <span>@{r.author}</span>}
+                    <span className="inline-flex items-center gap-1"><Heart size={12} /> {r.likes}</span>
+                    <span className="inline-flex items-center gap-1"><MessageSquare size={12} /> {r.replies}</span>
+                    <span className="inline-flex items-center gap-1"><Repeat2 size={12} /> {r.reposts}</span>
+                    <div className="ml-auto flex items-center gap-3">
+                      {r.permalink && (
+                        <a href={r.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-accent-ink hover:underline">
+                          открыть <ExternalLink size={11} />
+                        </a>
+                      )}
+                      <button onClick={() => onUse(r.text)} className="font-medium text-accent-ink hover:underline">
+                        в ИИ-бриф →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: MediaItem[]) => void }) {
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');

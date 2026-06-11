@@ -49,6 +49,18 @@ export interface Announcement {
   createdAt: string;
 }
 
+export interface ResearchPostRow {
+  id: string;
+  text: string;
+  author: string | null;
+  permalink: string | null;
+  likes: number;
+  replies: number;
+  reposts: number;
+  score: number;
+  postedAt: string | null;
+}
+
 export interface ActivityItem {
   kind: 'post' | 'lead' | 'pass';
   at: string;
@@ -426,6 +438,7 @@ export interface Limits {
   sweepMain: boolean;
   sweepRequests: boolean;
   sweepHidden: boolean;
+  researchEnabled: boolean;
   runNowAt?: string | null;
   caps?: { replyDelayMin: number; repliesMax: number; dialogsMax: number; intervalMin: number };
 }

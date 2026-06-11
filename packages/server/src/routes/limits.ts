@@ -21,6 +21,7 @@ const DEFAULTS = {
   sweepRequests: true,
   sweepHidden: true,
   runNowAt: null as Date | null,
+  researchEnabled: false,
 };
 
 // Анти-бан потолки: нельзя быстрее/больше/чаще этих значений.
@@ -47,6 +48,7 @@ export async function limitsRoutes(app: FastifyInstance) {
     sweepMain: z.boolean().optional(),
     sweepRequests: z.boolean().optional(),
     sweepHidden: z.boolean().optional(),
+    researchEnabled: z.boolean().optional(),
   });
 
   app.put('/api/limits', async (req, reply) => {

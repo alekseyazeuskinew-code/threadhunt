@@ -62,6 +62,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       void tick(); // подтянуть свежие настройки (в т.ч. сброшенный runNowAt)
     });
   }
+  if (msg?.type === 'research') {
+    // Собранные топовые ветки → сервер.
+    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: msg.posts || [] }) });
+  }
   if (msg?.type === 'getTasks') {
     chrome.storage.local.get('tasks').then((s) => sendResponse(s.tasks || null));
     return true; // async response
