@@ -4,12 +4,15 @@ import { useParams } from 'next/navigation';
 import { ArrowRight, Clock, CalendarPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Flow } from '@/lib/flow';
+import type { CompanyProfile } from '@/lib/types';
 import { fmtInTz } from '@/lib/timezones';
 import { Button } from '@/components/ui/Button';
 import { BlockView, OnbProgress, CompletionView, PoweredBy } from '@/components/onboarding/FlowRenderer';
 
 interface FlowResp {
   company: string;
+  companyProfile?: CompanyProfile;
+  positions?: string[];
   role: string;
   flow: Flow;
   deadline: string | null;
@@ -148,7 +151,7 @@ export default function CandidateFlow() {
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
                 {page.blocks.map((b) => (
-                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} />
+                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={data.companyProfile} positions={data.positions} />
                 ))}
               </div>
               {err && <div className="mt-3 text-sm text-danger">{err}</div>}

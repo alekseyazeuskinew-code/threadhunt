@@ -49,6 +49,14 @@ export interface Announcement {
   createdAt: string;
 }
 
+export interface CompanyProfile {
+  name: string;
+  niche?: string;
+  about?: string;
+  perks?: string;
+  social?: string;
+}
+
 export interface ResearchPostRow {
   id: string;
   text: string;

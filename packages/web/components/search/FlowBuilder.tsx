@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Plus, Trash2, GripVertical, ChevronLeft, ChevronRight, Type, AlignLeft, TextCursorInput, CheckSquare, Upload, CircleDot, ListChecks, Gauge, X, Image, Video, FileText, HelpCircle, LifeBuoy, Sparkles } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronLeft, ChevronRight, Type, AlignLeft, TextCursorInput, CheckSquare, Upload, CircleDot, ListChecks, Gauge, X, Image, Video, FileText, HelpCircle, LifeBuoy, Sparkles, Building2, Briefcase } from 'lucide-react';
 import type { Flow, Page, Block, BlockType } from '@/lib/flow';
 import { newBlock, newPage, BLOCK_LABELS } from '@/lib/flow';
 import { Input, Textarea } from '@/components/ui/Input';
@@ -8,6 +8,8 @@ import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
 
 const PALETTE: { type: BlockType; icon: any }[] = [
+  { type: 'company', icon: Building2 },
+  { type: 'positions', icon: Briefcase },
   { type: 'heading', icon: Type },
   { type: 'text', icon: AlignLeft },
   { type: 'image', icon: Image },
@@ -211,6 +213,10 @@ function OptionsEditor({ block, onChange }: { block: Block; onChange: (p: Partia
 }
 
 function BlockEditor({ block, onChange, ai }: { block: Block; onChange: (p: Partial<Block>) => void; ai?: AiText }) {
+  if (block.type === 'company')
+    return <div className="rounded-lg bg-bg px-3 py-2 text-xs text-muted">Презентация компании подтянется автоматически из «Голоса бренда» (Настройки): название, ниша, о нас, плюсы, соцсети.</div>;
+  if (block.type === 'positions')
+    return <div className="rounded-lg bg-bg px-3 py-2 text-xs text-muted">Покажет другие активные вакансии компании. Заполнять не нужно — обновляется само.</div>;
   if (block.type === 'heading')
     return (
       <div className="flex items-center gap-1.5">

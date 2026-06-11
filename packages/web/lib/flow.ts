@@ -2,6 +2,8 @@
 // и публичным рендером (страница кандидата). Хранится JSON-строкой в Search.obFlow.
 
 export type BlockType =
+  | 'company' // авто-презентация компании (из «Голоса бренда»)
+  | 'positions' // другие активные вакансии компании
   | 'heading'
   | 'text'
   | 'image'
@@ -46,6 +48,8 @@ let _n = 0;
 export const uid = (p = 'b') => `${p}${Date.now().toString(36)}${(_n++).toString(36)}`;
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
+  company: 'О компании (авто)',
+  positions: 'Другие вакансии',
   heading: 'Заголовок',
   text: 'Текст',
   image: 'Фото',
@@ -65,6 +69,10 @@ export function newBlock(type: BlockType): Block {
   const id = uid();
   const key = 'q_' + id.slice(-4);
   switch (type) {
+    case 'company':
+      return { id, type }; // данные подтянутся автоматически из «Голоса бренда»
+    case 'positions':
+      return { id, type };
     case 'heading':
       return { id, type, text: 'Заголовок' };
     case 'text':
@@ -102,6 +110,14 @@ export function newPage(title = 'Новая страница'): Page {
 export function defaultFlow(): Flow {
   return {
     pages: [
+      {
+        id: uid('p'),
+        title: 'О компании',
+        blocks: [
+          { id: uid(), type: 'company' },
+          { id: uid(), type: 'positions' },
+        ],
+      },
       {
         id: uid('p'),
         title: 'О себе',

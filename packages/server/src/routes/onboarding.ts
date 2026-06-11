@@ -218,8 +218,25 @@ export async function onboardingRoutes(app: FastifyInstance) {
     }
     if (Object.keys(patch).length) await db.lead.update({ where: { id: lead.id }, data: patch });
 
+    // Другие активные вакансии компании (для блока «Другие вакансии»).
+    const others = await db.search.findMany({
+      where: { userId: lead.userId, status: 'ACTIVE', id: { not: s.id } },
+      select: { title: true },
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+    });
+    const bp = lead.user.brandProfile;
+
     return {
-      company: lead.user.brandProfile?.companyName || '',
+      company: bp?.companyName || '',
+      companyProfile: {
+        name: bp?.companyName || '',
+        niche: bp?.niche || '',
+        about: bp?.about || '',
+        perks: bp?.perks || '',
+        social: bp?.social || '',
+      },
+      positions: others.map((o) => o.title),
       role: s.title,
       flow: flowOf(s),
       deadline: deadline ? deadline.toISOString() : null,

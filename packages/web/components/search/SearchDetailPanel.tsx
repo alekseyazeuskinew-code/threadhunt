@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow } from '@/lib/types';
+import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow, CompanyProfile, BrandProfile, SearchSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
 import { Badge } from '@/components/ui/Badge';
@@ -1291,6 +1291,13 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   const [dlLocal, setDlLocal] = useState('');
   const [tz, setTz] = useState(s.obTimezone || '');
   const [reminders, setReminders] = useState(s.obRemindersEnabled ?? true);
+  // Для предпросмотра «О компании» / «Другие вакансии» — реальные данные бренда и позиций.
+  const [brand, setBrand] = useState<CompanyProfile | null>(null);
+  const [positions, setPositions] = useState<string[]>([]);
+  useEffect(() => {
+    api.get<BrandProfile>('/api/brand').then((b) => setBrand({ name: b.companyName, niche: b.niche, about: b.about, perks: b.perks, social: b.social })).catch(() => {});
+    api.get<SearchSummary[]>('/api/searches').then((rows) => setPositions(rows.filter((r) => r.id !== s.id && r.status === 'ACTIVE').map((r) => r.title))).catch(() => {});
+  }, [s.id]);
 
   async function save() {
     const hours = dlUnit === 'd' ? dlValue * 24 : dlValue;
@@ -1335,7 +1342,11 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
           }),
         })),
       };
-      if (built.pages.length) setFlow(built);
+      // Преднастроенная страница презентации компании — всегда первой.
+      if (built.pages.length) {
+        built.pages.unshift({ ...newPage('О компании'), blocks: [newBlock('company'), newBlock('positions')] });
+        setFlow(built);
+      }
       if (r.source === 'demo') setAiMsg('Собрано демо-движком (ИИ-ключ не подключён).');
     } catch (e: any) {
       setAiMsg(e.message);
@@ -1459,7 +1470,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
               <button onClick={() => setShowPreview(false)} className="rounded-full bg-white/10 px-3 py-1 hover:bg-white/20">Закрыть ✕</button>
             </div>
             <IphoneMock>
-              <FlowPreview flow={flow} role={s.title} />
+              <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} />
             </IphoneMock>
           </div>
         </div>

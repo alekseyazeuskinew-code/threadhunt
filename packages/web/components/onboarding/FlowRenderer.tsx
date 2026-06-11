@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Check, ArrowRight } from 'lucide-react';
 import type { Block, Flow } from '@/lib/flow';
+import type { CompanyProfile } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
 
@@ -68,13 +69,19 @@ export function BlockView({
   setVal,
   consents,
   setConsents,
+  company,
+  positions,
 }: {
   b: Block;
   values: Record<string, string>;
   setVal: (k: string, v: string) => void;
   consents: Record<string, boolean>;
   setConsents: (f: (s: Record<string, boolean>) => Record<string, boolean>) => void;
+  company?: CompanyProfile | null;
+  positions?: string[];
 }) {
+  if (b.type === 'company') return <CompanyCard company={company} />;
+  if (b.type === 'positions') return <PositionsList positions={positions} />;
   if (b.type === 'heading') return <div className="text-base font-semibold">{b.text}</div>;
   if (b.type === 'text') return <p className="whitespace-pre-wrap text-sm text-muted">{b.text}</p>;
 
@@ -222,6 +229,60 @@ export function BlockView({
   );
 }
 
+// Авто-презентация компании — из «Голоса бренда» (название, ниша, о нас, плюсы, соцсети).
+// Данные приходят живыми (через /api/c/:token), редактировать вручную не нужно.
+function CompanyCard({ company }: { company?: CompanyProfile | null }) {
+  const name = (company?.name || '').trim() || 'Ваша компания';
+  const initial = name.charAt(0).toUpperCase();
+  const perks = (company?.perks || '')
+    .split(/[,\n;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  let social = (company?.social || '').trim();
+  if (social && !/^https?:\/\//i.test(social)) social = social.startsWith('@') ? `https://t.me/${social.slice(1)}` : `https://${social}`;
+  return (
+    <div className="rounded-2xl border border-line bg-bg p-4">
+      <div className="flex items-center gap-3">
+        <div className="th-grad flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-lg font-bold">{initial}</div>
+        <div className="min-w-0">
+          <div className="truncate font-semibold">{name}</div>
+          {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
+        </div>
+      </div>
+      {company?.about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{company.about}</p>}
+      {perks.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {perks.map((p, i) => (
+            <span key={i} className="rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">{p}</span>
+          ))}
+        </div>
+      )}
+      {social && (
+        <a href={social} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent-ink hover:underline">
+          Соцсети компании <ArrowRight size={13} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+// Другие активные вакансии компании — тёплый кросс-сейл («ещё нанимаем»).
+function PositionsList({ positions }: { positions?: string[] }) {
+  const list = (positions || []).filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <div className="rounded-2xl border border-line bg-bg p-4">
+      <div className="text-xs uppercase tracking-wide text-muted">Компания также нанимает</div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {list.map((t, i) => (
+          <span key={i} className="rounded-full border border-line px-3 py-1 text-sm">{t}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Преобразует ссылку YouTube/Vimeo в embed-URL (иначе null → <video>).
 export function ytEmbed(url: string): string | null {
   const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([\w-]{11})/);
@@ -233,7 +294,7 @@ export function ytEmbed(url: string): string | null {
 
 // Интерактивный предпросмотр всего флоу (как увидит кандидат), без API и без
 // записи ответов. Можно листать страницы вперёд/назад, заполнять поля.
-export function FlowPreview({ flow, role, company }: { flow: Flow; role: string; company?: string }) {
+export function FlowPreview({ flow, role, company, positions }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[] }) {
   const [idx, setIdx] = useState(0);
   const [values, setValues] = useState<Record<string, string>>({});
   const [consents, setConsents] = useState<Record<string, boolean>>({});
@@ -248,7 +309,7 @@ export function FlowPreview({ flow, role, company }: { flow: Flow; role: string;
       <div className="th-grid pointer-events-none absolute inset-0 opacity-[0.25]" />
       <div className="relative mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-7">
         <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.06] backdrop-blur sm:p-7">
-          <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{company ? company : 'Отклик на роль'}</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{company?.name ? company.name : 'Отклик на роль'}</div>
           <h1 className="mt-1 text-2xl font-semibold leading-tight">{role || 'Роль'}</h1>
 
           {total === 0 ? (
@@ -260,7 +321,7 @@ export function FlowPreview({ flow, role, company }: { flow: Flow; role: string;
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
                 {page.blocks.map((b) => (
-                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} />
+                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} />
                 ))}
               </div>
               <div className="mt-6 flex gap-2">
