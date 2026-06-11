@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin, LogIn, FlaskConical } from 'lucide-react';
+import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin, LogIn, FlaskConical, AlertTriangle, Circle } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Connection, Device, MetaConnection, AccountQuota } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -147,6 +147,12 @@ export default function ConnectionsPage() {
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
+  // Авто-обновление статуса устройств — клиенту не нужно жать F5, чтобы увидеть «онлайн».
+  useEffect(() => {
+    const t = setInterval(() => loadDevices(), 15_000);
+    return () => clearInterval(t);
+  }, []);
+
   async function connectBrowser() {
     try {
       const { token } = await api.post<{ token: string }>('/api/devices', {});
@@ -244,15 +250,9 @@ export default function ConnectionsPage() {
             </span>
           </div>
 
-          <div className="mt-3 text-xs">
-            {extPresent ? (
-              <span className="inline-flex items-center gap-1 text-success">
-                <Check size={13} /> расширение установлено
-              </span>
-            ) : (
-              <span className="text-muted">Расширение не найдено — установи его {EXT_IN_STORE ? 'из Chrome Web Store' : 'по шагам'} ниже.</span>
-            )}
-          </div>
+          {/* Пошаговая диагностика — клиент сразу видит, что не так и что нажать. */}
+          <ConnectionStatus extPresent={extPresent} devices={devices} onReconnect={connectBrowser} />
+
 
           {/* Тест отбивки: холостой проход без отправки/приёма — «работает или нет». */}
           <div className="mt-3 rounded-xl border border-line bg-bg p-3">
@@ -511,6 +511,75 @@ export default function ConnectionsPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+// Понятная диагностика подключения отбивки: три шага со статусом и конкретной
+// подсказкой на каждом сбое. Чтобы клиент не застрял на безликом «оффлайн».
+function ConnectionStatus({ extPresent, devices, onReconnect }: { extPresent: boolean; devices: Device[] | null; onReconnect: () => void }) {
+  const online = !!devices?.some((d) => d.online);
+  const loggedIn = !!devices?.some((d) => d.online && d.threadsLoggedIn);
+  // Текущий «блокирующий» шаг — первый невыполненный.
+  const steps = [
+    {
+      ok: extPresent,
+      title: 'Расширение установлено',
+      fix: <>Установи расширение {EXT_IN_STORE ? 'из Chrome Web Store' : 'по шагам'} ниже и обнови страницу.</>,
+    },
+    {
+      ok: online,
+      title: 'Браузер подключён',
+      fix: (
+        <>
+          Нажми{' '}
+          <button onClick={onReconnect} className="font-medium text-accent-ink hover:underline">
+            «Подключить браузер»
+          </button>
+          . Если не помогло — открой <span className="font-mono">chrome://extensions</span>, нажми <b>↻</b> на карточке Threadhunt и подожди ~1 минуту.
+        </>
+      ),
+    },
+    {
+      ok: loggedIn,
+      title: 'Вход в Threads выполнен',
+      fix: (
+        <>
+          Войди в{' '}
+          <a href="https://www.threads.com/login" target="_blank" rel="noreferrer" className="font-medium text-accent-ink hover:underline">
+            threads.com
+          </a>{' '}
+          под нужным профилем в этом браузере.
+        </>
+      ),
+    },
+  ];
+  const allOk = steps.every((s) => s.ok);
+  const blockingIdx = steps.findIndex((s) => !s.ok);
+
+  return (
+    <div className={`mt-3 rounded-xl border p-3 ${allOk ? 'border-success/30 bg-success/5' : 'border-line bg-bg'}`}>
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm font-medium">{allOk ? 'Отбивка готова к работе ✓' : 'Состояние подключения'}</div>
+        {!allOk && online === false && extPresent && (
+          <Button variant="ghost" size="sm" onClick={onReconnect}>
+            <RefreshCw size={14} /> Переподключить
+          </Button>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {steps.map((s, i) => (
+          <div key={i} className="flex items-start gap-2 text-sm">
+            <span className={`mt-0.5 shrink-0 ${s.ok ? 'text-success' : i === blockingIdx ? 'text-warning' : 'text-muted'}`}>
+              {s.ok ? <Check size={15} /> : i === blockingIdx ? <AlertTriangle size={15} /> : <Circle size={15} />}
+            </span>
+            <div className="flex-1">
+              <span className={s.ok ? '' : i === blockingIdx ? 'font-medium' : 'text-muted'}>{s.title}</span>
+              {!s.ok && i === blockingIdx && <div className="mt-0.5 text-xs text-muted">{s.fix}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
