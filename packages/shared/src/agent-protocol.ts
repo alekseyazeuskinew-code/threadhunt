@@ -32,6 +32,20 @@ export interface AgentLimits {
   runNowAt: string | null; // метка «Прогон сейчас» (ISO) — обойти расписание, если новее последнего прохода
 }
 
+/** Запрос для research-прохода: что искать в Threads и к какому поиску относится. */
+export interface AgentResearchQuery {
+  searchId: string;
+  query: string; // поисковый запрос (обычно название роли)
+}
+
+/** Конфиг research: сбор топовых вакансий-веток в Threads через браузер клиента. */
+export interface AgentResearch {
+  enabled: boolean;
+  queries: AgentResearchQuery[];
+  intervalMinutes: number; // как часто запускать research-проход
+  maxPerQuery: number; // сколько постов собирать на один запрос
+}
+
 /** Ответ сервера на запрос задач. */
 export interface AgentTasksResponse {
   /** Активен ли агент вообще (план оплачен, connection не отозван). */
@@ -39,8 +53,28 @@ export interface AgentTasksResponse {
   searches: AgentSearchRule[];
   /** Лимиты на аккаунт — приоритетнее полей в правилах. */
   limits: AgentLimits;
+  /** Сбор топовых веток (research) — опционально. */
+  research?: AgentResearch;
   /** Сколько секунд ждать до следующего опроса. */
   pollIntervalSec: number;
+}
+
+/** Один собранный research-постом (вакансия-ветка из поиска Threads). */
+export interface AgentResearchPost {
+  searchId: string;
+  query: string;
+  threadsPostId: string;
+  author?: string;
+  text: string;
+  permalink?: string;
+  likes?: number;
+  replies?: number;
+  reposts?: number;
+  postedAt?: string; // ISO, если удалось определить
+}
+
+export interface AgentResearchReport {
+  posts: AgentResearchPost[];
 }
 
 /** Событие отбивки, которое агент отправляет серверу после действия. */

@@ -49,6 +49,7 @@ model User {
   metaConnection MetaConnection?
   adCampaigns    AdCampaign[]
   agentPasses    AgentPass[]
+  researchPosts  ResearchPost[]
 }
 
 // Участник рабочего пространства (командный доступ с ограниченными правами).
@@ -86,6 +87,30 @@ model Limits {
   sweepRequests        Boolean @default(true)  // обходить «Запросы»
   sweepHidden          Boolean @default(true)  // обходить «Скрытые»
   runNowAt             DateTime? // «Прогон сейчас»: метка, по которой расширение запустит обход вне расписания
+  researchEnabled      Boolean @default(false) // сбор топовых вакансий-веток в Threads (research через расширение)
+}
+
+// Собранные research-постом: топовые вакансии-ветки из поиска Threads (через
+// расширение в браузере клиента). Дедуп по (userId, threadsPostId), метрики
+// обновляются при повторном сборе. Источник «насмотренности» для генерации постов.
+model ResearchPost {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  searchId      String?
+  query         String // по какому запросу нашли
+  threadsPostId String
+  author        String?
+  text          String
+  permalink     String?
+  likes         Int      @default(0)
+  replies       Int      @default(0)
+  reposts       Int      @default(0)
+  postedAt      DateTime?
+  fetchedAt     DateTime @default(now())
+
+  @@unique([userId, threadsPostId])
+  @@index([userId, searchId])
 }
 
 // Объявления основателя → всем пользователям (новости/обновления/важное).

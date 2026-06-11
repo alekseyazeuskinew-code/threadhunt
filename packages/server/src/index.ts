@@ -172,6 +172,25 @@ async function ensureSchema() {
     'ALTER TABLE "Search" ADD COLUMN IF NOT EXISTS "obRemindersEnabled" BOOLEAN NOT NULL DEFAULT true',
     'ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "obReminderCount" INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "obLastReminderAt" TIMESTAMP',
+    // Research топовых веток (сбор через расширение).
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchEnabled" BOOLEAN NOT NULL DEFAULT false',
+    `CREATE TABLE IF NOT EXISTS "ResearchPost" (
+      "id" TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "searchId" TEXT,
+      "query" TEXT NOT NULL,
+      "threadsPostId" TEXT NOT NULL,
+      "author" TEXT,
+      "text" TEXT NOT NULL,
+      "permalink" TEXT,
+      "likes" INTEGER NOT NULL DEFAULT 0,
+      "replies" INTEGER NOT NULL DEFAULT 0,
+      "reposts" INTEGER NOT NULL DEFAULT 0,
+      "postedAt" TIMESTAMP,
+      "fetchedAt" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
+    'CREATE UNIQUE INDEX IF NOT EXISTS "ResearchPost_userId_threadsPostId_key" ON "ResearchPost" ("userId","threadsPostId")',
+    'CREATE INDEX IF NOT EXISTS "ResearchPost_userId_searchId_idx" ON "ResearchPost" ("userId","searchId")',
   ];
   for (const sql of stmts) {
     try {
