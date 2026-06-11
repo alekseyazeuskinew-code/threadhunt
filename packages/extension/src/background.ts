@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -36,6 +36,12 @@ chrome.alarms.onAlarm.addListener((a) => {
 });
 
 async function tick() {
+  // Фоновый heartbeat: показываем «онлайн» в дашборде, пока расширение установлено
+  // и спарено — даже если вкладка Threads не открыта. threadsLoggedIn берём из
+  // последнего, что видел content-script (по умолчанию false).
+  const { threadsLoggedIn } = await chrome.storage.local.get('threadsLoggedIn');
+  void authed('/api/agent/heartbeat', { method: 'POST', body: JSON.stringify({ version: VERSION, threadsLoggedIn: !!threadsLoggedIn }) });
+
   const res = await authed('/api/agent/tasks');
   if (!res || !res.ok) return;
   const tasks = (await res.json()) as AgentTasksResponse;
@@ -45,6 +51,7 @@ async function tick() {
 // Heartbeat и репорт событий — приходят сообщениями от content-script.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'heartbeat') {
+    void chrome.storage.local.set({ threadsLoggedIn: !!msg.threadsLoggedIn }); // запоминаем для фонового heartbeat
     void authed('/api/agent/heartbeat', {
       method: 'POST',
       body: JSON.stringify({ version: VERSION, threadsLoggedIn: !!msg.threadsLoggedIn }),
