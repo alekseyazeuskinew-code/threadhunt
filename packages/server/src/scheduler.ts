@@ -9,6 +9,7 @@ import { db } from './db.js';
 import { decrypt } from './crypto.js';
 import { publishChain, fetchReplies, publishReply } from './threads/publisher.js';
 import { parseSegments } from './threads/segments.js';
+import { applyPostWatermark } from './branding.js';
 import { resolveConnection } from './threads/resolve.js';
 import { sendEmail, renderEmailHtml } from './email.js';
 import { resolveRecipients, parseSegment, personalizeStep, usesPromoVar } from './emailAudience.js';
@@ -290,6 +291,12 @@ export async function publishForSearch(searchId: string): Promise<PublishResult>
   try {
     // Публикуем цепочку: корневой пост + ветки-ответы (или просто один пост).
     const segments = parseSegments(tpl);
+    // FREE-тариф: добавляем вотермарк к последнему сегменту (клиент убрать не может).
+    const owner = await db.user.findUnique({ where: { id: search.userId }, select: { plan: true } });
+    if (segments.length) {
+      const last = segments[segments.length - 1];
+      last.text = applyPostWatermark(last.text || '', owner?.plan);
+    }
     const res = await publishChain(token, conn.threadsUserId, segments);
     const rootMedia = segments[0]?.media?.[0]?.url ?? tpl.mediaUrl ?? null;
     await db.publishedPost.create({

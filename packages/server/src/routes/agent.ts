@@ -8,6 +8,7 @@ import { db } from '../db.js';
 import { hashToken } from '../crypto.js';
 import { getUserLimits } from './limits.js';
 import { fireWebhook } from '../webhook.js';
+import { applyDmWatermark } from '../branding.js';
 import type { AgentTasksResponse, AgentSearchRule } from '@threadhunt/shared';
 
 const POLL_INTERVAL_SEC = 20;
@@ -68,11 +69,12 @@ export async function agentRoutes(app: FastifyInstance) {
     const repliedToday = await db.lead.count({ where: { userId: device.userId, status: 'REPLIED', createdAt: { gte: since } } });
     const repliesRemainingToday = Math.max(0, lim.maxRepliesPerDay - repliedToday);
 
+    const plan = device.user?.plan; // FREE → вотермарк в авто-ответах
     const rules: AgentSearchRule[] = searches.map((s) => ({
       searchId: s.id,
       title: s.title,
-      keywords: s.keywords.map((k) => ({ text: k.text, mode: k.mode as any, replyText: k.replyText ?? undefined })),
-      replyTemplates: s.replyTemplates.map((t) => ({ id: t.id, text: t.text })),
+      keywords: s.keywords.map((k) => ({ text: k.text, mode: k.mode as any, replyText: k.replyText ? applyDmWatermark(k.replyText, plan) : undefined })),
+      replyTemplates: s.replyTemplates.map((t) => ({ id: t.id, text: applyDmWatermark(t.text, plan) })),
       rotation: (s.publishConfig?.rotation as 'sequential' | 'random') ?? 'sequential',
       alreadyReplied: s.leads.map((l) => l.fromUserKey),
       minDelayMs: lim.replyDelaySec * 1000,

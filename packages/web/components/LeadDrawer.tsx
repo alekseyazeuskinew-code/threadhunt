@@ -13,6 +13,17 @@ import { cn } from '@/lib/cn';
 
 const fmt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 
+// Ссылка для связи: URL → как есть, @username/username → Telegram, email → mailto.
+function contactHref(value: string): string {
+  const t = (value || '').trim();
+  if (!t) return '';
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t)) return `mailto:${t}`;
+  if (/^@[\w.]+$/.test(t)) return `https://t.me/${t.slice(1)}`;
+  if (/^[a-z0-9_.]{3,32}$/i.test(t)) return `https://t.me/${t}`; // голый username
+  return '';
+}
+
 // Боковая карточка кандидата: стадия, рейтинг, БЛОК ЦИКЛА под текущую стадию, таймлайн.
 export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onClose: () => void; onChanged: () => void }) {
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -78,6 +89,22 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone="accent">{lead.matchedKeyword}</Badge>
                 {lead.section && <Badge>{lead.section === 'requests' ? 'Запросы' : lead.section === 'hidden' ? 'Скрытые' : 'Основной'}</Badge>}
+                {(() => {
+                  const contact = lead.candidateContact || lead.contact || '';
+                  const href = contactHref(contact);
+                  if (!href) return null;
+                  const tg = href.startsWith('https://t.me/');
+                  return (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-accent-press"
+                    >
+                      <Send size={13} /> {tg ? 'Написать в Telegram' : 'Написать'}
+                    </a>
+                  );
+                })()}
               </div>
 
               {/* стадия */}
@@ -182,6 +209,8 @@ function CandidateAnswers({ lead }: { lead: LeadDetail }) {
 
 // Строка ответа: значение становится ссылкой, если это URL / @telegram / email.
 function AnswerRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  // Строго: ссылкой делаем только явные URL / @username / email — обычные ответы
+  // («Имя», «О себе») остаются текстом, чтобы не превратить слово в ложную ссылку.
   const v = value.trim();
   let href = '';
   if (/^https?:\/\//i.test(v)) href = v;
