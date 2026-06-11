@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin } from 'lucide-react';
+import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin, LogIn } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Connection, Device, MetaConnection, AccountQuota } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -174,13 +174,24 @@ export default function ConnectionsPage() {
             </Button>
           </div>
 
+          {/* Важно: расширение работает в залогиненной сессии Threads — без входа бесполезно. */}
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-accent/30 bg-accent-soft/50 px-3 py-2.5 text-sm">
+            <LogIn size={16} className="mt-0.5 shrink-0 text-accent-ink" />
+            <span>
+              <b>Сначала войди в Threads</b> в этом браузере под нужным профилем — бот работает в твоей залогиненной сессии.
+              Без входа в{' '}
+              <a href="https://www.threads.com/login" target="_blank" rel="noreferrer" className="font-medium text-accent-ink hover:underline">threads.com</a>{' '}
+              отбивка и постинг не запустятся.
+            </span>
+          </div>
+
           <div className="mt-3 text-xs">
             {extPresent ? (
               <span className="inline-flex items-center gap-1 text-success">
                 <Check size={13} /> расширение установлено
               </span>
             ) : (
-              <span className="text-muted">Расширение не найдено — установи его {EXT_IN_STORE ? 'из Chrome Web Store' : 'за 7 шагов'} ниже.</span>
+              <span className="text-muted">Расширение не найдено — установи его {EXT_IN_STORE ? 'из Chrome Web Store' : 'по шагам'} ниже.</span>
             )}
           </div>
 
@@ -415,25 +426,34 @@ export default function ConnectionsPage() {
 // Пошаговая инструкция установки. В Store — короткий путь в один клик; иначе —
 // «распакованным» через режим разработчика.
 function InstallGuide() {
+  const loginStep = (
+    <>
+      <b>Сначала войди в Threads</b> в этом браузере под нужным профилем (
+      <a href="https://www.threads.com/login" target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">threads.com</a>
+      ). Бот работает в твоей залогиненной сессии — без входа он ничего не сможет.
+    </>
+  );
   const storeSteps = [
+    loginStep,
     <>Нажми <b>«Установить из Chrome Web Store»</b> выше → на странице расширения нажми <b>«Добавить в Chrome»</b> и подтверди.</>,
     <>Нажми на «пазл» 🧩 в панели браузера и <b>закрепи</b> иконку Threadhunt, чтобы была под рукой.</>,
     <>Вернись сюда и нажми <b>«Подключить браузер»</b> — код привяжется сам. Если попросит код вручную — скопируй его здесь и вставь в окне расширения.</>,
-    <>Открой <b>Threads → Сообщения</b> (директ), залогинься, если ещё не — и отбивка заработает по твоим кодовым словам.</>,
+    <>Открой <b>Threads → Сообщения</b> (директ) — и отбивка заработает по твоим кодовым словам.</>,
   ];
   const devSteps = [
+    loginStep,
     <>Нажми <b>«Скачать расширение (.zip)»</b> выше и <b>распакуй архив</b> в постоянную папку (например в «Документы»). Не оставляй в «Загрузках» — если папку удалить, расширение слетит.</>,
     <>Открой в браузере страницу <span className="font-mono">chrome://extensions</span> (скопируй и вставь в адресную строку).</>,
     <>Включи вверху справа тумблер <b>«Режим разработчика»</b> (Developer mode).</>,
     <>Нажми <b>«Загрузить распакованное»</b> (Load unpacked) и выбери распакованную папку (где лежит файл <span className="font-mono">manifest.json</span>).</>,
     <>Нажми на «пазл» 🧩 в панели браузера и <b>закрепи</b> иконку Threadhunt, чтобы была под рукой.</>,
     <>Вернись сюда и нажми <b>«Подключить браузер»</b> — код привяжется сам. Если попросит код вручную — скопируй его здесь и вставь в окне расширения.</>,
-    <>Открой <b>Threads → Сообщения</b> (директ), залогинься, если ещё не — и отбивка заработает по твоим кодовым словам.</>,
+    <>Открой <b>Threads → Сообщения</b> (директ) — и отбивка заработает по твоим кодовым словам.</>,
   ];
   const steps = EXT_IN_STORE ? storeSteps : devSteps;
   return (
     <div className="mt-4 border-t border-line pt-4">
-      <div className="mb-2 text-sm font-medium">Установка за {steps.length} шага</div>
+      <div className="mb-2 text-sm font-medium">Установка — {steps.length} шагов</div>
       <ol className="space-y-2.5">
         {steps.map((s, i) => (
           <li key={i} className="flex gap-3 text-sm">
