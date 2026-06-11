@@ -13,7 +13,10 @@ import { SafetyNotice } from '@/components/SafetyNotice';
 import { SectionAnchors } from '@/components/SectionNav';
 import { cn } from '@/lib/cn';
 
-const AGENT_API = process.env.NEXT_PUBLIC_AGENT_API || 'http://localhost:3010';
+// Адрес бэкенда, КУДА расширение шлёт heartbeat/задачи (НЕ через прокси веба — напрямую).
+// Должен совпадать с DEFAULT_API в расширении. На Vercel лучше задать NEXT_PUBLIC_AGENT_API
+// явно; фолбэк — прод-API на Railway (иначе расширению уходил localhost → «оффлайн»).
+const AGENT_API = process.env.NEXT_PUBLIC_AGENT_API || 'https://threadhuntserver-production.up.railway.app';
 // Публичный листинг расширения в Chrome Web Store (опубликовано). Можно переопределить
 // переменной NEXT_PUBLIC_EXT_STORE_URL в Netlify.
 const STORE_URL = process.env.NEXT_PUBLIC_EXT_STORE_URL || 'https://chromewebstore.google.com/detail/iaeecnlkmhekpngjpngkmkmgppgfdloi';
