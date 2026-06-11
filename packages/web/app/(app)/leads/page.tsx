@@ -24,6 +24,7 @@ export default function CandidatesPage() {
   const [vacancy, setVacancy] = useState<string>('all');
   const [prefs, setPrefs] = useState<BoardPrefs>(DEFAULT_PREFS);
   const [customize, setCustomize] = useState(false);
+  const [query, setQuery] = useState('');
 
   const load = () => api.get<Lead[]>('/api/leads').then(setLeads).catch(() => setLeads([]));
   useEffect(() => {
@@ -52,9 +53,16 @@ export default function CandidatesPage() {
   }, [leads]);
 
   const filtered = useMemo(() => {
-    const arr = leads || [];
-    return vacancy === 'all' ? arr : arr.filter((l) => l.searchId === vacancy);
-  }, [leads, vacancy]);
+    let arr = leads || [];
+    if (vacancy !== 'all') arr = arr.filter((l) => l.searchId === vacancy);
+    const q = query.trim().toLowerCase();
+    if (q)
+      arr = arr.filter((l) =>
+        [l.fromUsername, l.candidateName, l.matchedKeyword, l.role, l.contact, l.candidateContact]
+          .some((f) => (f || '').toLowerCase().includes(q)),
+      );
+    return arr;
+  }, [leads, vacancy, query]);
 
   // Перестановка колонки перетаскиванием заголовка.
   function reorderColumn(target: Stage) {
@@ -78,6 +86,15 @@ export default function CandidatesPage() {
         subtitle="Двигай кандидатов по воронке найма. «Резерв» — тёплые про запас."
         action={
           <div className="flex items-center gap-2">
+            {/* Поиск по кандидатам */}
+            {leads && leads.length > 0 && (
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Поиск кандидата…"
+                className="w-44 rounded-full border border-line bg-bg px-3.5 py-1.5 text-sm outline-none focus:border-accent"
+              />
+            )}
             {/* Фильтр по вакансии */}
             {vacancies.length > 0 && (
               <div className="w-52">

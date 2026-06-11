@@ -108,6 +108,9 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
               {/* БЛОК ЦИКЛА под текущую стадию */}
               <Lifecycle lead={lead} now={now} patch={patch} />
 
+              {/* Что заполнил кандидат в онбординге */}
+              <CandidateAnswers lead={lead} />
+
               {/* Онбординг-ссылка кандидата */}
               <OnboardLink leadId={lead.id} obStep={lead.obStep || 0} contact={lead.candidateContact} />
             </div>
@@ -142,6 +145,58 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Ответы кандидата из онбординга: имя, контакт, портфолио, сданная работа и
+// ответы на вопросы конструктора. Это то, ради чего и затевался онбординг —
+// рекрутер видит всё в одном месте.
+function CandidateAnswers({ lead }: { lead: LeadDetail }) {
+  let responses: Record<string, string> = {};
+  try {
+    if (lead.candidateResponses) responses = JSON.parse(lead.candidateResponses);
+  } catch {}
+  const merged: Record<string, string> = { ...responses };
+  if (lead.candidateName && !merged.name) merged.name = lead.candidateName;
+  if (lead.candidateContact && !merged.contact) merged.contact = lead.candidateContact;
+  if (lead.candidatePortfolio && !merged.portfolio) merged.portfolio = lead.candidatePortfolio;
+  const entries = Object.entries(merged).filter(([k, v]) => k !== 'work_url' && v && String(v).trim());
+  if (!entries.length && !lead.testSubmittedUrl) return null;
+
+  const LABELS: Record<string, string> = { name: 'Имя', contact: 'Контакт', portfolio: 'Портфолио', experience: 'Опыт', about: 'О себе' };
+  const label = (k: string) => LABELS[k] || k.replace(/_/g, ' ').replace(/^field /, '').trim();
+
+  return (
+    <div className="rounded-xl border border-line bg-bg p-3">
+      <div className="mb-2 text-xs uppercase tracking-wide text-muted">Ответы кандидата</div>
+      <div className="space-y-2">
+        {entries.map(([k, v]) => (
+          <AnswerRow key={k} label={label(k)} value={String(v)} />
+        ))}
+        {lead.testSubmittedUrl && <AnswerRow label="Сданная работа" value={lead.testSubmittedUrl} highlight />}
+      </div>
+    </div>
+  );
+}
+
+// Строка ответа: значение становится ссылкой, если это URL / @telegram / email.
+function AnswerRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  const v = value.trim();
+  let href = '';
+  if (/^https?:\/\//i.test(v)) href = v;
+  else if (/^@[\w.]+$/.test(v)) href = `https://t.me/${v.slice(1)}`;
+  else if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) href = `mailto:${v}`;
+  return (
+    <div className="flex gap-2 text-sm">
+      <span className="w-24 shrink-0 text-xs text-muted">{label}</span>
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer" className={cn('min-w-0 break-words hover:underline', highlight ? 'font-medium text-accent-ink' : 'text-accent-ink')}>
+          {v}
+        </a>
+      ) : (
+        <span className="min-w-0 whitespace-pre-wrap break-words">{v}</span>
+      )}
     </div>
   );
 }

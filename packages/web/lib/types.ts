@@ -128,6 +128,8 @@ export interface Lead {
   obStep?: number;
   candidateName?: string | null;
   candidateContact?: string | null;
+  candidatePortfolio?: string | null;
+  candidateResponses?: string | null; // JSON ответов кандидата по блокам онбординга
 }
 
 export interface LeadLifecycle {
