@@ -55,6 +55,8 @@ export interface AgentTasksResponse {
   limits: AgentLimits;
   /** Сбор топовых веток (research) — опционально. */
   research?: AgentResearch;
+  /** Холостой тест отбивки запрошен из дашборда (ISO) — расширение прогонит без отправки. */
+  dmTestAt?: string | null;
   /** Сколько секунд ждать до следующего опроса. */
   pollIntervalSec: number;
 }

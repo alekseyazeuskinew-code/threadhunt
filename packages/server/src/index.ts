@@ -191,6 +191,11 @@ async function ensureSchema() {
     )`,
     'CREATE UNIQUE INDEX IF NOT EXISTS "ResearchPost_userId_threadsPostId_key" ON "ResearchPost" ("userId","threadsPostId")',
     'CREATE INDEX IF NOT EXISTS "ResearchPost_userId_searchId_idx" ON "ResearchPost" ("userId","searchId")',
+    // Холостой тест отбивки из дашборда.
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "dmTestAt" TIMESTAMP',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "lastTestAt" TIMESTAMP',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "lastTestScanned" INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "lastTestMatched" INTEGER NOT NULL DEFAULT 0',
   ];
   for (const sql of stmts) {
     try {

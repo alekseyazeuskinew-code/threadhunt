@@ -66,6 +66,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // Собранные топовые ветки → сервер.
     void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: msg.posts || [] }) });
   }
+  if (msg?.type === 'testResult') {
+    // Результат холостого теста отбивки → сервер.
+    void authed('/api/agent/test-result', { method: 'POST', body: JSON.stringify({ scanned: msg.scanned || 0, matched: msg.matched || 0 }) }).then(() => void tick());
+  }
   if (msg?.type === 'getTasks') {
     chrome.storage.local.get('tasks').then((s) => sendResponse(s.tasks || null));
     return true; // async response

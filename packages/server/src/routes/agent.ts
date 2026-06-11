@@ -102,9 +102,24 @@ export async function agentRoutes(app: FastifyInstance) {
         intervalMinutes: 720, // раз в ~12 часов
         maxPerQuery: 15,
       },
+      dmTestAt: lim.dmTestAt ? new Date(lim.dmTestAt).toISOString() : null,
       pollIntervalSec: POLL_INTERVAL_SEC,
     };
     return res;
+  });
+
+  // Результат холостого теста отбивки → сохраняем + снимаем запрос.
+  const testSchema = z.object({ scanned: z.number().int().min(0).default(0), matched: z.number().int().min(0).default(0) });
+  app.post('/api/agent/test-result', async (req, reply) => {
+    const device = await authDevice(req.headers.authorization);
+    if (!device) return reply.code(401).send({ error: 'unauthorized' });
+    const parsed = testSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+    await db.limits.updateMany({
+      where: { userId: device.userId },
+      data: { dmTestAt: null, lastTestAt: new Date(), lastTestScanned: parsed.data.scanned, lastTestMatched: parsed.data.matched },
+    });
+    return { ok: true };
   });
 
   // Расширение присылает собранные research-постом (топовые вакансии-ветки) → upsert.

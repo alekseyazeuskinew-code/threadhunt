@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { db } from '../db.js';
 import { getUserId } from '../auth/session.js';
-import { encrypt, hashToken } from '../crypto.js';
+import { encrypt, decrypt, hashToken } from '../crypto.js';
 import { whoami } from '../threads/publisher.js';
 import { seatLimit } from '../seats.js';
 
@@ -39,6 +39,21 @@ export async function connectionRoutes(app: FastifyInstance) {
       tokenExpiresAt: c.tokenExpiresAt,
       searches: c._count.searches,
     }));
+  });
+
+  // Тест Threads API: read-only вызов /me. НИЧЕГО не публикует — только проверяет,
+  // что токен жив и аккаунт доступен.
+  app.post('/api/threads/test', async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+    const conn = await db.threadsConnection.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' } });
+    if (!conn?.accessTokenEnc) return reply.send({ ok: false, error: 'Нет подключённого Threads-аккаунта. Подключи токен ниже.' });
+    try {
+      const me = await whoami(decrypt(conn.accessTokenEnc));
+      return { ok: true, username: me?.username || conn.username || null };
+    } catch (e: any) {
+      return reply.send({ ok: false, error: 'Токен недействителен: ' + String(e?.message || e).slice(0, 160) });
+    }
   });
 
   // Браузеры (расширения), подключённые к аккаунту — для отбивки в директе.

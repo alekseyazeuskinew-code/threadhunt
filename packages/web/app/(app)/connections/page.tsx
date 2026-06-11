@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin, LogIn } from 'lucide-react';
+import { Plug, Trash2, Chrome, Copy, Check, Send, X, ArrowRight, Megaphone, Download, HelpCircle, RefreshCw, Pin, LogIn, FlaskConical } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Connection, Device, MetaConnection, AccountQuota } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -50,6 +50,52 @@ export default function ConnectionsPage() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [showGuide, setShowGuide] = useState(false); // развёрнута ли инструкция по установке
   const [quota, setQuota] = useState<AccountQuota | null>(null);
+  // Тесты «работает или нет» (без реальных действий).
+  const [apiTest, setApiTest] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
+  const [dmTest, setDmTest] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
+
+  async function runApiTest() {
+    setApiTest({ busy: true });
+    try {
+      const r = await api.post<{ ok: boolean; username?: string | null; error?: string }>('/api/threads/test');
+      setApiTest(r.ok ? { ok: true, msg: `Токен рабочий${r.username ? ` · @${r.username}` : ''}` } : { ok: false, msg: r.error || 'не удалось' });
+    } catch (e: any) {
+      setApiTest({ ok: false, msg: e.message });
+    }
+  }
+
+  // Холостой тест отбивки: просим расширение прогнать директ без отправки и ждём результат.
+  async function runDmTest() {
+    setDmTest({ busy: true, msg: 'Запущено. Открой вкладку Threads → «Сообщения», если ещё не открыта — результат появится здесь.' });
+    try {
+      await api.post('/api/dm/test');
+    } catch (e: any) {
+      setDmTest({ ok: false, msg: e.message });
+      return;
+    }
+    const startedAt = Date.now();
+    let tries = 0;
+    const poll = async () => {
+      tries++;
+      try {
+        const r = await api.get<{ pending: boolean; lastTestAt: string | null; scanned: number; matched: number; agent: { online: boolean; threadsLoggedIn: boolean } }>('/api/dm/test-result');
+        if (r.lastTestAt && new Date(r.lastTestAt).getTime() >= startedAt - 2000) {
+          setDmTest({ ok: true, msg: `Проверено диалогов: ${r.scanned} · найдено совпадений: ${r.matched} · отправлено: 0 (тест). Связь работает ✓` });
+          return;
+        }
+        if (!r.agent.online && tries > 2) {
+          setDmTest({ busy: true, msg: 'Расширение офлайн. Установи/обнови расширение и открой Threads в браузере.' });
+        } else if (!r.agent.threadsLoggedIn && tries > 2) {
+          setDmTest({ busy: true, msg: 'Похоже, ты не залогинен в Threads. Войди на threads.com и открой «Сообщения».' });
+        }
+      } catch {
+        /* продолжаем опрос */
+      }
+      if (tries < 36) setTimeout(poll, 5000); // до ~3 минут
+      else setDmTest({ ok: false, msg: 'Результат не пришёл за 3 минуты. Проверь, что расширение установлено и Threads открыт.' });
+    };
+    setTimeout(poll, 4000);
+  }
 
   const loadConns = () => api.get<Connection[]>('/api/connections').then(setConns).catch(() => setConns([]));
   const loadDevices = () => api.get<Device[]>('/api/devices').then(setDevices).catch(() => setDevices([]));
@@ -192,6 +238,22 @@ export default function ConnectionsPage() {
               </span>
             ) : (
               <span className="text-muted">Расширение не найдено — установи его {EXT_IN_STORE ? 'из Chrome Web Store' : 'по шагам'} ниже.</span>
+            )}
+          </div>
+
+          {/* Тест отбивки: холостой проход без отправки/приёма — «работает или нет». */}
+          <div className="mt-3 rounded-xl border border-line bg-bg p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm">
+                <div className="font-medium">Проверить отбивку</div>
+                <div className="text-xs text-muted">Холостой проход по директу: посчитает совпадения. Ничего не отправляет и не принимает.</div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={runDmTest} disabled={dmTest?.busy}>
+                <FlaskConical size={15} /> {dmTest?.busy ? 'Проверяю…' : 'Запустить тест'}
+              </Button>
+            </div>
+            {dmTest?.msg && (
+              <p className={`mt-2 text-xs ${dmTest.ok === false ? 'text-danger' : dmTest.ok ? 'text-success' : 'text-muted'}`}>{dmTest.msg}</p>
             )}
           </div>
 
@@ -359,6 +421,16 @@ export default function ConnectionsPage() {
               ))
             )}
           </div>
+
+          {/* Тест Threads API: read-only /me, ничего не публикует. */}
+          {conns && conns.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={runApiTest} disabled={apiTest?.busy}>
+                <FlaskConical size={15} /> {apiTest?.busy ? 'Проверяю…' : 'Проверить подключение'}
+              </Button>
+              {apiTest?.msg && <span className={`text-xs ${apiTest.ok ? 'text-success' : 'text-danger'}`}>{apiTest.ok ? '✓ ' : '✗ '}{apiTest.msg}</span>}
+            </div>
+          )}
         </Card>
 
         {/* ── Секция 3: Meta Ads (реклама, опционально) ── */}

@@ -88,6 +88,9 @@ interface Sweep {
   // Отправить серверу сводку прохода (статистика). true для реальных и безопасных
   // проходов; false для теста из popup (он пишет результат только в storage.local).
   reportPass?: boolean;
+  // Холостой тест отбивки, запрошенный из ДАШБОРДА: dry-проход, результат уходит
+  // серверу (type:'testResult'), ничего не отправляется и не принимается.
+  serverTest?: boolean;
 }
 
 // Сейчас рабочее время? (окно «HH:MM», по локальному времени клиента)
@@ -286,6 +289,8 @@ async function step() {
   if (!sweep) {
     const tasks = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
     if (!tasks?.active || !tasks.searches.length) return;
+    // Холостой тест отбивки из дашборда — приоритетнее обычного прохода.
+    if (await maybeStartDmTest(tasks)) return;
     const lim = tasks.limits;
     const sections = activeSections(lim?.sections);
     const safe = !!lim?.safeMode; // безопасный режим: проходим и считаем, но не отправляем
@@ -481,6 +486,13 @@ async function step() {
 }
 
 async function finishSweep(sweep: Sweep) {
+  // Холостой тест из дашборда: шлём результат серверу, ничего больше.
+  if (sweep.serverTest) {
+    chrome.runtime.sendMessage({ type: 'testResult', scanned: sweep.scanned || 0, matched: sweep.events.length });
+    await chrome.storage.session.set({ [LAST_SWEEP_KEY]: Date.now() });
+    await setSweep(null);
+    return;
+  }
   if (!sweep.dryRun) {
     // Реальный проход: создаём лиды (события) на сервере.
     if (sweep.events.length) chrome.runtime.sendMessage({ type: 'events', events: sweep.events });
@@ -542,6 +554,48 @@ async function startTestSweep(): Promise<{ ok: boolean; reason?: string }> {
   await setSweep(sweep);
   navigate('/messages/'); // прогрев, дальше автомат сам пойдёт в Запросы
   return { ok: true };
+}
+
+// Холостой тест отбивки, запрошенный из ДАШБОРДА (tasks.dmTestAt). Прогоняет
+// директ как dry-run (читает, считает совпадения), НИЧЕГО не отправляя и не
+// принимая, и шлёт результат серверу. Возвращает true, если тест обработан/запущен.
+async function maybeStartDmTest(tasks: AgentTasksResponse): Promise<boolean> {
+  if (!tasks.dmTestAt) return false;
+  const ts = Date.parse(tasks.dmTestAt);
+  if (!ts) return false;
+  const { lastDmTest } = await chrome.storage.session.get('lastDmTest');
+  if (ts === lastDmTest) return false;
+  await chrome.storage.session.set({ lastDmTest: ts });
+  const keywords = tasks.searches.flatMap((s) => s.keywords.map((k) => ({ ...k, searchId: s.searchId })));
+  if (!keywords.length) {
+    chrome.runtime.sendMessage({ type: 'testResult', scanned: 0, matched: 0 });
+    return true;
+  }
+  const sweep: Sweep = {
+    phase: 'warmup',
+    sectionIdx: 0,
+    seenIds: [],
+    chats: [],
+    processIdx: 0,
+    events: [],
+    keywords,
+    replyBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.replyTemplates[0]])),
+    repliedKeys: [],
+    minDelayMs: 0,
+    maxDialogs: tasks.limits?.maxDialogs ?? 40,
+    repliesLeft: 0,
+    sent: 0,
+    expectPath: '/messages/',
+    guard: 0,
+    dryRun: true,
+    reportPass: false,
+    sections: activeSections(tasks.limits?.sections),
+    scanned: 0,
+    serverTest: true,
+  };
+  await setSweep(sweep);
+  navigate('/messages/');
+  return true;
 }
 
 // Тест-проход запускается из popup сообщением startTest.

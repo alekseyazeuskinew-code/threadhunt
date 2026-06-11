@@ -70,6 +70,31 @@ export async function limitsRoutes(app: FastifyInstance) {
     const l = await db.limits.upsert({ where: { userId }, create: { userId, runNowAt: new Date() }, update: { runNowAt: new Date() } });
     return { ok: true, runNowAt: l.runNowAt };
   });
+
+  // Запросить ХОЛОСТОЙ тест отбивки: расширение прогонит директ, посчитает совпадения,
+  // но НИЧЕГО не отправит и не примет. Результат прилетит от расширения.
+  app.post('/api/dm/test', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    await db.limits.upsert({ where: { userId }, create: { userId, dmTestAt: new Date() }, update: { dmTestAt: new Date() } });
+    return { ok: true };
+  });
+
+  // Прочитать статус/результат теста отбивки (дашборд опрашивает).
+  app.get('/api/dm/test-result', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const l = await db.limits.findUnique({ where: { userId }, select: { dmTestAt: true, lastTestAt: true, lastTestScanned: true, lastTestMatched: true } });
+    const device = await db.device.findFirst({ where: { userId }, orderBy: { lastHeartbeat: 'desc' }, select: { lastHeartbeat: true, threadsLoggedIn: true } });
+    const online = !!device?.lastHeartbeat && Date.now() - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
+    return {
+      pending: !!l?.dmTestAt,
+      lastTestAt: l?.lastTestAt ?? null,
+      scanned: l?.lastTestScanned ?? 0,
+      matched: l?.lastTestMatched ?? 0,
+      agent: { online, threadsLoggedIn: !!device?.threadsLoggedIn },
+    };
+  });
 }
 
 // Хелпер для агента: лимиты пользователя с дефолтами.
