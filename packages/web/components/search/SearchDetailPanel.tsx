@@ -1452,7 +1452,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
       <OnboardingFunnelBlock id={s.id} />
 
       {showPreview && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setShowPreview(false)}>
+        <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/70 p-4 py-6 backdrop-blur-sm" onClick={() => setShowPreview(false)}>
           <div className="flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex w-full items-center justify-between text-sm text-white/90">
               <span>Так увидит кандидат · мобильный вид</span>
@@ -1513,26 +1513,55 @@ function OnboardingFunnelBlock({ id }: { id: string }) {
 
 // Мокап iPhone (Pro, последнее поколение): титановый корпус, Dynamic Island,
 // боковые кнопки, очень скруглённые углы. Внутри — экран с прокруткой контента.
-function IphoneMock({ children }: { children: React.ReactNode }) {
-  // Корпус фиксированной ширины; экран на всю ширину корпуса с ограниченной по
-  // высоте областью прокрутки. Без aspect-ratio (он конфликтовал с max-высотой и
-  // делал экран уже рамки — «кривой» вид). Контент прокручивается внутри.
+// Статус-бар iPhone: время слева, сигнал/wifi/батарея справа (как на реальном экране).
+function PhoneStatusBar() {
   return (
-    <div className="relative shrink-0" style={{ width: 336 }}>
-      {/* боковые кнопки */}
-      <div className="absolute -left-[3px] top-[108px] h-7 w-[3px] rounded-l-sm bg-neutral-600" />
-      <div className="absolute -left-[3px] top-[156px] h-12 w-[3px] rounded-l-sm bg-neutral-600" />
-      <div className="absolute -left-[3px] top-[210px] h-12 w-[3px] rounded-l-sm bg-neutral-600" />
-      <div className="absolute -right-[3px] top-[150px] h-20 w-[3px] rounded-r-sm bg-neutral-600" />
-      {/* корпус (титан) → чёрная рамка → экран */}
-      <div className="rounded-[3.3rem] bg-gradient-to-b from-neutral-600 via-neutral-800 to-neutral-900 p-[3px] shadow-[0_30px_70px_-20px_rgba(0,0,0,0.75)]">
-        <div className="rounded-[3.1rem] bg-black p-[10px]">
-          <div className="relative w-full overflow-hidden rounded-[2.6rem] bg-bg" style={{ height: 'min(700px, 82vh)' }}>
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-7 pt-3.5 text-text">
+      <span className="text-[13px] font-semibold tracking-tight">9:41</span>
+      <div className="flex items-center gap-1.5">
+        <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor" aria-hidden>
+          <rect x="0" y="7.5" width="3" height="3.5" rx="1" />
+          <rect x="4.7" y="5" width="3" height="6" rx="1" />
+          <rect x="9.4" y="2.5" width="3" height="8.5" rx="1" />
+          <rect x="14" y="0" width="3" height="11" rx="1" />
+        </svg>
+        <svg width="16" height="11" viewBox="0 0 16 11" fill="currentColor" aria-hidden>
+          <path d="M8 2c2.3 0 4.4.85 6 2.25l-1.3 1.5A7 7 0 0 0 8 4a7 7 0 0 0-4.7 1.75L2 4.25A9 9 0 0 1 8 2Z" />
+          <path d="M8 5.7c1.25 0 2.4.45 3.25 1.2l-1.4 1.55A2.6 2.6 0 0 0 8 7.7c-.65 0-1.3.27-1.75.75L4.85 6.9A4.6 4.6 0 0 1 8 5.7Z" />
+          <circle cx="8" cy="9.6" r="1.15" />
+        </svg>
+        <span className="relative inline-block h-[11px] w-[22px] rounded-[3px] border-[1.5px] border-current">
+          <span className="absolute inset-y-[1.5px] left-[1.5px] w-[12px] rounded-[1px] bg-current" />
+          <span className="absolute -right-[3px] top-1/2 h-[4px] w-[2px] -translate-y-1/2 rounded-r-sm bg-current opacity-70" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function IphoneMock({ children }: { children: React.ReactNode }) {
+  // ФИКСИРОВАННЫЙ размер и пропорции (≈ iPhone Pro 9:19.5). Не растягивается и не
+  // сжимается под контент/экран — контент прокручивается внутри. Модалка вокруг
+  // скроллится, если телефон выше окна.
+  const W = 300;
+  const H = Math.round(W * 2.165); // ≈ 650
+  return (
+    <div className="relative shrink-0" style={{ width: W, height: H }}>
+      {/* боковые кнопки (тонкие) */}
+      <div className="absolute -left-[2px] top-[96px] h-6 w-[2px] rounded-l bg-neutral-500/70" />
+      <div className="absolute -left-[2px] top-[140px] h-11 w-[2px] rounded-l bg-neutral-500/70" />
+      <div className="absolute -left-[2px] top-[188px] h-11 w-[2px] rounded-l bg-neutral-500/70" />
+      <div className="absolute -right-[2px] top-[150px] h-16 w-[2px] rounded-r bg-neutral-500/70" />
+      {/* тонкая титановая рамка → экран почти в край */}
+      <div className="h-full w-full rounded-[2.9rem] bg-gradient-to-b from-neutral-300 via-neutral-400 to-neutral-500 p-[3px] shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]">
+        <div className="h-full w-full overflow-hidden rounded-[2.75rem] bg-black p-[2px]">
+          <div className="relative h-full w-full overflow-hidden rounded-[2.65rem] bg-bg">
+            <PhoneStatusBar />
             {/* Dynamic Island */}
-            <div className="pointer-events-none absolute left-1/2 top-2.5 z-20 flex h-[26px] w-[90px] -translate-x-1/2 items-center justify-end rounded-full bg-black pr-2.5">
+            <div className="pointer-events-none absolute left-1/2 top-3 z-30 flex h-[26px] w-[88px] -translate-x-1/2 items-center justify-end rounded-full bg-black pr-2.5">
               <span className="h-2 w-2 rounded-full bg-neutral-800 ring-1 ring-neutral-700" />
             </div>
-            <div className="h-full overflow-y-auto pt-2">{children}</div>
+            <div className="h-full overflow-y-auto pt-12">{children}</div>
           </div>
         </div>
       </div>
