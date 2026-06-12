@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2, Sparkles, Link2, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { BrandProfile, Me } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -21,8 +21,49 @@ export default function SettingsPage() {
     api.get<BrandProfile>('/api/brand-profile').then((d) => setP({ ...EMPTY, ...d })).catch(() => setP(EMPTY));
   }, []);
 
+  const [afUrl, setAfUrl] = useState('');
+  const [af, setAf] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
+
   if (!p) return <div className="p-8 text-muted">Загрузка…</div>;
   const set = (k: keyof BrandProfile, v: string) => setP({ ...p, [k]: v });
+
+  function applyAutofill(r: { data?: Record<string, string>; source?: string }) {
+    const d = r.data || {};
+    const n = Object.keys(d).length;
+    if (!n) {
+      setAf({ ok: false, msg: 'Не удалось вытащить полезные данные из источника (или ИИ-ключ не подключён).' });
+      return;
+    }
+    setP((prev) => ({ ...(prev as BrandProfile), ...d }));
+    setAf({ ok: true, msg: `Заполнено полей: ${n}. Проверь, поправь при необходимости и нажми «Сохранить».${r.source === 'demo' ? ' (демо — ИИ-ключ не подключён)' : ''}` });
+  }
+  async function autofillUrl() {
+    if (!afUrl.trim()) return;
+    setAf({ busy: true, msg: 'Читаю источник и анализирую…' });
+    try {
+      applyAutofill(await api.post<{ data: Record<string, string>; source: string }>('/api/brand-profile/autofill', { url: afUrl.trim() }));
+    } catch (e: any) {
+      setAf({ ok: false, msg: e.message });
+    }
+  }
+  async function autofillPdf(file: File) {
+    setAf({ busy: true, msg: 'Извлекаю текст из PDF и анализирую…' });
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/brand-profile/autofill-file', { method: 'POST', credentials: 'include', body: fd });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Ошибка ${res.status}`);
+      }
+      applyAutofill(await res.json());
+    } catch (e: any) {
+      setAf({ ok: false, msg: e.message });
+    } finally {
+      if (pdfRef.current) pdfRef.current.value = '';
+    }
+  }
 
   async function save() {
     await api.put('/api/brand-profile', p);
@@ -84,10 +125,34 @@ export default function SettingsPage() {
           <div className="mb-4 flex items-center gap-2 text-base font-semibold">
             <Wand2 size={18} className="text-accent-ink" /> Голос бренда
           </div>
-          <p className="mb-5 text-sm text-muted">
+          <p className="mb-4 text-sm text-muted">
             Это «обучение ИИ под себя»: чем точнее заполнишь, тем уникальнее и попадающее в тон будут тексты. Поля
             необязательные — но именно они отличают тебя от всех остальных.
           </p>
+
+          {/* Авто-заполнение из ссылки/PDF — ИИ сам соберёт позиционирование, дальше правишь руками. */}
+          <div className="mb-5 rounded-xl border border-accent/30 bg-accent-soft/40 p-4">
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
+              <Sparkles size={15} className="text-accent-ink" /> Заполнить автоматически
+            </div>
+            <p className="mb-3 text-xs text-muted">
+              Вставь ссылку на сайт/презентацию/PDF компании (в открытом доступе) или загрузи PDF — ИИ прочитает и заполнит поля ниже. Потом отредактируешь вручную.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[14rem] flex-1">
+                <Link2 size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <Input className="pl-9" value={afUrl} onChange={(e) => setAfUrl(e.target.value)} placeholder="https://сайт-или-презентация… (или ссылка на PDF)" />
+              </div>
+              <Button variant="soft" onClick={autofillUrl} disabled={af?.busy || !afUrl.trim()}>
+                <Sparkles size={15} /> {af?.busy ? 'Собираю…' : 'Собрать'}
+              </Button>
+              <input ref={pdfRef} type="file" accept="application/pdf" hidden onChange={(e) => e.target.files?.[0] && autofillPdf(e.target.files[0])} />
+              <Button variant="ghost" onClick={() => pdfRef.current?.click()} disabled={af?.busy}>
+                <Upload size={15} /> PDF
+              </Button>
+            </div>
+            {af?.msg && <p className={`mt-2 text-xs ${af.ok === false ? 'text-danger' : af.ok ? 'text-success' : 'text-muted'}`}>{af.msg}</p>}
+          </div>
 
           <div className="space-y-4">
             <Field label="Тон общения" hint="напр. на ты, дружелюбно, с лёгким юмором">

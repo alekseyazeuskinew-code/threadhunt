@@ -1307,7 +1307,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   const [brand, setBrand] = useState<CompanyProfile | null>(null);
   const [positions, setPositions] = useState<string[]>([]);
   useEffect(() => {
-    api.get<BrandProfile>('/api/brand').then((b) => setBrand({ name: b.companyName, niche: b.niche, about: b.about, perks: b.perks, social: b.social })).catch(() => {});
+    api.get<BrandProfile>('/api/brand-profile').then((b) => setBrand({ name: b.companyName, niche: b.niche, about: b.about, perks: b.perks, social: b.social })).catch(() => {});
     api.get<SearchSummary[]>('/api/searches').then((rows) => setPositions(rows.filter((r) => r.id !== s.id && r.status === 'ACTIVE').map((r) => r.title))).catch(() => {});
   }, [s.id]);
 

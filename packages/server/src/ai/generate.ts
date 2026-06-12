@@ -547,6 +547,36 @@ function normalizeEmail(obj: any, ctaUrl: string): Omit<EmailGenOutput, 'source'
   };
 }
 
+// ── Авто-сбор «Голоса бренда» из текста источника (сайт/презентация/PDF) ──
+const SYSTEM_BRAND = `Ты анализируешь текст о компании (с сайта, лендинга или презентации) и выделяешь «голос бренда» для последующей генерации постов-вакансий. Верни СТРОГО JSON-объект без markdown, поля можно оставлять пустыми "" если в тексте этого нет:
+{"companyName":"название компании/проекта","niche":"сфера/чем занимается, коротко","tone":"тон общения, если считывается по текстам","audience":"кого нанимают / целевая аудитория, если есть","perks":"чем привлекают (условия, плюсы) — через запятую","about":"1–2 предложения о компании своими словами","signature":"куда вести/контакт, если указан","avoid":""}
+Бери ТОЛЬКО то, что реально есть в тексте — ничего не выдумывай. Пиши по-русски, живо, без канцелярита.`;
+
+function normalizeBrand(o: any): Record<string, string> {
+  const fields = ['companyName', 'niche', 'tone', 'audience', 'perks', 'about', 'signature', 'avoid'];
+  const out: Record<string, string> = {};
+  for (const k of fields) if (typeof o?.[k] === 'string' && o[k].trim()) out[k] = o[k].trim().slice(0, 500);
+  return out;
+}
+
+export async function extractBrandVoice(text: string): Promise<{ data: Record<string, string>; source: 'ai' | 'demo' }> {
+  const clean = (text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return { data: {}, source: 'demo' };
+  if (!client) return { data: {}, source: 'demo' };
+  try {
+    const msg = await client.messages.create({
+      model: MODEL,
+      max_tokens: 900,
+      system: [{ type: 'text', text: SYSTEM_BRAND, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: `Текст о компании:\n${clean.slice(0, 14000)}` }],
+    });
+    const obj = parseJsonObject(textOf(msg));
+    return obj ? { data: normalizeBrand(obj), source: 'ai' } : { data: {}, source: 'demo' };
+  } catch {
+    return { data: {}, source: 'demo' };
+  }
+}
+
 function parseJsonObject(text: string): any | null {
   const cleaned = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
   const start = cleaned.indexOf('{');
