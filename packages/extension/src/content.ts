@@ -682,9 +682,9 @@ function searchDiag(query: string, collected: number) {
 // Вовлечённость поста — ЯЗЫКО-НЕЗАВИСИМО (Threads бывает на любом языке: «Mi piace»,
 // «Segui» и т.п.). Берём числа у кнопок-действий по порядку: лайки, комменты, репосты.
 function extractMetrics(container: HTMLElement): { likes: number; replies: number; reposts: number } {
-  // СТРОГО: счётчик — это элемент, чей текст ЦЕЛИКОМ число («26», «1.2K», «167»), а не
-  // «26 min» или «2 года» из текста поста. Threads прячет нулевые счётчики, поэтому у
-  // каждой кнопки читаем ЕЁ собственный счётчик (0, если рядом нет чисто числового span).
+  // Определяем кнопку по НАЗВАНИЮ действия (а не по позиции — иначе лишняя кнопка вроде
+  // счётчика подписчиков сдвигает всё). Поддержка основных языков Threads.
+  // Счётчик — элемент с ЧИСТО числовым текстом («55»/«1.2K»), не «26 min» из текста.
   const isPureNum = (t: string): boolean => /^[\d][\d.,]*[KkКкMmМм]?$/.test(t.trim());
   const deepNum = (el: Element | null): number => {
     if (!el) return 0;
@@ -696,9 +696,7 @@ function extractMetrics(container: HTMLElement): { likes: number; replies: numbe
     }
     return 0;
   };
-  const vals: number[] = [];
-  for (const b of container.querySelectorAll<HTMLElement>('[role="button"]')) {
-    if (!b.querySelector('svg')) continue; // кнопки действий содержат иконку
+  const readCount = (b: HTMLElement): number => {
     let n = deepNum(b);
     if (!n) {
       let s: Element | null = b.nextElementSibling;
@@ -707,9 +705,21 @@ function extractMetrics(container: HTMLElement): { likes: number; replies: numbe
         s = s.nextElementSibling;
       }
     }
-    if (n > 0) vals.push(n);
+    return n;
+  };
+  const RE_LIKE = /mi piace|\blike\b|нрав|me gusta|j.?aime|gefällt|gosto|curtir|beğen/i;
+  const RE_REPLY = /rispondi|commenta|\brepl|comment|ответ|коммент|responder|répondre|antworten|comentar|yanıtla/i;
+  const RE_REPOST = /ripubblica|repost|репост|reblog|reenviar|teilen/i;
+  let likes = 0, replies = 0, reposts = 0;
+  for (const b of container.querySelectorAll<HTMLElement>('[role="button"]')) {
+    const svg = b.querySelector('svg');
+    if (!svg) continue;
+    const label = (svg.getAttribute('aria-label') || b.getAttribute('aria-label') || svg.querySelector('title')?.textContent || '').toLowerCase();
+    if (!label) continue;
+    if (RE_LIKE.test(label)) { const c = readCount(b); if (c) likes = c; }
+    else if (RE_REPLY.test(label)) { const c = readCount(b); if (c) replies = c; }
+    else if (RE_REPOST.test(label)) { const c = readCount(b); if (c) reposts = c; }
   }
-  const [likes = 0, replies = 0, reposts = 0] = vals;
   return { likes, replies, reposts };
 }
 

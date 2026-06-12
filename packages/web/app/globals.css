@@ -74,6 +74,27 @@
   border-color: var(--accent);
 }
 
+/* Индикатор неопределённого прогресса (research-сбор идёт). */
+.th-progress {
+  position: relative;
+  overflow: hidden;
+}
+.th-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  background: var(--accent);
+  border-radius: 999px;
+  animation: th-indeterminate 1.15s ease-in-out infinite;
+}
+@keyframes th-indeterminate {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
 /* Минималистичные анимации появления. Тихо отключаются при reduced-motion. */
 @media (prefers-reduced-motion: no-preference) {
   @keyframes th-fade-in {
