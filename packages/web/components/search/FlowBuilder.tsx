@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
-import { Plus, Trash2, GripVertical, ChevronLeft, ChevronRight, Type, AlignLeft, TextCursorInput, CheckSquare, Upload, CircleDot, ListChecks, Gauge, X, Image, Video, FileText, HelpCircle, LifeBuoy, Sparkles, Building2, Briefcase } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronLeft, ChevronRight, Type, AlignLeft, TextCursorInput, CheckSquare, Upload, CircleDot, ListChecks, Gauge, X, Image, Video, FileText, HelpCircle, LifeBuoy, Sparkles, Building2, Briefcase, Clock } from 'lucide-react';
 import type { Flow, Page, Block, BlockType } from '@/lib/flow';
 import { newBlock, newPage, BLOCK_LABELS } from '@/lib/flow';
 import { Input, Textarea } from '@/components/ui/Input';
@@ -51,22 +51,24 @@ function ImageField({ value, onChange, label }: { value?: string; onChange: (url
   );
 }
 
-const PALETTE: { type: BlockType; icon: any }[] = [
+// primary — самые используемые (показываются всегда); остальные прячем под «Ещё».
+const PALETTE: { type: BlockType; icon: any; primary?: boolean }[] = [
+  { type: 'heading', icon: Type, primary: true },
+  { type: 'text', icon: AlignLeft, primary: true },
+  { type: 'field', icon: TextCursorInput, primary: true },
+  { type: 'choice', icon: CircleDot, primary: true },
+  { type: 'submit', icon: Upload, primary: true },
   { type: 'company', icon: Building2 },
   { type: 'positions', icon: Briefcase },
-  { type: 'heading', icon: Type },
-  { type: 'text', icon: AlignLeft },
+  { type: 'deadline', icon: Clock },
   { type: 'image', icon: Image },
   { type: 'video', icon: Video },
   { type: 'file', icon: FileText },
   { type: 'faq', icon: HelpCircle },
   { type: 'support', icon: LifeBuoy },
-  { type: 'field', icon: TextCursorInput },
-  { type: 'choice', icon: CircleDot },
   { type: 'multi', icon: ListChecks },
   { type: 'scale', icon: Gauge },
   { type: 'consent', icon: CheckSquare },
-  { type: 'submit', icon: Upload },
 ];
 
 // purpose-функция ИИ для текста блока (необязательная): улучшить/сгенерировать текст.
@@ -101,6 +103,8 @@ export function FlowBuilder({ value, onChange, ai }: { value: Flow; onChange: (f
   const [sel, setSel] = useState(0);
   const [drag, setDrag] = useState<number | null>(null);
   const [pdrag, setPdrag] = useState<number | null>(null);
+  const [handleOn, setHandleOn] = useState(false); // блок тащится ТОЛЬКО за ручку — иначе ломается выделение текста в полях
+  const [moreP, setMoreP] = useState(false); // показать дополнительные типы блоков
   const pages = value.pages;
   const page: Page | undefined = pages[Math.min(sel, pages.length - 1)];
 
@@ -195,13 +199,24 @@ export function FlowBuilder({ value, onChange, ai }: { value: Flow; onChange: (f
             {page.blocks.map((b, i) => (
               <div
                 key={b.id}
-                draggable
+                draggable={handleOn}
                 onDragStart={() => setDrag(i)}
+                onDragEnd={() => {
+                  setDrag(null);
+                  setHandleOn(false);
+                }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => dropBlock(i)}
                 className="flex gap-2 rounded-xl border border-line bg-panel p-3"
               >
-                <div className="cursor-grab pt-2 text-muted" title="Перетащить"><GripVertical size={16} /></div>
+                <div
+                  onMouseDown={() => setHandleOn(true)}
+                  onMouseUp={() => setHandleOn(false)}
+                  className="cursor-grab pt-2 text-muted active:cursor-grabbing"
+                  title="Перетащить за эту ручку"
+                >
+                  <GripVertical size={16} />
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="text-xs text-muted">{BLOCK_LABELS[b.type]}</span>
@@ -213,13 +228,24 @@ export function FlowBuilder({ value, onChange, ai }: { value: Flow; onChange: (f
             ))}
           </div>
 
-          {/* палитра */}
+          {/* палитра — основные типы всегда, остальные под «Ещё» */}
           <div className="mt-3 flex flex-wrap gap-2">
-            {PALETTE.map(({ type, icon: Icon }) => (
+            {PALETTE.filter((p) => p.primary || moreP).map(({ type, icon: Icon }) => (
               <button key={type} onClick={() => addBlock(type)} className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent/50 hover:text-text">
                 <Icon size={14} /> {BLOCK_LABELS[type]}
               </button>
             ))}
+            <button onClick={() => setMoreP((v) => !v)} className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-3 py-1.5 text-sm text-muted transition-colors hover:border-accent/50 hover:text-accent-ink">
+              {moreP ? (
+                <>
+                  <ChevronLeft size={14} /> Свернуть
+                </>
+              ) : (
+                <>
+                  <Plus size={14} /> Ещё {PALETTE.filter((p) => !p.primary).length}
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}
@@ -268,12 +294,24 @@ function BlockEditor({ block, onChange, ai }: { block: Block; onChange: (p: Part
           <Select value={block.style || 'minimal'} onChange={(v) => onChange({ style: v })} options={COMPANY_STYLE_OPTS} />
         </div>
         <Textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="О компании (пусто = из бренда)" />
+        <div>
+          <label className="mb-1 block text-xs text-muted">Преимущества-чипы (через запятую; пусто = из бренда)</label>
+          <Input
+            value={(block.perks ?? []).join(', ')}
+            onChange={(e) => {
+              const arr = e.target.value.split(/[,\n;]+/).map((s) => s.trim()).filter(Boolean);
+              onChange({ perks: arr.length ? arr : undefined });
+            }}
+            placeholder="своевременная оплата, работа вдолгосрок, рост…"
+          />
+          <p className="mt-1 text-[11px] text-muted">Синхронизировано с чипами в живом превью справа.</p>
+        </div>
         <ImageField label="Логотип" value={block.logo} onChange={(url) => onChange({ logo: url })} />
         <ImageField label="Фоновая обложка" value={block.cover} onChange={(url) => onChange({ cover: url })} />
       </div>
     );
   if (block.type === 'positions')
-    return <div className="rounded-lg bg-bg px-3 py-2 text-xs text-muted">Покажет другие активные вакансии компании. Заполнять не нужно — обновляется само.</div>;
+    return <div className="rounded-lg bg-bg px-3 py-2 text-xs text-muted">Другие активные вакансии. По умолчанию — авто из ваших поисков. В живом превью справа можно выбрать конкретные вакансии и добавить эмодзи.</div>;
   if (block.type === 'heading')
     return (
       <div className="flex items-center gap-1.5">

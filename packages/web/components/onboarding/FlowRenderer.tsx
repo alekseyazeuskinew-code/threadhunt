@@ -93,11 +93,13 @@ export interface BlockControls {
   add: (afterBlockId: string, type: BlockType) => void;
 }
 
-// Палитра типов для быстрого добавления из превью.
-const ADD_TYPES: BlockType[] = ['heading', 'text', 'deadline', 'field', 'choice', 'multi', 'scale', 'image', 'video', 'file', 'faq', 'consent', 'submit', 'support'];
+// Палитра типов для быстрого добавления из превью: основные + дополнительные («Ещё»).
+const ADD_PRIMARY: BlockType[] = ['heading', 'text', 'field', 'choice', 'submit'];
+const ADD_MORE: BlockType[] = ['deadline', 'multi', 'scale', 'image', 'video', 'file', 'faq', 'consent', 'support'];
 
 function BlockWrap({ children, first, last, c, id, dragId, setDragId, onReorder }: { children: React.ReactNode; first: boolean; last: boolean; c: BlockControls; id: string; dragId: string | null; setDragId: (v: string | null) => void; onReorder: (fromId: string, toId: string, before: boolean) => void }) {
   const [menu, setMenu] = useState(false);
+  const [more, setMore] = useState(false);
   const [over, setOver] = useState<null | 'before' | 'after'>(null);
   const dragging = dragId === id;
   const btn = 'flex h-6 w-6 items-center justify-center rounded-md border border-line bg-panel text-muted shadow-sm hover:text-text disabled:opacity-30';
@@ -156,18 +158,24 @@ function BlockWrap({ children, first, last, c, id, dragId, setDragId, onReorder 
         </button>
         {menu && (
           <div className="absolute top-7 z-30 grid w-56 grid-cols-2 gap-1 rounded-xl border border-line bg-panel p-2 shadow-2xl">
-            {ADD_TYPES.map((t) => (
+            {(more ? [...ADD_PRIMARY, ...ADD_MORE] : ADD_PRIMARY).map((t) => (
               <button
                 key={t}
                 onClick={() => {
                   c.add(id, t);
                   setMenu(false);
+                  setMore(false);
                 }}
                 className="rounded-lg px-2 py-1.5 text-left text-xs hover:bg-panel-2"
               >
                 {BLOCK_LABELS[t]}
               </button>
             ))}
+            {!more && (
+              <button onClick={() => setMore(true)} className="col-span-2 rounded-lg border border-dashed border-line px-2 py-1.5 text-center text-xs text-muted hover:text-accent-ink">
+                Ещё {ADD_MORE.length}…
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -175,8 +183,15 @@ function BlockWrap({ children, first, last, c, id, dragId, setDragId, onReorder 
   );
 }
 
+// Стили блока-таймера (хранятся в block.style).
+export const DEADLINE_STYLES = [
+  { value: 'card', label: 'Карточки' },
+  { value: 'minimal', label: 'Строка' },
+  { value: 'bold', label: 'Крупный' },
+];
+
 // Таймер обратного отсчёта до дедлайна сдачи — тикает каждую секунду.
-// Заголовок («До дедлайна сдачи») редактируется прямо в конструкторе.
+// Заголовок и стиль оформления редактируются прямо в конструкторе.
 function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadline?: string | null; timezone?: string; label?: string; block?: Block; onEdit?: (id: string, patch: Partial<Block>) => void }) {
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
@@ -185,11 +200,27 @@ function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadl
     return () => clearInterval(t);
   }, []);
   const edit = !!(onEdit && block);
+  const dstyle = block?.style || 'card';
   const title = label || 'До дедлайна сдачи';
   const titleEl = edit ? (
     <Editable className="text-xs font-medium uppercase tracking-wide text-accent-ink" value={title} onChange={(t) => onEdit!(block!.id, { text: t })} />
   ) : (
     <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{title}</div>
+  );
+  // Переключатель стиля (только в конструкторе) — общий для всех вариантов.
+  const stylePicker = edit && (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-2.5">
+      <span className="text-[11px] text-muted">Стиль таймера:</span>
+      {DEADLINE_STYLES.map((st) => (
+        <button
+          key={st.value}
+          onClick={() => onEdit!(block!.id, { style: st.value })}
+          className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${dstyle === st.value ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line text-muted hover:bg-panel-2'}`}
+        >
+          {st.label}
+        </button>
+      ))}
+    </div>
   );
 
   if (!deadline) {
@@ -197,6 +228,7 @@ function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadl
       <div className="rounded-2xl border border-dashed border-line bg-bg p-4">
         {titleEl}
         <p className="mt-1 text-sm text-muted">Включите «Срок сдачи» в настройках онбординга — здесь появится живой таймер обратного отсчёта.</p>
+        {stylePicker}
       </div>
     );
   }
@@ -208,39 +240,107 @@ function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadl
   const hh = Math.floor((a % 86_400_000) / 3_600_000);
   const mm = Math.floor((a % 3_600_000) / 60_000);
   const ss = Math.floor((a % 60_000) / 1000);
+  const pad = (v: number) => (ms == null ? '--' : String(v).padStart(2, '0'));
+  const dueLine = (
+    <div className={`text-xs ${dstyle === 'bold' ? 'text-on-accent/80' : 'text-muted'}`}>
+      Сдать до: <b className={dstyle === 'bold' ? 'text-on-accent' : 'text-text'}>{fmtInTz(deadline, timezone || '')}</b>
+    </div>
+  );
+
+  // Просрочено — общий вид для любого стиля.
+  if (overdue) {
+    return (
+      <div className="rounded-2xl border border-danger/30 bg-danger/5 p-4">
+        <div className="flex items-center gap-1.5">
+          <Clock size={13} className="text-danger" />
+          {titleEl}
+        </div>
+        <p className="mt-2 text-sm font-semibold text-danger">Дедлайн прошёл{dd > 0 ? ` ${dd} дн` : ''} {hh} ч {mm} мин назад</p>
+        <div className="mt-2.5">{dueLine}</div>
+        {stylePicker}
+      </div>
+    );
+  }
+
+  // Стиль «Строка» — компактный однострочный отсчёт.
+  if (dstyle === 'minimal') {
+    return (
+      <div className="rounded-xl border border-accent/25 bg-accent-soft/40 px-3.5 py-2.5">
+        <div className="flex items-center gap-2">
+          <Clock size={14} className="shrink-0 text-accent-ink" />
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xs text-accent-ink">{title}:</span>
+              <span className="tabular-nums text-sm font-bold">
+                {dd > 0 ? `${dd}д ` : ''}
+                {pad(hh)}:{pad(mm)}:{pad(ss)}
+              </span>
+            </div>
+            <div className="text-[11px] text-muted">
+              до {fmtInTz(deadline, timezone || '')}
+            </div>
+          </div>
+        </div>
+        {stylePicker}
+      </div>
+    );
+  }
+
+  // Стиль «Крупный» — заметный акцентный баннер.
+  if (dstyle === 'bold') {
+    const bcell = (v: number, lbl: string) => (
+      <div className="flex flex-col items-center">
+        <span className="tabular-nums text-3xl font-extrabold leading-none text-on-accent">{pad(v)}</span>
+        <span className="mt-1 text-[10px] uppercase tracking-wide text-on-accent/70">{lbl}</span>
+      </div>
+    );
+    const bsep = <span className="self-start pt-1 text-2xl text-on-accent/50">:</span>;
+    return (
+      <div className="th-grad overflow-hidden rounded-2xl p-4 text-on-accent shadow-lg shadow-accent/20">
+        <div className="flex items-center gap-1.5">
+          <Clock size={14} className="text-on-accent" />
+          <div className="text-xs font-semibold uppercase tracking-wide text-on-accent">{edit ? <Editable className="text-on-accent" value={title} onChange={(t) => onEdit!(block!.id, { text: t })} /> : title}</div>
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          {dd > 0 && (
+            <>
+              {bcell(dd, 'дней')}
+              {bsep}
+            </>
+          )}
+          {bcell(hh, 'часов')}
+          {bsep}
+          {bcell(mm, 'минут')}
+          {bsep}
+          {bcell(ss, 'секунд')}
+        </div>
+        <div className="mt-2.5">{dueLine}</div>
+        {stylePicker}
+      </div>
+    );
+  }
+
+  // Стиль «Карточки» (по умолчанию).
   const cell = (v: number, lbl: string) => (
-    <div className="flex flex-col items-center">
-      <span className="tabular-nums text-2xl font-bold leading-none">{ms == null ? '--' : String(v).padStart(2, '0')}</span>
+    <div className="flex flex-col items-center rounded-lg bg-panel px-2.5 py-1.5 shadow-sm">
+      <span className="tabular-nums text-2xl font-bold leading-none">{pad(v)}</span>
       <span className="mt-1 text-[10px] uppercase tracking-wide text-muted">{lbl}</span>
     </div>
   );
-  const sep = <span className="self-start pt-0.5 text-xl text-muted">:</span>;
   return (
-    <div className={`rounded-2xl border p-4 ${overdue ? 'border-danger/30 bg-danger/5' : 'border-accent/25 bg-accent-soft/40'}`}>
+    <div className="rounded-2xl border border-accent/25 bg-accent-soft/40 p-4">
       <div className="flex items-center gap-1.5">
-        <Clock size={13} className={overdue ? 'text-danger' : 'text-accent-ink'} />
+        <Clock size={13} className="text-accent-ink" />
         {titleEl}
       </div>
-      {overdue ? (
-        <p className="mt-2 text-sm font-semibold text-danger">Дедлайн прошёл{dd > 0 ? ` ${dd} дн` : ''} {hh} ч {mm} мин назад</p>
-      ) : (
-        <div className="mt-3 flex items-center gap-2.5">
-          {dd > 0 && (
-            <>
-              {cell(dd, 'дней')}
-              {sep}
-            </>
-          )}
-          {cell(hh, 'часов')}
-          {sep}
-          {cell(mm, 'минут')}
-          {sep}
-          {cell(ss, 'секунд')}
-        </div>
-      )}
-      <div className="mt-2.5 text-xs text-muted">
-        Сдать до: <b className="text-text">{fmtInTz(deadline, timezone || '')}</b>
+      <div className="mt-3 flex items-center gap-2">
+        {dd > 0 && cell(dd, 'дней')}
+        {cell(hh, 'часов')}
+        {cell(mm, 'минут')}
+        {cell(ss, 'секунд')}
       </div>
+      <div className="mt-2.5">{dueLine}</div>
+      {stylePicker}
     </div>
   );
 }
@@ -269,7 +369,7 @@ export function BlockView({
   timezone?: string;
 }) {
   if (b.type === 'company') return <CompanyCard company={company} block={b} onEdit={onEdit} />;
-  if (b.type === 'positions') return <PositionsList positions={positions} />;
+  if (b.type === 'positions') return <PositionsList positions={positions} block={b} onEdit={onEdit} />;
   if (b.type === 'deadline')
     return <DeadlineCountdown deadline={deadline} timezone={timezone} label={b.text} block={b} onEdit={onEdit} />;
   if (b.type === 'heading')
@@ -448,11 +548,24 @@ export function BlockView({
 }
 
 // Пресеты оформления обложки блока «О компании».
-const COVER_PRESET: Record<string, string> = {
-  minimal: 'h-16 bg-panel-2',
-  gradient: 'h-24 th-grad',
-  dark: 'h-20 bg-neutral-900',
-  bold: 'h-28 th-grad',
+// Пресеты оформления карточки компании. Меняют ВСЮ карточку (фон, текст, чипы,
+// обложку), а не только высоту обложки — чтобы переключение было заметным даже с
+// загруженными лого/обложкой.
+interface CompanyTheme {
+  card: string; // корень карточки
+  coverH: string; // высота обложки
+  coverBg: string; // фон обложки, когда нет картинки
+  coverTint: string; // затемнение/тон поверх картинки-обложки
+  logoBorder: string; // рамка логотипа (под фон карточки)
+  name: string; // название
+  sub: string; // ниша/«о компании»
+  chip: string; // перк-чип
+}
+const COMPANY_THEME: Record<string, CompanyTheme> = {
+  minimal: { card: 'border border-line bg-bg', coverH: 'h-16', coverBg: 'bg-panel-2', coverTint: '', logoBorder: 'border-bg', name: 'text-text', sub: 'text-muted', chip: 'bg-accent-soft text-accent-ink' },
+  gradient: { card: 'border border-accent/25 bg-bg', coverH: 'h-24', coverBg: 'th-grad', coverTint: 'bg-gradient-to-t from-black/25 to-transparent', logoBorder: 'border-bg', name: 'text-text', sub: 'text-muted', chip: 'bg-accent-soft text-accent-ink' },
+  dark: { card: 'border border-neutral-800 bg-neutral-900 text-neutral-100', coverH: 'h-20', coverBg: 'bg-neutral-800', coverTint: 'bg-neutral-950/40', logoBorder: 'border-neutral-900', name: 'text-white', sub: 'text-neutral-400', chip: 'bg-white/10 text-white' },
+  bold: { card: 'border-0 bg-bg ring-2 ring-accent/40 shadow-lg shadow-accent/10', coverH: 'h-28', coverBg: 'th-grad', coverTint: 'bg-gradient-to-t from-black/30 to-transparent', logoBorder: 'border-bg', name: 'text-lg font-bold text-text', sub: 'text-muted', chip: 'bg-accent text-on-accent' },
 };
 export const COMPANY_STYLES = [
   { value: 'minimal', label: 'Минимал' },
@@ -475,6 +588,7 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
   const logo = block?.logo;
   const cover = block?.cover;
   const style = block?.style || 'minimal';
+  const theme = COMPANY_THEME[style] || COMPANY_THEME.minimal;
   // Перки-чипы: если в блоке задано переопределение — берём его, иначе из «Голоса бренда».
   const perks = (
     block?.perks ??
@@ -503,7 +617,7 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-bg">
+    <div className={`overflow-hidden rounded-2xl ${theme.card}`}>
       {edit && (
         <>
           <input ref={logoRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && upload('logo', e.target.files[0])} />
@@ -513,9 +627,11 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
 
       {/* Обложка (картинка или пресет-фон) + оверлей редактирования */}
       <div
-        className={`group/cover relative w-full ${COVER_PRESET[style] || COVER_PRESET.minimal}`}
+        className={`group/cover relative w-full ${theme.coverH} ${cover ? '' : theme.coverBg}`}
         style={cover ? { backgroundImage: `url(${cover})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
       >
+        {/* Тон поверх картинки-обложки — зависит от стиля */}
+        {cover && theme.coverTint && <div className={`pointer-events-none absolute inset-0 ${theme.coverTint}`} />}
         {edit && (
           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition group-hover/cover:bg-black/35 group-hover/cover:opacity-100">
             <button onClick={() => coverRef.current?.click()} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-medium text-neutral-900 shadow">
@@ -532,7 +648,7 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
         {/* Логотип «наезжает» на обложку (клик → загрузка); название — ПОД ним, чтобы не перекрывалось. */}
         <div className="-mt-7">
           {edit ? (
-            <button onClick={() => logoRef.current?.click()} title="Загрузить логотип" className="group/logo relative h-14 w-14 overflow-hidden rounded-2xl border-4 border-bg">
+            <button onClick={() => logoRef.current?.click()} title="Загрузить логотип" className={`group/logo relative h-14 w-14 overflow-hidden rounded-2xl border-4 ${theme.logoBorder}`}>
               {logo ? (
                 <img src={logo} alt="" className="h-full w-full bg-panel object-cover" />
               ) : (
@@ -543,30 +659,30 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
               </span>
             </button>
           ) : logo ? (
-            <img src={logo} alt="" className="h-14 w-14 rounded-2xl border-4 border-bg bg-panel object-cover" />
+            <img src={logo} alt="" className={`h-14 w-14 rounded-2xl border-4 ${theme.logoBorder} bg-panel object-cover`} />
           ) : (
-            <div className="th-grad flex h-14 w-14 items-center justify-center rounded-2xl border-4 border-bg text-lg font-bold">{initial}</div>
+            <div className={`th-grad flex h-14 w-14 items-center justify-center rounded-2xl border-4 ${theme.logoBorder} text-lg font-bold`}>{initial}</div>
           )}
         </div>
         <div className="mt-2">
           {edit ? (
-            <Editable className="font-semibold" value={name} onChange={(t) => onEdit!(block!.id, { label: t })} />
+            <Editable className={`font-semibold ${theme.name}`} value={name} onChange={(t) => onEdit!(block!.id, { label: t })} />
           ) : (
-            <div className="truncate font-semibold">{name}</div>
+            <div className={`truncate font-semibold ${theme.name}`}>{name}</div>
           )}
-          {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
+          {company?.niche && <div className={`truncate text-xs ${theme.sub}`}>{company.niche}</div>}
         </div>
 
         {edit ? (
-          <Editable className="mt-3 text-sm text-muted" value={about} onChange={(t) => onEdit!(block!.id, { text: t })} />
+          <Editable className={`mt-3 text-sm ${theme.sub}`} value={about} onChange={(t) => onEdit!(block!.id, { text: t })} />
         ) : (
-          about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{about}</p>
+          about && <p className={`mt-3 whitespace-pre-wrap text-sm ${theme.sub}`}>{about}</p>
         )}
 
         {edit ? (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             {perks.map((p, i) => (
-              <span key={i} className="group/perk inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">
+              <span key={i} className={`group/perk inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${theme.chip}`}>
                 <Editable
                   className="min-w-[1ch]"
                   value={p}
@@ -578,7 +694,7 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
                     setPerks(next);
                   }}
                 />
-                <button onClick={() => setPerks(perks.filter((_, j) => j !== i))} className="text-accent-ink/50 hover:text-danger" title="Убрать">
+                <button onClick={() => setPerks(perks.filter((_, j) => j !== i))} className="opacity-50 hover:text-danger hover:opacity-100" title="Убрать">
                   <X size={11} />
                 </button>
               </span>
@@ -593,7 +709,7 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
           perks.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {perks.map((p, i) => (
-                <span key={i} className="rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">{p}</span>
+                <span key={i} className={`rounded-full px-2.5 py-1 text-xs ${theme.chip}`}>{p}</span>
               ))}
             </div>
           )
@@ -625,17 +741,92 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
 }
 
 // Другие активные вакансии компании — тёплый кросс-сейл («ещё нанимаем»).
-function PositionsList({ positions }: { positions?: string[] }) {
-  const list = (positions || []).filter(Boolean);
-  if (!list.length) return null;
+const EMOJI_PRESETS = ['💼', '🚀', '🎬', '🎨', '✍️', '📈', '💻', '📣', '🎯', '⭐', '🔥', '🧩'];
+
+// Мини-выбор эмодзи для вакансии.
+function EmojiPick({ value, onChange }: { value?: string; onChange: (e: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex">
+      <button onClick={() => setOpen((v) => !v)} className="leading-none hover:opacity-70" title="Эмодзи">
+        {value || '＋'}
+      </button>
+      {open && (
+        <span className="absolute left-0 top-6 z-30 flex w-44 flex-wrap items-center gap-1 rounded-xl border border-line bg-panel p-2 shadow-2xl">
+          {EMOJI_PRESETS.map((e) => (
+            <button key={e} onClick={() => { onChange(e); setOpen(false); }} className="text-lg transition-transform hover:scale-125">
+              {e}
+            </button>
+          ))}
+          <button onClick={() => { onChange(''); setOpen(false); }} className="ml-1 text-[11px] text-muted hover:text-text">
+            убрать
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
+// Другие активные вакансии компании — тёплый кросс-сейл. В конструкторе можно
+// выбрать конкретные вакансии из своих поисков и добавить эмодзи; пусто = авто.
+function PositionsList({ positions, block, onEdit }: { positions?: string[]; block?: Block; onEdit?: (blockId: string, patch: Partial<Block>) => void }) {
+  const edit = !!(onEdit && block);
+  const auto = (positions || []).filter(Boolean);
+  const picks = block?.picks;
+  // Что показываем: ручной список (если задан) либо авто-вакансии.
+  const using: { label: string; emoji?: string }[] = picks && picks.length ? picks : auto.map((t) => ({ label: t }));
+  const setPicks = (next: { label: string; emoji?: string }[]) => onEdit!(block!.id, { picks: next });
+
+  if (!edit && !using.length) return null;
+
+  const pickedLabels = new Set((picks || []).map((p) => p.label));
+  const available = auto.filter((t) => !pickedLabels.has(t));
+
   return (
     <div className="rounded-2xl border border-line bg-bg p-4">
       <div className="text-xs uppercase tracking-wide text-muted">Компания также нанимает</div>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {list.map((t, i) => (
-          <span key={i} className="rounded-full border border-line px-3 py-1 text-sm">{t}</span>
-        ))}
+        {using.map((p, i) =>
+          edit ? (
+            <span key={i} className="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-sm">
+              <EmojiPick value={p.emoji} onChange={(e) => setPicks(using.map((x, j) => (j === i ? { ...x, emoji: e } : x)))} />
+              <Editable className="min-w-[2ch]" value={p.label} onChange={(t) => setPicks(using.map((x, j) => (j === i ? { ...x, label: t.trim() } : x)))} />
+              <button onClick={() => setPicks(using.filter((_, j) => j !== i))} className="opacity-50 hover:text-danger hover:opacity-100" title="Убрать">
+                <X size={11} />
+              </button>
+            </span>
+          ) : (
+            <span key={i} className="inline-flex items-center gap-1 rounded-full border border-line px-3 py-1 text-sm">
+              {p.emoji && <span>{p.emoji}</span>}
+              {p.label}
+            </span>
+          )
+        )}
+        {edit && (
+          <button onClick={() => setPicks([...using, { label: 'Новая вакансия', emoji: '💼' }])} className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-line px-2.5 py-1 text-sm text-muted hover:border-accent/50 hover:text-accent-ink">
+            <Plus size={12} /> вакансия
+          </button>
+        )}
       </div>
+      {edit && available.length > 0 && (
+        <div className="mt-2.5 flex items-center gap-2 text-xs text-muted">
+          <span className="shrink-0">Добавить из моих:</span>
+          <select
+            value=""
+            onChange={(e) => {
+              if (e.target.value) setPicks([...using, { label: e.target.value, emoji: '💼' }]);
+            }}
+            className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-1 text-text"
+          >
+            <option value="">выбрать вакансию…</option>
+            {available.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   );
 }

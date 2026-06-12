@@ -40,6 +40,7 @@ export interface Block {
   cover?: string; // URL фоновой обложки
   style?: string; // пресет оформления: minimal | gradient | dark | bold
   perks?: string[]; // чипы-преимущества компании (переопределяют perks из «Голоса бренда»)
+  picks?: { label: string; emoji?: string }[]; // блок «Другие вакансии»: ручной список с эмодзи (пусто = авто из активных поисков)
 }
 
 export interface Page {
