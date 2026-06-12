@@ -63,6 +63,10 @@ export async function agentRoutes(app: FastifyInstance) {
       },
     });
 
+    // Для research берём ВСЕ поиски пользователя (даже на паузе — это сбор для
+    // вдохновения, а не отбивка), чтобы запросы не оказались пустыми из-за статуса.
+    const researchSearches = await db.search.findMany({ where: { userId: device.userId }, select: { id: true, title: true, keywords: { select: { text: true } } } });
+
     // Лимиты аккаунта + сколько ответов ещё осталось сегодня.
     const lim = await getUserLimits(device.userId);
     const since = new Date();
@@ -100,11 +104,14 @@ export async function agentRoutes(app: FastifyInstance) {
       },
       research: {
         enabled: !!lim.researchEnabled,
-        // Запросы: по кодовым словам поиска ИЛИ по названию роли (настройка researchByKeywords).
+        // Запросы: по кодовым словам ИЛИ по названию роли (настройка researchByKeywords).
+        // В режиме слов при их отсутствии у поиска — берём роль, чтобы не было пусто.
         queries: (lim.researchByKeywords
-          ? searches.flatMap((s) => s.keywords.map((k) => ({ searchId: s.id, query: k.text })))
-          : searches.map((s) => ({ searchId: s.id, query: s.title }))
-        ).slice(0, 12),
+          ? researchSearches.flatMap((s) => (s.keywords.length ? s.keywords.map((k) => ({ searchId: s.id, query: k.text })) : [{ searchId: s.id, query: s.title }]))
+          : researchSearches.map((s) => ({ searchId: s.id, query: s.title }))
+        )
+          .filter((q) => q.query && q.query.trim())
+          .slice(0, 12),
         intervalMinutes: 720, // раз в ~12 часов
         maxPerQuery: 15,
         runAt: lim.researchRunAt ? new Date(lim.researchRunAt).toISOString() : null,
