@@ -145,6 +145,7 @@ export async function agentRoutes(app: FastifyInstance) {
         postedAt: z.string().optional(),
       }),
     ).max(200),
+    diag: z.any().optional(), // диагностика вёрстки выдачи (для отладки селекторов)
   });
   app.post('/api/agent/research', async (req, reply) => {
     const device = await authDevice(req.headers.authorization);
@@ -172,9 +173,12 @@ export async function agentRoutes(app: FastifyInstance) {
         update: data, // обновляем метрики/текст при повторном сборе
       }).catch(() => {});
     }
-    // Проход отработан: гасим «собрать сейчас» и фиксируем время последнего прохода
-    // (даже если постов 0 — чтобы в кабинете было видно, что попытка была).
-    await db.limits.updateMany({ where: { userId }, data: { researchRunAt: null, researchLastRunAt: new Date() } }).catch(() => {});
+    // Проход отработан: гасим «собрать сейчас», фиксируем время и сохраняем диагностику
+    // вёрстки (даже если постов 0 — чтобы в кабинете было видно, что попытка была, и почему пусто).
+    const diagStr = parsed.data.diag ? JSON.stringify(parsed.data.diag).slice(0, 8000) : undefined;
+    await db.limits
+      .updateMany({ where: { userId }, data: { researchRunAt: null, researchLastRunAt: new Date(), ...(diagStr ? { researchDiag: diagStr } : {}) } })
+      .catch(() => {});
     return { ok: true };
   });
 

@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.10';
+const VERSION = '0.1.11';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -162,8 +162,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     });
   }
   if (msg?.type === 'research') {
-    // Собранные топовые ветки → сервер.
-    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: msg.posts || [] }) });
+    // Собранные топовые ветки + диагностика вёрстки → сервер.
+    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: msg.posts || [], diag: msg.diag || null }) });
   }
   if (msg?.type === 'researchDone') {
     // Проход завершён — гасим метку «идёт сбор» на сервере (даже при 0 собранных) и

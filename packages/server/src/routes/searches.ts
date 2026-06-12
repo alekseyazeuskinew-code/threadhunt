@@ -380,13 +380,16 @@ export async function searchRoutes(app: FastifyInstance) {
         postedAt: r.postedAt,
       }));
     // Статус: идёт ли сбор сейчас, когда последний раз нашли посты и когда был последний проход.
-    const lim = await db.limits.findUnique({ where: { userId }, select: { researchRunAt: true, researchLastRunAt: true } });
+    const lim = await db.limits.findUnique({ where: { userId }, select: { researchRunAt: true, researchLastRunAt: true, researchDiag: true } });
     const lastRow = await db.researchPost.findFirst({ where: { userId, searchId: id }, orderBy: { fetchedAt: 'desc' }, select: { fetchedAt: true } });
+    let diag: any = null;
+    try { diag = lim?.researchDiag ? JSON.parse(lim.researchDiag) : null; } catch { diag = null; }
     return {
       posts,
       running: !!lim?.researchRunAt,
       lastAt: lastRow?.fetchedAt ? lastRow.fetchedAt.toISOString() : null,
       lastRunAt: lim?.researchLastRunAt ? lim.researchLastRunAt.toISOString() : null,
+      diag,
     };
   });
 

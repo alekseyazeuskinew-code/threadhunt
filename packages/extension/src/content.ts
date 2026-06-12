@@ -648,22 +648,65 @@ function parseCount(s: string): number {
   return Math.round(n);
 }
 
-// Собрать посты со страницы результатов поиска (best-effort).
+// Диагностика выдачи — счётчики разных селекторов, чтобы понять вёрстку Threads,
+// если сбор вернул 0. Уходит на сервер и показывается в панели.
+function searchDiag(query: string, collected: number) {
+  const sample = [...document.querySelectorAll<HTMLAnchorElement>('a[href*="/post/"]')].slice(0, 3).map((a) => a.getAttribute('href') || '');
+  // HTML-образец реальной вёрстки: контейнер вокруг первой ссылки на пост (или кусок
+  // основной области) — по нему пишем точные селекторы, без догадок.
+  let htmlSample = '';
+  try {
+    const firstLink = document.querySelector<HTMLAnchorElement>('a[href*="/post/"]');
+    let node: HTMLElement | null = firstLink;
+    if (node) for (let i = 0; i < 10 && node.parentElement; i++) node = node.parentElement;
+    const el = node || document.querySelector('main') || document.body;
+    htmlSample = (el?.outerHTML || '').replace(/\s+/g, ' ').slice(0, 4000);
+  } catch {
+    /* ignore */
+  }
+  return {
+    q: query,
+    url: location.pathname + location.search,
+    postLinks: document.querySelectorAll('a[href*="/post/"]').length,
+    userPostLinks: document.querySelectorAll('a[href*="/@"][href*="/post/"]').length,
+    pressable: document.querySelectorAll('[data-pressable-container="true"]').length,
+    articles: document.querySelectorAll('article,[role="article"]').length,
+    anchors: document.querySelectorAll('a').length,
+    bodyLen: (document.body?.innerText || '').length,
+    sample,
+    htmlSample,
+    collected,
+  };
+}
+
+// Собрать посты со страницы результатов поиска (multi-strategy, best-effort).
 function collectSearchPosts(cur: { searchId: string; query: string }, max: number) {
   const out: any[] = [];
   const seen = new Set<string>();
-  for (const a of document.querySelectorAll<HTMLAnchorElement>('a[href*="/post/"]')) {
-    const href = a.getAttribute('href') || '';
+  // Кандидаты-контейнеры постов: сначала pressable-контейнеры Threads, потом
+  // article/role=article, в конце — родители ссылок на пост (fallback).
+  let containers: HTMLElement[] = [...document.querySelectorAll<HTMLElement>('[data-pressable-container="true"], article, [role="article"]')];
+  if (!containers.length) {
+    const anchors = [...document.querySelectorAll<HTMLAnchorElement>('a[href*="/post/"]')];
+    containers = anchors
+      .map((a) => {
+        let c: HTMLElement | null = a;
+        for (let i = 0; i < 10 && c; i++) c = c.parentElement;
+        return c;
+      })
+      .filter((c): c is HTMLElement => !!c);
+  }
+  for (const container of containers) {
+    const link = container.querySelector<HTMLAnchorElement>('a[href*="/post/"]');
+    if (!link) continue;
+    const href = link.getAttribute('href') || '';
     const m = href.match(/\/post\/([A-Za-z0-9_-]+)/);
     if (!m) continue;
     const id = m[1];
     if (seen.has(id)) continue;
     seen.add(id);
-    let c: HTMLElement | null = a;
-    for (let i = 0; i < 9 && c; i++) c = c.parentElement;
-    const container = c || a;
     const text = (container.innerText || '').replace(/\s+/g, ' ').trim();
-    if (text.length < 20) continue;
+    if (text.length < 10) continue;
     const author = (href.match(/\/@([\w.]+)/) || [])[1] || undefined;
     // вовлечённость — по числам у кнопок действий (aria-label), эвристика
     let likes = 0, replies = 0, reposts = 0;
@@ -690,8 +733,10 @@ async function researchTick() {
     await sleep(4000); // дать выдаче отрисоваться
     await scrollList(8); // подгрузить больше постов (виртуализированный список)
     const posts = collectSearchPosts(cur, st.maxPerQuery);
-    console.log('[threadhunt] research', cur.query, '→ собрано', posts.length);
-    if (posts.length) chrome.runtime.sendMessage({ type: 'research', posts });
+    const diag = searchDiag(cur.query, posts.length);
+    console.log('[threadhunt] research', cur.query, '→ собрано', posts.length, diag);
+    // Шлём ВСЕГДА (даже 0 постов) — с диагностикой вёрстки, чтобы было видно, почему пусто.
+    chrome.runtime.sendMessage({ type: 'research', posts, diag });
     st.collected = (st.collected || 0) + posts.length;
     st.idx++;
     if (st.idx < st.queue.length) {
@@ -701,10 +746,10 @@ async function researchTick() {
       const total = st.collected || 0;
       await chrome.storage.session.remove(RESEARCH_KEY);
       await chrome.storage.session.set({ [LAST_RESEARCH_KEY]: Date.now() });
-      // Сообщить о завершении — гасит «идёт сбор» на сервере даже при 0 собранных.
+      // Завершение: гасит «идёт сбор» на сервере даже при 0. Вкладку закроет background;
+      // НЕ уходим на /messages, чтобы было видно, что мы реально были в поиске.
       chrome.runtime.sendMessage({ type: 'researchDone', total });
       console.log('[threadhunt] research завершён, всего собрано', total);
-      navigate('/messages/'); // вернуться «домой»
     }
     return;
   }
