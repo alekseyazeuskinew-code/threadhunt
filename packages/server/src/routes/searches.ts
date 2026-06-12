@@ -334,6 +334,21 @@ export async function searchRoutes(app: FastifyInstance) {
     return items.slice(0, 40);
   });
 
+  // ── Очистить хронологию «что происходит на бэке» ──
+  // Удаляем шум: записи об ОШИБКАХ публикации + логи проходов агента. Лиды (кандидаты)
+  // и успешные публикации НЕ трогаем — их история важна.
+  app.post('/api/searches/:id/activity/clear', async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
+    const [posts, passes] = await Promise.all([
+      db.publishedPost.deleteMany({ where: { searchId: id, ok: false } }),
+      db.agentPass.deleteMany({ where: { userId } }),
+    ]);
+    return { ok: true, removed: posts.count + passes.count };
+  });
+
   // ── Research: топовые вакансии-ветки (собраны расширением) за 30 дней ──
   app.get('/api/searches/:id/research', async (req, reply) => {
     const userId = await requireUser(req, reply);

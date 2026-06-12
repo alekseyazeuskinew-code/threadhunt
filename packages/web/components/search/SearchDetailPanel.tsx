@@ -264,6 +264,11 @@ function ActivityTimeline({ id }: { id: string }) {
       setBusy(false);
     }
   }
+  async function clear() {
+    if (!window.confirm('Очистить хронологию? Удалятся записи об ошибках публикации и логи проходов бота. Лиды и успешные посты останутся.')) return;
+    await api.post(`/api/searches/${id}/activity/clear`).catch(() => {});
+    load();
+  }
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,9 +291,16 @@ function ActivityTimeline({ id }: { id: string }) {
             </span>
           )}
         </button>
-        <Button variant="ghost" size="sm" onClick={load} disabled={busy}>
-          {busy ? 'Обновляю…' : 'Обновить'}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {!!items?.length && (
+            <Button variant="ghost" size="sm" onClick={clear} title="Удалить ошибки и логи проходов">
+              <Trash2 size={14} /> Очистить
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={load} disabled={busy}>
+            {busy ? 'Обновляю…' : 'Обновить'}
+          </Button>
+        </div>
       </div>
 
       {open && (
