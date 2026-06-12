@@ -688,8 +688,13 @@ function extractMetrics(container: HTMLElement): { likes: number; replies: numbe
   const nearbyCount = (btn: HTMLElement): number => {
     let n = parseCount(btn.getAttribute('aria-label') || '') || parseCount(btn.textContent || '');
     if (n) return n;
-    n = parseCount(btn.nextElementSibling?.textContent || '');
-    if (n) return n;
+    // следующие 2 элемента-соседа (счётчик у Threads — отдельный span рядом с иконкой)
+    let el: Element | null = btn.nextElementSibling;
+    for (let i = 0; i < 2 && el; i++) {
+      n = parseCount(el.textContent || '');
+      if (n) return n;
+      el = el.nextElementSibling;
+    }
     return parseCount(btn.parentElement?.nextElementSibling?.textContent || '') || 0;
   };
   const vals: number[] = [];

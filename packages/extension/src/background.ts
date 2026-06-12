@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.16';
+const VERSION = '0.1.17';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -82,18 +82,18 @@ async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
   }
 
   await closeResearchTab();
-  console.log('[threadhunt] research: открываю окно поиска,', r.queries.length, 'запросов; первый:', r.queries[0]?.query);
+  console.log('[threadhunt] research: открываю ФОНОВУЮ вкладку поиска,', r.queries.length, 'запросов; первый:', r.queries[0]?.query);
   try {
-    // Сразу кладём состояние research-прохода и открываем страницу поиска в ОТДЕЛЬНОМ
-    // НЕАКТИВНОМ окне (focused:false): оно видимо (значит выдача отрисуется), но НЕ
-    // перехватывает текущую вкладку клиента. Закроем по завершении.
+    // Сразу кладём состояние прохода и открываем поиск в ФОНОВОЙ вкладке (active:false):
+    // она не всплывает, не перехватывает фокус, перелистывание запросов происходит
+    // невидимо для клиента. Закроем по завершении/таймауту.
     const queue = r.queries.slice(0, 12);
     await chrome.storage.session.set({ research: { queue, idx: 0, maxPerQuery: r.maxPerQuery || 15, collected: 0 }, lastResearchRunNow: Date.parse(runAt) });
     const url = 'https://www.threads.com/search?q=' + encodeURIComponent(queue[0].query) + '&serp_type=default';
-    const win = await chrome.windows.create({ url, focused: false, width: 1000, height: 820 });
-    await chrome.storage.local.set({ researchHandledAt: runAt, researchWindowId: win.id ?? null, researchTabId: win.tabs?.[0]?.id ?? null, researchTabOpenedAt: Date.now() });
+    const tab = await chrome.tabs.create({ url, active: false });
+    await chrome.storage.local.set({ researchHandledAt: runAt, researchTabId: tab.id ?? null, researchTabOpenedAt: Date.now() });
   } catch {
-    /* не удалось открыть окно */
+    /* не удалось открыть вкладку */
   }
 }
 
