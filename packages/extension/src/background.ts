@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.14';
+const VERSION = '0.1.15';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -82,32 +82,37 @@ async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
   }
 
   await closeResearchTab();
-  console.log('[threadhunt] research: открываю вкладку поиска,', r.queries.length, 'запросов; первый:', r.queries[0]?.query);
+  console.log('[threadhunt] research: открываю окно поиска,', r.queries.length, 'запросов; первый:', r.queries[0]?.query);
   try {
-    // Сразу кладём состояние research-прохода и открываем НАПРЯМУЮ страницу поиска
-    // (минуя /messages, где мог бы стартовать обход директа и заблокировать сбор).
-    // active:true — выдачу поиска Threads (виртуализированный список) в фоновой вкладке
-    // браузер не отрисовывает; видимая вкладка решает это и показывает клиенту прогресс.
+    // Сразу кладём состояние research-прохода и открываем страницу поиска в ОТДЕЛЬНОМ
+    // НЕАКТИВНОМ окне (focused:false): оно видимо (значит выдача отрисуется), но НЕ
+    // перехватывает текущую вкладку клиента. Закроем по завершении.
     const queue = r.queries.slice(0, 12);
     await chrome.storage.session.set({ research: { queue, idx: 0, maxPerQuery: r.maxPerQuery || 15, collected: 0 }, lastResearchRunNow: Date.parse(runAt) });
     const url = 'https://www.threads.com/search?q=' + encodeURIComponent(queue[0].query) + '&serp_type=default';
-    const tab = await chrome.tabs.create({ url, active: true });
-    await chrome.storage.local.set({ researchHandledAt: runAt, researchTabId: tab.id ?? null, researchTabOpenedAt: Date.now() });
+    const win = await chrome.windows.create({ url, focused: false, width: 1000, height: 820 });
+    await chrome.storage.local.set({ researchHandledAt: runAt, researchWindowId: win.id ?? null, researchTabId: win.tabs?.[0]?.id ?? null, researchTabOpenedAt: Date.now() });
   } catch {
-    /* не удалось открыть вкладку */
+    /* не удалось открыть окно */
   }
 }
 
 async function closeResearchTab() {
-  const { researchTabId } = await chrome.storage.local.get('researchTabId');
-  if (researchTabId != null) {
+  const { researchWindowId, researchTabId } = await chrome.storage.local.get(['researchWindowId', 'researchTabId']);
+  if (researchWindowId != null) {
+    try {
+      await chrome.windows.remove(researchWindowId);
+    } catch {
+      /* уже закрыто */
+    }
+  } else if (researchTabId != null) {
     try {
       await chrome.tabs.remove(researchTabId);
     } catch {
       /* уже закрыта */
     }
-    await chrome.storage.local.remove(['researchTabId', 'researchTabOpenedAt']);
   }
+  await chrome.storage.local.remove(['researchWindowId', 'researchTabId', 'researchTabOpenedAt']);
 }
 
 // Холостой тест отбивки БЕЗ участия клиента: если дашборд запросил тест, сами
