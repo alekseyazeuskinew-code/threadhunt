@@ -734,7 +734,14 @@ async function researchTick() {
     await scrollList(8); // подгрузить больше постов (виртуализированный список)
     const posts = collectSearchPosts(cur, st.maxPerQuery);
     const diag = searchDiag(cur.query, posts.length);
-    console.log('[threadhunt] research', cur.query, '→ собрано', posts.length, diag);
+    // Копируемый вывод в консоль (deploy-независимо): счётчики и HTML-образец отдельно.
+    console.log(
+      `%c[threadhunt] research «${cur.query}» → собрано ${posts.length}`,
+      'color:#6d5cf6;font-weight:bold',
+      `\nURL: ${diag.url}\nссылок-на-пост: ${diag.postLinks} | @-пост: ${diag.userPostLinks} | pressable: ${diag.pressable} | article: ${diag.articles} | всего-ссылок: ${diag.anchors} | текст: ${diag.bodyLen}`,
+    );
+    console.log('[threadhunt] примеры ссылок:', diag.sample);
+    console.log('[threadhunt] HTML-образец (скопируй и пришли):\n', diag.htmlSample);
     // Шлём ВСЕГДА (даже 0 постов) — с диагностикой вёрстки, чтобы было видно, почему пусто.
     chrome.runtime.sendMessage({ type: 'research', posts, diag });
     st.collected = (st.collected || 0) + posts.length;

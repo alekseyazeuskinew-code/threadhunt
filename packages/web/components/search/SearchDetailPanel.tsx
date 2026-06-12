@@ -1154,32 +1154,13 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
       {resp !== null && open && (
         <div className="mt-3">
           {posts.length === 0 ? (
-            <>
-              <p className="text-sm text-muted">
-                {resp.running
-                  ? 'Идёт сбор — расширение открыло вкладку Threads и собирает топовые ветки. Появятся через 1–3 минуты.'
-                  : resp.lastRunAt
-                    ? `Последний сбор был ${relTime(resp.lastRunAt)}, но Threads не отдал ветки в этом окне. Попробуй сменить окно на «Всё время», либо запусти ещё раз — и не закрывай вкладку Threads, пока идёт сбор.`
-                    : 'Пока пусто. Включи Research во вкладке «Отбивка» и нажми «Собрать топ-ветки сейчас» (нужен залогиненный Threads в браузере).'}
-              </p>
-              {resp.diag && (
-                <details className="mt-3 rounded-xl border border-line bg-bg p-3 text-xs">
-                  <summary className="cursor-pointer font-medium text-muted">Диагностика сбора (для разработчика)</summary>
-                  <div className="mt-2 space-y-1 text-muted">
-                    <div>Страница: <code className="text-text">{resp.diag.url}</code></div>
-                    <div>
-                      Ссылок на пост: <b className="text-text">{resp.diag.postLinks}</b> · @-пост: <b className="text-text">{resp.diag.userPostLinks}</b> · pressable: <b className="text-text">{resp.diag.pressable}</b> · article: <b className="text-text">{resp.diag.articles}</b> · всего ссылок: <b className="text-text">{resp.diag.anchors}</b> · текст: <b className="text-text">{resp.diag.bodyLen}</b> · собрано: <b className="text-text">{resp.diag.collected}</b>
-                    </div>
-                    {resp.diag.sample && resp.diag.sample.length > 0 && (
-                      <div className="break-all">Примеры ссылок: <code className="text-text">{resp.diag.sample.join('  ·  ')}</code></div>
-                    )}
-                    {resp.diag.htmlSample && (
-                      <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-2 text-[10px] text-text">{resp.diag.htmlSample}</pre>
-                    )}
-                  </div>
-                </details>
-              )}
-            </>
+            <p className="text-sm text-muted">
+              {resp.running
+                ? 'Идёт сбор — расширение открыло вкладку Threads и собирает топовые ветки. Появятся через 1–3 минуты.'
+                : resp.lastRunAt
+                  ? `Последний сбор был ${relTime(resp.lastRunAt)}, но Threads не отдал ветки в этом окне. Попробуй сменить окно на «Всё время», либо запусти ещё раз — и не закрывай вкладку Threads, пока идёт сбор.`
+                  : 'Пока пусто. Включи Research во вкладке «Отбивка» и нажми «Собрать топ-ветки сейчас» (нужен залогиненный Threads в браузере).'}
+            </p>
           ) : (
             <div className="space-y-2">
               {posts.map((r) => (
@@ -1204,6 +1185,23 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
                 </div>
               ))}
             </div>
+          )}
+          {resp.diag && (
+            <details className="mt-3 rounded-xl border border-line bg-bg p-3 text-xs">
+              <summary className="cursor-pointer font-medium text-muted">Диагностика сбора (для разработчика)</summary>
+              <div className="mt-2 space-y-1 text-muted">
+                <div>Страница: <code className="text-text">{resp.diag.url}</code></div>
+                <div>
+                  Ссылок на пост: <b className="text-text">{resp.diag.postLinks}</b> · @-пост: <b className="text-text">{resp.diag.userPostLinks}</b> · pressable: <b className="text-text">{resp.diag.pressable}</b> · article: <b className="text-text">{resp.diag.articles}</b> · всего ссылок: <b className="text-text">{resp.diag.anchors}</b> · текст: <b className="text-text">{resp.diag.bodyLen}</b> · собрано: <b className="text-text">{resp.diag.collected}</b>
+                </div>
+                {resp.diag.sample && resp.diag.sample.length > 0 && (
+                  <div className="break-all">Примеры ссылок: <code className="text-text">{resp.diag.sample.join('  ·  ')}</code></div>
+                )}
+                {resp.diag.htmlSample && (
+                  <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-panel-2 p-2 text-[10px] text-text">{resp.diag.htmlSample}</pre>
+                )}
+              </div>
+            </details>
           )}
         </div>
       )}
