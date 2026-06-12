@@ -172,8 +172,9 @@ export async function agentRoutes(app: FastifyInstance) {
         update: data, // обновляем метрики/текст при повторном сборе
       }).catch(() => {});
     }
-    // Получили результаты — «собрать сейчас» считается отработанным.
-    await db.limits.updateMany({ where: { userId, researchRunAt: { not: null } }, data: { researchRunAt: null } }).catch(() => {});
+    // Проход отработан: гасим «собрать сейчас» и фиксируем время последнего прохода
+    // (даже если постов 0 — чтобы в кабинете было видно, что попытка была).
+    await db.limits.updateMany({ where: { userId }, data: { researchRunAt: null, researchLastRunAt: new Date() } }).catch(() => {});
     return { ok: true };
   });
 

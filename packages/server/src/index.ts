@@ -177,6 +177,7 @@ async function ensureSchema() {
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchEnabled" BOOLEAN NOT NULL DEFAULT false',
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchByKeywords" BOOLEAN NOT NULL DEFAULT false',
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchRunAt" TIMESTAMP',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchLastRunAt" TIMESTAMP',
     `CREATE TABLE IF NOT EXISTS "ResearchPost" (
       "id" TEXT PRIMARY KEY,
       "userId" TEXT NOT NULL,

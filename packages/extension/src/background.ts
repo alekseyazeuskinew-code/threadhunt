@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.8';
+const VERSION = '0.1.9';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -58,9 +58,9 @@ async function tick() {
   await maybeRunResearchInBackground(tasks);
 }
 
-// «Собрать топ-ветки сейчас» БЕЗ участия клиента: если дашборд запросил research-проход
-// (research.runAt), сами открываем ФОНОВУЮ вкладку Threads — content-script там соберёт
-// ветки и пришлёт на сервер. Вкладку закрываем по таймауту (research длится 1–3 мин).
+// «Собрать топ-ветки сейчас»: если дашборд запросил research-проход (research.runAt),
+// сами открываем вкладку Threads — content-script там соберёт ветки и пришлёт на сервер.
+// Вкладку закрываем по сигналу завершения или по таймауту (research длится 1–3 мин).
 async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
   const { researchHandledAt, researchTabOpenedAt, researchTabId } = await chrome.storage.local.get(['researchHandledAt', 'researchTabOpenedAt', 'researchTabId']);
   // Таймаут: закрыть зависшую research-вкладку.
@@ -70,7 +70,10 @@ async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
   if (researchHandledAt === runAt) return; // этот запрос уже обработали (вкладку откроем один раз)
   await closeResearchTab();
   try {
-    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: false });
+    // active:true — выдачу поиска Threads (виртуализированный список) в фоновой
+    // вкладке браузер не отрисовывает, и собирать нечего. Видимая вкладка решает это
+    // и заодно даёт клиенту понять, что сбор пошёл. Закроется сама по завершении.
+    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: true });
     await chrome.storage.local.set({ researchHandledAt: runAt, researchTabId: tab.id ?? null, researchTabOpenedAt: Date.now() });
   } catch {
     /* не удалось открыть вкладку */
@@ -148,6 +151,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'research') {
     // Собранные топовые ветки → сервер.
     void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: msg.posts || [] }) });
+  }
+  if (msg?.type === 'researchDone') {
+    // Проход завершён — гасим метку «идёт сбор» на сервере (даже при 0 собранных) и
+    // закрываем фоновую research-вкладку.
+    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: [] }) }).then(() => void tick());
+    void closeResearchTab();
   }
   if (msg?.type === 'testResult') {
     // Результат холостого теста отбивки → сервер; закрываем фоновую тест-вкладку.

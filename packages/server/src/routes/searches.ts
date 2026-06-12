@@ -379,10 +379,15 @@ export async function searchRoutes(app: FastifyInstance) {
         score: r.score,
         postedAt: r.postedAt,
       }));
-    // Статус: идёт ли сбор сейчас (есть незакрытый researchRunAt) и когда был последний сбор.
-    const lim = await db.limits.findUnique({ where: { userId }, select: { researchRunAt: true } });
+    // Статус: идёт ли сбор сейчас, когда последний раз нашли посты и когда был последний проход.
+    const lim = await db.limits.findUnique({ where: { userId }, select: { researchRunAt: true, researchLastRunAt: true } });
     const lastRow = await db.researchPost.findFirst({ where: { userId, searchId: id }, orderBy: { fetchedAt: 'desc' }, select: { fetchedAt: true } });
-    return { posts, running: !!lim?.researchRunAt, lastAt: lastRow?.fetchedAt ? lastRow.fetchedAt.toISOString() : null };
+    return {
+      posts,
+      running: !!lim?.researchRunAt,
+      lastAt: lastRow?.fetchedAt ? lastRow.fetchedAt.toISOString() : null,
+      lastRunAt: lim?.researchLastRunAt ? lim.researchLastRunAt.toISOString() : null,
+    };
   });
 
   // ── ИИ-генерация постов / ответов / цепочек веток ──

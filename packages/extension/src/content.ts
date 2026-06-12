@@ -141,6 +141,9 @@ async function scrollList(times = 3) {
       return /auto|scroll/.test(cs.overflowY) && d.scrollHeight > d.clientHeight + 50;
     });
     for (const c of cands) c.scrollTop = c.scrollHeight;
+    // Выдача поиска Threads чаще скроллит окно/документ, а не внутренний div.
+    window.scrollTo(0, document.body.scrollHeight);
+    document.scrollingElement?.scrollTo(0, document.scrollingElement.scrollHeight);
     await sleep(900);
   }
 }
@@ -625,7 +628,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 const RESEARCH_KEY = 'research';
 const LAST_RESEARCH_KEY = 'lastResearchAt';
 
-type ResearchState = { queue: { searchId: string; query: string }[]; idx: number; maxPerQuery: number };
+type ResearchState = { queue: { searchId: string; query: string }[]; idx: number; maxPerQuery: number; collected?: number };
 
 function searchUrl(q: string): string {
   return `/search?q=${encodeURIComponent(q)}&serp_type=default`;
@@ -684,17 +687,23 @@ async function researchTick() {
     const st = await getResearch();
     if (!st || st.idx >= st.queue.length) return;
     const cur = st.queue[st.idx];
-    await sleep(3500);
-    await scrollList(4);
+    await sleep(4000); // дать выдаче отрисоваться
+    await scrollList(8); // подгрузить больше постов (виртуализированный список)
     const posts = collectSearchPosts(cur, st.maxPerQuery);
+    console.log('[threadhunt] research', cur.query, '→ собрано', posts.length);
     if (posts.length) chrome.runtime.sendMessage({ type: 'research', posts });
+    st.collected = (st.collected || 0) + posts.length;
     st.idx++;
     if (st.idx < st.queue.length) {
       await chrome.storage.session.set({ [RESEARCH_KEY]: st });
       navigate(searchUrl(st.queue[st.idx].query));
     } else {
+      const total = st.collected || 0;
       await chrome.storage.session.remove(RESEARCH_KEY);
       await chrome.storage.session.set({ [LAST_RESEARCH_KEY]: Date.now() });
+      // Сообщить о завершении — гасит «идёт сбор» на сервере даже при 0 собранных.
+      chrome.runtime.sendMessage({ type: 'researchDone', total });
+      console.log('[threadhunt] research завершён, всего собрано', total);
       navigate('/messages/'); // вернуться «домой»
     }
     return;

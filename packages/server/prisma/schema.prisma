@@ -90,6 +90,7 @@ model Limits {
   researchEnabled      Boolean @default(false) // сбор топовых вакансий-веток в Threads (research через расширение)
   researchByKeywords   Boolean @default(false) // искать ветки по кодовым словам (true) или по названию роли (false)
   researchRunAt        DateTime? // «Собрать топ-ветки сейчас»: метка для немедленного research-прохода
+  researchLastRunAt    DateTime? // когда расширение последний раз завершило research-проход (даже с 0 результатами)
   // Холостой ТЕСТ отбивки из дашборда (без отправки/приёма): запрос + результат.
   dmTestAt             DateTime? // запрошен тест — расширение запустит холостой проход
   lastTestAt           DateTime? // когда пришёл результат теста

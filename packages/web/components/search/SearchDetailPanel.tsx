@@ -1089,7 +1089,7 @@ const RESEARCH_WINDOWS = [
   { value: 'month', label: 'Месяц' },
   { value: 'all', label: 'Всё время' },
 ];
-type ResearchResp = { posts: ResearchPostRow[]; running: boolean; lastAt: string | null };
+type ResearchResp = { posts: ResearchPostRow[]; running: boolean; lastAt: string | null; lastRunAt?: string | null };
 function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: string) => void }) {
   const [resp, setResp] = useState<ResearchResp | null>(null);
   const [open, setOpen] = useState(false);
@@ -1122,7 +1122,9 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
     ? '● идёт сбор…'
     : resp?.lastAt
       ? `обновлено ${relTime(resp.lastAt)}`
-      : '';
+      : resp?.lastRunAt
+        ? `сбор был ${relTime(resp.lastRunAt)} — ничего не нашлось`
+        : '';
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-center gap-2">
@@ -1153,8 +1155,10 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
           {posts.length === 0 ? (
             <p className="text-sm text-muted">
               {resp.running
-                ? 'Идёт сбор — расширение открыло фоновую вкладку Threads и собирает топовые ветки. Появятся через 1–3 минуты.'
-                : 'Пока пусто. Включи Research во вкладке «Отбивка» и нажми «Собрать топ-ветки сейчас» (нужен залогиненный Threads в браузере).'}
+                ? 'Идёт сбор — расширение открыло вкладку Threads и собирает топовые ветки. Появятся через 1–3 минуты.'
+                : resp.lastRunAt
+                  ? `Последний сбор был ${relTime(resp.lastRunAt)}, но Threads не отдал ветки в этом окне. Попробуй сменить окно на «Всё время», либо запусти ещё раз — и не закрывай вкладку Threads, пока идёт сбор.`
+                  : 'Пока пусто. Включи Research во вкладке «Отбивка» и нажми «Собрать топ-ветки сейчас» (нужен залогиненный Threads в браузере).'}
             </p>
           ) : (
             <div className="space-y-2">
