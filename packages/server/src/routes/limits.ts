@@ -71,6 +71,19 @@ export async function limitsRoutes(app: FastifyInstance) {
     return { ok: true, runNowAt: l.runNowAt };
   });
 
+  // «Собрать топ-ветки сейчас»: метка для немедленного research-прохода (минуя 12-часовой
+  // кулдаун). Заодно включаем research, если был выключен — чтобы расширение его подхватило.
+  app.post('/api/research/run-now', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const l = await db.limits.upsert({
+      where: { userId },
+      create: { userId, researchEnabled: true, researchRunAt: new Date() },
+      update: { researchEnabled: true, researchRunAt: new Date() },
+    });
+    return { ok: true, researchRunAt: l.researchRunAt };
+  });
+
   // Запросить ХОЛОСТОЙ тест отбивки: расширение прогонит директ, посчитает совпадения,
   // но НИЧЕГО не отправит и не примет. Результат прилетит от расширения.
   app.post('/api/dm/test', async (req, reply) => {

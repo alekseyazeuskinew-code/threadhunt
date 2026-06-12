@@ -160,7 +160,7 @@ export function FlowBuilder({ value, onChange, ai }: { value: Flow; onChange: (f
   }
 
   return (
-    <div className="rounded-2xl border border-line">
+    <div className="ob-builder rounded-2xl border border-line bg-panel shadow-sm">
       {/* Вкладки страниц */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-line p-2">
         {pages.map((p, i) => (
@@ -207,7 +207,7 @@ export function FlowBuilder({ value, onChange, ai }: { value: Flow; onChange: (f
                 }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => dropBlock(i)}
-                className="flex gap-2 rounded-xl border border-line bg-panel p-3"
+                className="flex gap-2 rounded-xl border border-line bg-panel-2/70 p-3"
               >
                 <div
                   onMouseDown={() => setHandleOn(true)}
@@ -219,7 +219,7 @@ export function FlowBuilder({ value, onChange, ai }: { value: Flow; onChange: (f
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-xs text-muted">{BLOCK_LABELS[b.type]}</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted">{BLOCK_LABELS[b.type]}</span>
                     <button onClick={() => delBlock(i)} className="text-muted hover:text-danger"><Trash2 size={14} /></button>
                   </div>
                   <BlockEditor block={b} onChange={(patch) => setBlock(i, patch)} ai={ai} />

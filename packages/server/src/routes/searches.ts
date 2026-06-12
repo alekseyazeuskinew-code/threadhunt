@@ -349,17 +349,19 @@ export async function searchRoutes(app: FastifyInstance) {
     return { ok: true, removed: posts.count + passes.count };
   });
 
-  // ── Research: топовые вакансии-ветки (собраны расширением) за 30 дней ──
+  // ── Research: топовые вакансии-ветки (собраны расширением). Окно: week|month|all ──
   app.get('/api/searches/:id/research', async (req, reply) => {
     const userId = await requireUser(req, reply);
     if (!userId) return;
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
-    const since = new Date(Date.now() - 30 * 86_400_000);
+    const window = String((req.query as any)?.window || 'month');
+    const days = window === 'week' ? 7 : window === 'all' ? 3650 : 30;
+    const since = new Date(Date.now() - days * 86_400_000);
     const rows = await db.researchPost.findMany({
       where: { userId, searchId: id, fetchedAt: { gte: since } },
       orderBy: { fetchedAt: 'desc' },
-      take: 100,
+      take: 200,
     });
     // Сортируем по вовлечённости (ответы и репосты весомее лайков).
     const scored = rows

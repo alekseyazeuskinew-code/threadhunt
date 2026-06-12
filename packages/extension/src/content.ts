@@ -710,8 +710,12 @@ async function researchTick() {
   const tasks = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
   const r = tasks?.research;
   if (!r?.enabled || !r.queries?.length) return;
-  const { [LAST_RESEARCH_KEY]: last } = await chrome.storage.session.get(LAST_RESEARCH_KEY);
-  if (last && Date.now() - last < Math.max(60, r.intervalMinutes || 720) * 60_000) return;
+  // «Собрать сейчас» из дашборда — обходит 12-часовой кулдаун.
+  const runAtTs = r.runAt ? Date.parse(r.runAt) : 0;
+  const { [LAST_RESEARCH_KEY]: last, lastResearchRunNow } = await chrome.storage.session.get([LAST_RESEARCH_KEY, 'lastResearchRunNow']);
+  const isRunNow = !!runAtTs && runAtTs !== lastResearchRunNow;
+  if (!isRunNow && last && Date.now() - last < Math.max(60, r.intervalMinutes || 720) * 60_000) return;
+  if (isRunNow) await chrome.storage.session.set({ lastResearchRunNow: runAtTs });
   const state: ResearchState = { queue: r.queries.slice(0, 12), idx: 0, maxPerQuery: r.maxPerQuery || 15 };
   await chrome.storage.session.set({ [RESEARCH_KEY]: state });
   navigate(searchUrl(state.queue[0].query));

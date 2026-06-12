@@ -104,6 +104,7 @@ export async function agentRoutes(app: FastifyInstance) {
         queries: searches.slice(0, 12).map((s) => ({ searchId: s.id, query: s.title })),
         intervalMinutes: 720, // раз в ~12 часов
         maxPerQuery: 15,
+        runAt: lim.researchRunAt ? new Date(lim.researchRunAt).toISOString() : null,
       },
       dmTestAt: lim.dmTestAt ? new Date(lim.dmTestAt).toISOString() : null,
       pollIntervalSec: POLL_INTERVAL_SEC,
@@ -168,6 +169,8 @@ export async function agentRoutes(app: FastifyInstance) {
         update: data, // обновляем метрики/текст при повторном сборе
       }).catch(() => {});
     }
+    // Получили результаты — «собрать сейчас» считается отработанным.
+    await db.limits.updateMany({ where: { userId, researchRunAt: { not: null } }, data: { researchRunAt: null } }).catch(() => {});
     return { ok: true };
   });
 

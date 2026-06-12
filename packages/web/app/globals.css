@@ -60,6 +60,20 @@
   ::-webkit-scrollbar-thumb { background: var(--panel-2); border-radius: 999px; }
 }
 
+/* Конструктор онбординга: карточки блоков серые, поля — белые с чёткой границей.
+   Так поля перестают сливаться с фоном, оставаясь минималистичными. */
+.ob-builder input:not([type='checkbox']):not([type='radio']):not([type='file']),
+.ob-builder textarea,
+.ob-builder select {
+  background: var(--panel);
+  border-color: color-mix(in srgb, var(--border) 55%, var(--text));
+}
+.ob-builder input:not([type='checkbox']):not([type='radio']):not([type='file']):focus,
+.ob-builder textarea:focus,
+.ob-builder select:focus {
+  border-color: var(--accent);
+}
+
 /* Минималистичные анимации появления. Тихо отключаются при reduced-motion. */
 @media (prefers-reduced-motion: no-preference) {
   @keyframes th-fade-in {

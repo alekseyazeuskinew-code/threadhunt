@@ -356,6 +356,8 @@ function DmPassCard({ searchId }: { searchId: string }) {
   const [ready, setReady] = useState(false);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState('');
+  const [researchBusy, setResearchBusy] = useState(false);
+  const [researchMsg, setResearchMsg] = useState('');
 
   async function loadAll() {
     const [l, st] = await Promise.all([api.get<Limits>('/api/limits'), api.get<DmStats>(`/api/searches/${searchId}/dm-stats`).catch(() => null)]);
@@ -397,6 +399,19 @@ function DmPassCard({ searchId }: { searchId: string }) {
       setMsg(e.message);
     } finally {
       setRunning(false);
+    }
+  }
+  async function researchNow() {
+    setResearchBusy(true);
+    setResearchMsg('');
+    try {
+      await api.post('/api/research/run-now');
+      setLim((p) => (p ? { ...p, researchEnabled: true } : p));
+      setResearchMsg('Запущено — расширение соберёт топ-ветки в открытой вкладке Threads (1–3 мин).');
+    } catch (e: any) {
+      setResearchMsg(e.message);
+    } finally {
+      setResearchBusy(false);
     }
   }
 
@@ -459,6 +474,12 @@ function DmPassCard({ searchId }: { searchId: string }) {
         <input type="checkbox" checked={lim.researchEnabled} onChange={(e) => set({ researchEnabled: e.target.checked })} />
         <span>Research — раз в ~12 ч собирать <b>топовые вакансии-ветки</b> в Threads по твоим ролям (для вдохновения постов)</span>
       </label>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="ghost" onClick={researchNow} disabled={researchBusy}>
+          <TrendingUp size={14} /> {researchBusy ? 'Запускаю…' : 'Собрать топ-ветки сейчас'}
+        </Button>
+        {researchMsg && <span className="text-xs text-muted">{researchMsg}</span>}
+      </div>
 
       {lim.sweepIntervalMinutes <= intervalMin && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-warning">
@@ -1047,23 +1068,52 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
 // Редактор медиа сегмента: загрузка файла + вставка по ссылке + превью + карусель.
 // Топовые вакансии-ветки за 30 дней (собраны расширением через research). Источник
 // «насмотренности»: видно, что заходит у других по этой роли, и можно скормить в ИИ.
+const RESEARCH_WINDOWS = [
+  { value: 'week', label: 'Неделя' },
+  { value: 'month', label: 'Месяц' },
+  { value: 'all', label: 'Всё время' },
+];
 function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: string) => void }) {
   const [rows, setRows] = useState<ResearchPostRow[] | null>(null);
   const [open, setOpen] = useState(false);
+  const [win, setWin] = useState<'week' | 'month' | 'all'>('month');
   useEffect(() => {
-    api.get<ResearchPostRow[]>(`/api/searches/${searchId}/research`).then(setRows).catch(() => setRows([]));
-  }, [searchId]);
-  if (!rows) return null;
+    try {
+      const w = localStorage.getItem('th_research_window');
+      if (w === 'week' || w === 'month' || w === 'all') setWin(w);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    setRows(null);
+    api.get<ResearchPostRow[]>(`/api/searches/${searchId}/research?window=${win}`).then(setRows).catch(() => setRows([]));
+  }, [searchId, win]);
 
+  const winLabel = RESEARCH_WINDOWS.find((w) => w.value === win)?.label.toLowerCase();
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
-      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 text-left">
-        <span className="text-accent-ink">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
-        <TrendingUp size={16} className="shrink-0 text-accent-ink" />
-        <span className="font-semibold">Топ веток за 30 дней</span>
-        {rows.length > 0 && <span className="text-xs text-muted">· {rows.length} собрано</span>}
-      </button>
-      {open && (
+      <div className="flex items-center gap-2">
+        <button onClick={() => setOpen((v) => !v)} className="flex flex-1 items-center gap-2 text-left">
+          <span className="text-accent-ink">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
+          <TrendingUp size={16} className="shrink-0 text-accent-ink" />
+          <span className="font-semibold">Топ веток · {winLabel}</span>
+          {rows && rows.length > 0 && <span className="text-xs text-muted">· {rows.length} собрано</span>}
+        </button>
+        <div className="flex shrink-0 overflow-hidden rounded-lg border border-line">
+          {RESEARCH_WINDOWS.map((w) => (
+            <button
+              key={w.value}
+              onClick={() => {
+                setWin(w.value as any);
+                try { localStorage.setItem('th_research_window', w.value); } catch {}
+              }}
+              className={`px-2.5 py-1 text-xs transition-colors ${win === w.value ? 'bg-accent text-on-accent' : 'text-muted hover:bg-panel-2'}`}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {rows !== null && open && (
         <div className="mt-3">
           {rows.length === 0 ? (
             <p className="text-sm text-muted">

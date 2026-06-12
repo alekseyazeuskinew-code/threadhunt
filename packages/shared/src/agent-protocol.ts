@@ -47,6 +47,7 @@ export interface AgentResearch {
   queries: AgentResearchQuery[];
   intervalMinutes: number; // как часто запускать research-проход
   maxPerQuery: number; // сколько постов собирать на один запрос
+  runAt?: string | null; // «собрать сейчас»: метка, по которой агент запустит research вне расписания
 }
 
 /** Ответ сервера на запрос задач. */
