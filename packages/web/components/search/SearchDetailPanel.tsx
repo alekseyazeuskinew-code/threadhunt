@@ -1313,6 +1313,10 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
     api.get<SearchSummary[]>('/api/searches').then((rows) => setPositions(rows.filter((r) => r.id !== s.id && r.status === 'ACTIVE').map((r) => r.title))).catch(() => {});
   }, [s.id]);
 
+  // Правка блока прямо из живого превью (клик по тексту/заголовку → редактирование на месте).
+  const editBlock = (blockId: string, patch: Partial<import('@/lib/flow').Block>) =>
+    setFlow((f) => ({ ...f, pages: f.pages.map((p) => ({ ...p, blocks: p.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b)) })) }));
+
   async function save() {
     const hours = dlUnit === 'd' ? dlValue * 24 : dlValue;
     const obDeadlineAt = dlMode === 'fixed' && dlLocal ? zonedToUtc(dlLocal, tz).toISOString() : null;
@@ -1380,8 +1384,8 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   };
 
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
-      <div className="space-y-5">
+    <div className="lg:flex lg:gap-6">
+      <div className="min-w-0 space-y-5 lg:flex-1">
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="flex items-center justify-between">
           <div className="text-sm text-muted">Ссылку выдашь из карточки лида во вкладке «Лиды».</div>
@@ -1478,8 +1482,9 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
       <OnboardingFunnelBlock id={s.id} />
       </div>
 
-      {/* ── ПРАВО: живое превью (десктоп) — обновляется на каждое изменение слева ── */}
-      <div className="mt-6 hidden lg:mt-0 lg:block">
+      {/* ── ПРАВО: живое превью (десктоп) — обновляется на каждое изменение слева.
+          Ширина колонки зависит от устройства: телефон ~380, компьютер ~760. ── */}
+      <div className="mt-6 hidden shrink-0 lg:mt-0 lg:block" style={{ width: device === 'desktop' ? 760 : 380 }}>
         <div className="sticky top-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">Превью вживую</div>
@@ -1509,9 +1514,9 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
 
           {/* Кадр устройства */}
           {device === 'phone' ? (
-            <div className="mx-auto w-[300px] overflow-hidden rounded-[2.2rem] border-[6px] border-neutral-800 bg-bg shadow-xl">
-              <div className="h-[560px] overflow-y-auto">
-                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="phone" />
+            <div className="mx-auto w-[360px] overflow-hidden rounded-[2.4rem] border-[7px] border-neutral-800 bg-bg shadow-xl">
+              <div className="h-[620px] overflow-y-auto">
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="phone" onEdit={editBlock} />
               </div>
             </div>
           ) : (
@@ -1520,14 +1525,14 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
                 <span className="h-2.5 w-2.5 rounded-full bg-danger/60" />
                 <span className="h-2.5 w-2.5 rounded-full bg-warning/60" />
                 <span className="h-2.5 w-2.5 rounded-full bg-success/60" />
-                <span className="ml-2 truncate rounded bg-bg px-2 py-0.5 text-[10px] text-muted">отклик на роль</span>
+                <span className="ml-3 truncate rounded bg-bg px-3 py-0.5 text-[11px] text-muted">{s.title} · отклик на роль</span>
               </div>
-              <div className="h-[560px] overflow-y-auto">
-                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="desktop" />
+              <div className="h-[620px] overflow-y-auto">
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="desktop" onEdit={editBlock} />
               </div>
             </div>
           )}
-          <p className="text-center text-[11px] text-muted">Обновляется вживую при правках слева</p>
+          <p className="text-center text-[11px] text-muted">Заголовки и тексты можно править прямо в превью (клик) · обновляется вживую</p>
         </div>
       </div>
 

@@ -63,6 +63,25 @@ export function CompletionView({ onRestart }: { onRestart?: () => void }) {
 
 // Рендер одного блока онбординга. Общий для публичной страницы кандидата и для
 // предпросмотра в конструкторе — чтобы превью было 1:1 тем, что увидит кандидат.
+// Редактируемый текст «на месте» (для живого превью в конструкторе). Обновляет
+// по blur, чтобы не сбивать курсор при наборе. innerText сохраняет переносы строк.
+function Editable({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+  return (
+    <div
+      contentEditable
+      suppressContentEditableWarning
+      onBlur={(e) => {
+        const t = e.currentTarget.innerText.replace(/ /g, ' ');
+        if (t !== value) onChange(t);
+      }}
+      title="Нажми, чтобы отредактировать"
+      className={`-mx-1 min-h-[1.2em] cursor-text whitespace-pre-wrap rounded px-1 outline-none transition-colors hover:bg-accent-soft/40 focus:bg-accent-soft/60 ${className || ''}`}
+    >
+      {value}
+    </div>
+  );
+}
+
 export function BlockView({
   b,
   values,
@@ -71,6 +90,7 @@ export function BlockView({
   setConsents,
   company,
   positions,
+  onEdit,
 }: {
   b: Block;
   values: Record<string, string>;
@@ -79,11 +99,22 @@ export function BlockView({
   setConsents: (f: (s: Record<string, boolean>) => Record<string, boolean>) => void;
   company?: CompanyProfile | null;
   positions?: string[];
+  onEdit?: (blockId: string, patch: Partial<Block>) => void;
 }) {
-  if (b.type === 'company') return <CompanyCard company={company} block={b} />;
+  if (b.type === 'company') return <CompanyCard company={company} block={b} onEdit={onEdit} />;
   if (b.type === 'positions') return <PositionsList positions={positions} />;
-  if (b.type === 'heading') return <div className="text-base font-semibold">{b.text}</div>;
-  if (b.type === 'text') return <p className="whitespace-pre-wrap text-sm text-muted">{b.text}</p>;
+  if (b.type === 'heading')
+    return onEdit ? (
+      <Editable className="text-base font-semibold" value={b.text || ''} onChange={(t) => onEdit(b.id, { text: t })} />
+    ) : (
+      <div className="text-base font-semibold">{b.text}</div>
+    );
+  if (b.type === 'text')
+    return onEdit ? (
+      <Editable className="text-sm text-muted" value={b.text || ''} onChange={(t) => onEdit(b.id, { text: t })} />
+    ) : (
+      <p className="whitespace-pre-wrap text-sm text-muted">{b.text}</p>
+    );
 
   if (b.type === 'image') return b.url ? <img src={b.url} alt="" className="w-full rounded-xl border border-line" /> : null;
   if (b.type === 'video') {
@@ -245,7 +276,7 @@ export const COMPANY_STYLES = [
 
 // Презентация компании: данные из «Голоса бренда», но название/«о компании»/логотип/
 // обложку/стиль можно переопределить в блоке (поля logo/cover/style/label/text).
-function CompanyCard({ company, block }: { company?: CompanyProfile | null; block?: Block }) {
+function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | null; block?: Block; onEdit?: (blockId: string, patch: Partial<Block>) => void }) {
   const name = (block?.label || company?.name || '').trim() || 'Ваша компания';
   const about = (block?.text || company?.about || '').trim();
   const initial = name.charAt(0).toUpperCase();
@@ -276,11 +307,19 @@ function CompanyCard({ company, block }: { company?: CompanyProfile | null; bloc
             <div className="th-grad flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-4 border-bg text-lg font-bold">{initial}</div>
           )}
           <div className="min-w-0 pb-1">
-            <div className="truncate font-semibold">{name}</div>
+            {onEdit && block ? (
+              <Editable className="font-semibold" value={name} onChange={(t) => onEdit(block.id, { label: t })} />
+            ) : (
+              <div className="truncate font-semibold">{name}</div>
+            )}
             {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
           </div>
         </div>
-        {about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{about}</p>}
+        {onEdit && block ? (
+          <Editable className="mt-3 text-sm text-muted" value={about} onChange={(t) => onEdit(block.id, { text: t })} />
+        ) : (
+          about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{about}</p>
+        )}
         {perks.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {perks.map((p, i) => (
@@ -334,7 +373,7 @@ function hexToRgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-export function FlowPreview({ flow, role, company, positions, device = 'phone' }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[]; device?: 'phone' | 'desktop' }) {
+export function FlowPreview({ flow, role, company, positions, device = 'phone', onEdit }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[]; device?: 'phone' | 'desktop'; onEdit?: (blockId: string, patch: Partial<Block>) => void }) {
   const [idx, setIdx] = useState(0);
   const [values, setValues] = useState<Record<string, string>>({});
   const [consents, setConsents] = useState<Record<string, boolean>>({});
@@ -353,8 +392,8 @@ export function FlowPreview({ flow, role, company, positions, device = 'phone' }
   return (
     <div className="th-aurora relative flex min-h-full w-full flex-col" style={accentStyle}>
       <div className="th-grid pointer-events-none absolute inset-0 opacity-[0.25]" />
-      <div className={`relative mx-auto flex w-full ${widthClass} flex-1 flex-col justify-center px-5 py-7`}>
-        <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.06] backdrop-blur sm:p-7">
+      <div className={`relative mx-auto flex w-full ${widthClass} flex-1 flex-col justify-center px-4 py-6`}>
+        <div className="th-rise rounded-3xl border border-line bg-panel/90 p-5 shadow-2xl shadow-black/[0.06] backdrop-blur">
           <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{company?.name ? company.name : 'Отклик на роль'}</div>
           <h1 className="mt-1 text-2xl font-semibold leading-tight">{role || 'Роль'}</h1>
 
@@ -367,7 +406,7 @@ export function FlowPreview({ flow, role, company, positions, device = 'phone' }
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
                 {page.blocks.map((b) => (
-                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} />
+                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} />
                 ))}
               </div>
               <div className="mt-6 flex gap-2">
