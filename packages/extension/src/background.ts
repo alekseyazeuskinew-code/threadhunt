@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.9';
+const VERSION = '0.1.10';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -65,15 +65,28 @@ async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
   const { researchHandledAt, researchTabOpenedAt, researchTabId } = await chrome.storage.local.get(['researchHandledAt', 'researchTabOpenedAt', 'researchTabId']);
   // Таймаут: закрыть зависшую research-вкладку.
   if (researchTabId != null && researchTabOpenedAt && Date.now() - researchTabOpenedAt > 5 * 60_000) await closeResearchTab();
-  const runAt = tasks.research?.runAt;
+  const r = tasks.research;
+  const runAt = r?.runAt;
   if (!runAt) return; // нет запроса «сейчас» — плановый research идёт на уже открытой вкладке
   if (researchHandledAt === runAt) return; // этот запрос уже обработали (вкладку откроем один раз)
+
+  // Нечего искать (research выключен или нет запросов) — гасим метку, чтобы не висел «Сбор».
+  if (!r?.enabled || !r.queries?.length) {
+    await chrome.storage.local.set({ researchHandledAt: runAt });
+    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: [] }) }).then(() => void tick());
+    return;
+  }
+
   await closeResearchTab();
   try {
-    // active:true — выдачу поиска Threads (виртуализированный список) в фоновой
-    // вкладке браузер не отрисовывает, и собирать нечего. Видимая вкладка решает это
-    // и заодно даёт клиенту понять, что сбор пошёл. Закроется сама по завершении.
-    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: true });
+    // Сразу кладём состояние research-прохода и открываем НАПРЯМУЮ страницу поиска
+    // (минуя /messages, где мог бы стартовать обход директа и заблокировать сбор).
+    // active:true — выдачу поиска Threads (виртуализированный список) в фоновой вкладке
+    // браузер не отрисовывает; видимая вкладка решает это и показывает клиенту прогресс.
+    const queue = r.queries.slice(0, 12);
+    await chrome.storage.session.set({ research: { queue, idx: 0, maxPerQuery: r.maxPerQuery || 15, collected: 0 }, lastResearchRunNow: Date.parse(runAt) });
+    const url = 'https://www.threads.com/search?q=' + encodeURIComponent(queue[0].query) + '&serp_type=default';
+    const tab = await chrome.tabs.create({ url, active: true });
     await chrome.storage.local.set({ researchHandledAt: runAt, researchTabId: tab.id ?? null, researchTabOpenedAt: Date.now() });
   } catch {
     /* не удалось открыть вкладку */
