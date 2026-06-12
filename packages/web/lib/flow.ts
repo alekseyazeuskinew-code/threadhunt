@@ -32,6 +32,12 @@ export interface Block {
   minLabel?: string; // подпись левого края шкалы
   maxLabel?: string; // подпись правого края шкалы
   required?: boolean;
+  // ── Блок «О компании»: оформление и ручные переопределения ──
+  // name/about берутся из «Голоса бренда», но их можно переопределить здесь
+  // (label = название, text = «о компании»). logo/cover — картинки, style — пресет.
+  logo?: string; // URL логотипа компании
+  cover?: string; // URL фоновой обложки
+  style?: string; // пресет оформления: minimal | gradient | dark | bold
 }
 
 export interface Page {

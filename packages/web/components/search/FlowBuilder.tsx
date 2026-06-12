@@ -1,11 +1,55 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, Trash2, GripVertical, ChevronLeft, ChevronRight, Type, AlignLeft, TextCursorInput, CheckSquare, Upload, CircleDot, ListChecks, Gauge, X, Image, Video, FileText, HelpCircle, LifeBuoy, Sparkles, Building2, Briefcase } from 'lucide-react';
 import type { Flow, Page, Block, BlockType } from '@/lib/flow';
 import { newBlock, newPage, BLOCK_LABELS } from '@/lib/flow';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
+
+const COMPANY_STYLE_OPTS = [
+  { value: 'minimal', label: 'Минимал' },
+  { value: 'gradient', label: 'Градиент' },
+  { value: 'dark', label: 'Тёмный' },
+  { value: 'bold', label: 'Яркий' },
+];
+
+// Поле картинки: загрузка файла + ручной URL + превью. Для логотипа/обложки.
+function ImageField({ value, onChange, label }: { value?: string; onChange: (url: string) => void; label: string }) {
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  async function up(f: File) {
+    setBusy(true);
+    try {
+      const r = await api.upload(f);
+      onChange(r.url);
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(false);
+      if (ref.current) ref.current.value = '';
+    }
+  }
+  return (
+    <div>
+      <div className="mb-1 text-xs text-muted">{label}</div>
+      <div className="flex items-center gap-2">
+        {value && <img src={value} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-line object-cover" />}
+        <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="URL картинки или загрузи →" />
+        <input ref={ref} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && up(e.target.files[0])} />
+        <button onClick={() => ref.current?.click()} disabled={busy} className="shrink-0 rounded-lg border border-line px-2 py-2 text-muted hover:bg-panel-2" title="Загрузить">
+          {busy ? '…' : <Upload size={14} />}
+        </button>
+        {value && (
+          <button onClick={() => onChange('')} className="shrink-0 text-muted hover:text-danger" title="Убрать">
+            <X size={16} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const PALETTE: { type: BlockType; icon: any }[] = [
   { type: 'company', icon: Building2 },
@@ -214,7 +258,20 @@ function OptionsEditor({ block, onChange }: { block: Block; onChange: (p: Partia
 
 function BlockEditor({ block, onChange, ai }: { block: Block; onChange: (p: Partial<Block>) => void; ai?: AiText }) {
   if (block.type === 'company')
-    return <div className="rounded-lg bg-bg px-3 py-2 text-xs text-muted">Презентация компании подтянется автоматически из «Голоса бренда» (Настройки): название, ниша, о нас, плюсы, соцсети.</div>;
+    return (
+      <div className="space-y-3">
+        <p className="rounded-lg bg-bg px-3 py-2 text-xs text-muted">
+          По умолчанию подтянется из «Голоса бренда» (Настройки): название, ниша, о нас, плюсы, соцсети. Ниже можно переопределить и оформить.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Input value={block.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Название (пусто = из бренда)" />
+          <Select value={block.style || 'minimal'} onChange={(v) => onChange({ style: v })} options={COMPANY_STYLE_OPTS} />
+        </div>
+        <Textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="О компании (пусто = из бренда)" />
+        <ImageField label="Логотип" value={block.logo} onChange={(url) => onChange({ logo: url })} />
+        <ImageField label="Фоновая обложка" value={block.cover} onChange={(url) => onChange({ cover: url })} />
+      </div>
+    );
   if (block.type === 'positions')
     return <div className="rounded-lg bg-bg px-3 py-2 text-xs text-muted">Покажет другие активные вакансии компании. Заполнять не нужно — обновляется само.</div>;
   if (block.type === 'heading')

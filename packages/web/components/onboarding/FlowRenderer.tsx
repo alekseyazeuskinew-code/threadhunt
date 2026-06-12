@@ -80,7 +80,7 @@ export function BlockView({
   company?: CompanyProfile | null;
   positions?: string[];
 }) {
-  if (b.type === 'company') return <CompanyCard company={company} />;
+  if (b.type === 'company') return <CompanyCard company={company} block={b} />;
   if (b.type === 'positions') return <PositionsList positions={positions} />;
   if (b.type === 'heading') return <div className="text-base font-semibold">{b.text}</div>;
   if (b.type === 'text') return <p className="whitespace-pre-wrap text-sm text-muted">{b.text}</p>;
@@ -229,11 +229,29 @@ export function BlockView({
   );
 }
 
-// Авто-презентация компании — из «Голоса бренда» (название, ниша, о нас, плюсы, соцсети).
-// Данные приходят живыми (через /api/c/:token), редактировать вручную не нужно.
-function CompanyCard({ company }: { company?: CompanyProfile | null }) {
-  const name = (company?.name || '').trim() || 'Ваша компания';
+// Пресеты оформления обложки блока «О компании».
+const COVER_PRESET: Record<string, string> = {
+  minimal: 'h-16 bg-panel-2',
+  gradient: 'h-24 th-grad',
+  dark: 'h-20 bg-neutral-900',
+  bold: 'h-28 th-grad',
+};
+export const COMPANY_STYLES = [
+  { value: 'minimal', label: 'Минимал' },
+  { value: 'gradient', label: 'Градиент' },
+  { value: 'dark', label: 'Тёмный' },
+  { value: 'bold', label: 'Яркий' },
+];
+
+// Презентация компании: данные из «Голоса бренда», но название/«о компании»/логотип/
+// обложку/стиль можно переопределить в блоке (поля logo/cover/style/label/text).
+function CompanyCard({ company, block }: { company?: CompanyProfile | null; block?: Block }) {
+  const name = (block?.label || company?.name || '').trim() || 'Ваша компания';
+  const about = (block?.text || company?.about || '').trim();
   const initial = name.charAt(0).toUpperCase();
+  const logo = block?.logo;
+  const cover = block?.cover;
+  const style = block?.style || 'minimal';
   const perks = (company?.perks || '')
     .split(/[,\n;]+/)
     .map((s) => s.trim())
@@ -241,28 +259,41 @@ function CompanyCard({ company }: { company?: CompanyProfile | null }) {
     .slice(0, 6);
   let social = (company?.social || '').trim();
   if (social && !/^https?:\/\//i.test(social)) social = social.startsWith('@') ? `https://t.me/${social.slice(1)}` : `https://${social}`;
+
   return (
-    <div className="rounded-2xl border border-line bg-bg p-4">
-      <div className="flex items-center gap-3">
-        <div className="th-grad flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-lg font-bold">{initial}</div>
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{name}</div>
-          {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
+    <div className="overflow-hidden rounded-2xl border border-line bg-bg">
+      {/* Обложка (картинка или пресет-фон) */}
+      <div
+        className={`w-full ${COVER_PRESET[style] || COVER_PRESET.minimal}`}
+        style={cover ? { backgroundImage: `url(${cover})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      />
+      <div className="px-4 pb-4">
+        {/* Логотип «наезжает» на обложку */}
+        <div className="-mt-7 flex items-end gap-3">
+          {logo ? (
+            <img src={logo} alt="" className="h-14 w-14 shrink-0 rounded-2xl border-4 border-bg bg-panel object-cover" />
+          ) : (
+            <div className="th-grad flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-4 border-bg text-lg font-bold">{initial}</div>
+          )}
+          <div className="min-w-0 pb-1">
+            <div className="truncate font-semibold">{name}</div>
+            {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
+          </div>
         </div>
+        {about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{about}</p>}
+        {perks.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {perks.map((p, i) => (
+              <span key={i} className="rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">{p}</span>
+            ))}
+          </div>
+        )}
+        {social && (
+          <a href={social} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent-ink hover:underline">
+            Соцсети компании <ArrowRight size={13} />
+          </a>
+        )}
       </div>
-      {company?.about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{company.about}</p>}
-      {perks.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {perks.map((p, i) => (
-            <span key={i} className="rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">{p}</span>
-          ))}
-        </div>
-      )}
-      {social && (
-        <a href={social} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent-ink hover:underline">
-          Соцсети компании <ArrowRight size={13} />
-        </a>
-      )}
     </div>
   );
 }
