@@ -207,28 +207,36 @@ function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadl
   ) : (
     <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{title}</div>
   );
-  // Переключатель стиля (только в конструкторе) — общий для всех вариантов.
-  const stylePicker = edit && (
-    <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line/60 pt-2.5">
-      <span className="text-[11px] text-muted">Стиль таймера:</span>
-      {DEADLINE_STYLES.map((st) => (
-        <button
-          key={st.value}
-          onClick={() => onEdit!(block!.id, { style: st.value })}
-          className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${dstyle === st.value ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line text-muted hover:bg-panel-2'}`}
-        >
-          {st.label}
-        </button>
-      ))}
-    </div>
-  );
+  // Переключатель стиля (только в конструкторе). onDark — для тёмного/градиентного фона
+  // («Крупный»), чтобы кнопки были видны и контрастны.
+  const picker = (onDark: boolean) =>
+    edit && (
+      <div className={`mt-3 flex flex-wrap items-center gap-1.5 border-t pt-2.5 ${onDark ? 'border-white/25' : 'border-line/60'}`}>
+        <span className={`text-[11px] ${onDark ? 'text-on-accent/80' : 'text-muted'}`}>Стиль таймера:</span>
+        {DEADLINE_STYLES.map((st) => {
+          const active = dstyle === st.value;
+          const cls = onDark
+            ? active
+              ? 'border-white bg-white/25 text-on-accent'
+              : 'border-white/40 text-on-accent/80 hover:bg-white/10'
+            : active
+              ? 'border-accent bg-accent-soft text-accent-ink'
+              : 'border-line text-muted hover:bg-panel-2';
+          return (
+            <button key={st.value} onClick={() => onEdit!(block!.id, { style: st.value })} className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${cls}`}>
+              {st.label}
+            </button>
+          );
+        })}
+      </div>
+    );
 
   if (!deadline) {
     return (
       <div className="rounded-2xl border border-dashed border-line bg-bg p-4">
         {titleEl}
         <p className="mt-1 text-sm text-muted">Включите «Срок сдачи» в настройках онбординга — здесь появится живой таймер обратного отсчёта.</p>
-        {stylePicker}
+        {picker(false)}
       </div>
     );
   }
@@ -257,7 +265,7 @@ function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadl
         </div>
         <p className="mt-2 text-sm font-semibold text-danger">Дедлайн прошёл{dd > 0 ? ` ${dd} дн` : ''} {hh} ч {mm} мин назад</p>
         <div className="mt-2.5">{dueLine}</div>
-        {stylePicker}
+        {picker(false)}
       </div>
     );
   }
@@ -281,41 +289,42 @@ function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadl
             </div>
           </div>
         </div>
-        {stylePicker}
+        {picker(false)}
       </div>
     );
   }
 
-  // Стиль «Крупный» — заметный акцентный баннер.
+  // Стиль «Крупный» — заметный акцентный баннер. Короткие подписи + компактные отступы,
+  // чтобы 4 ячейки гарантированно влезали в узкое превью телефона.
   if (dstyle === 'bold') {
     const bcell = (v: number, lbl: string) => (
-      <div className="flex flex-col items-center">
-        <span className="tabular-nums text-3xl font-extrabold leading-none text-on-accent">{pad(v)}</span>
-        <span className="mt-1 text-[10px] uppercase tracking-wide text-on-accent/70">{lbl}</span>
+      <div className="flex min-w-0 flex-col items-center">
+        <span className="tabular-nums text-2xl font-extrabold leading-none text-on-accent">{pad(v)}</span>
+        <span className="mt-1 text-[9px] uppercase tracking-wide text-on-accent/70">{lbl}</span>
       </div>
     );
-    const bsep = <span className="self-start pt-1 text-2xl text-on-accent/50">:</span>;
+    const bsep = <span className="self-start pt-0.5 text-xl leading-none text-on-accent/50">:</span>;
     return (
       <div className="th-grad overflow-hidden rounded-2xl p-4 text-on-accent shadow-lg shadow-accent/20">
         <div className="flex items-center gap-1.5">
-          <Clock size={14} className="text-on-accent" />
-          <div className="text-xs font-semibold uppercase tracking-wide text-on-accent">{edit ? <Editable className="text-on-accent" value={title} onChange={(t) => onEdit!(block!.id, { text: t })} /> : title}</div>
+          <Clock size={14} className="shrink-0 text-on-accent" />
+          <div className="min-w-0 text-xs font-semibold uppercase tracking-wide text-on-accent">{edit ? <Editable className="text-on-accent" value={title} onChange={(t) => onEdit!(block!.id, { text: t })} /> : title}</div>
         </div>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex items-center justify-center gap-1.5">
           {dd > 0 && (
             <>
-              {bcell(dd, 'дней')}
+              {bcell(dd, 'дн')}
               {bsep}
             </>
           )}
-          {bcell(hh, 'часов')}
+          {bcell(hh, 'ч')}
           {bsep}
-          {bcell(mm, 'минут')}
+          {bcell(mm, 'мин')}
           {bsep}
-          {bcell(ss, 'секунд')}
+          {bcell(ss, 'сек')}
         </div>
         <div className="mt-2.5">{dueLine}</div>
-        {stylePicker}
+        {picker(true)}
       </div>
     );
   }
@@ -340,7 +349,7 @@ function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadl
         {cell(ss, 'секунд')}
       </div>
       <div className="mt-2.5">{dueLine}</div>
-      {stylePicker}
+      {picker(false)}
     </div>
   );
 }
