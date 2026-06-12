@@ -682,11 +682,20 @@ function searchDiag(query: string, collected: number) {
 // Вовлечённость поста — ЯЗЫКО-НЕЗАВИСИМО (Threads бывает на любом языке: «Mi piace»,
 // «Segui» и т.п.). Берём числа у кнопок-действий по порядку: лайки, комменты, репосты.
 function extractMetrics(container: HTMLElement): { likes: number; replies: number; reposts: number } {
+  // Число рядом с кнопкой действия: в самой кнопке, у её соседа или у соседа родителя
+  // (счётчик у Threads — отдельный <span> рядом с иконкой). Ограниченный радиус, чтобы
+  // кнопка «подписаться» (в шапке, без счётчика) не дотянулась до чужих чисел.
+  const nearbyCount = (btn: HTMLElement): number => {
+    let n = parseCount(btn.getAttribute('aria-label') || '') || parseCount(btn.textContent || '');
+    if (n) return n;
+    n = parseCount(btn.nextElementSibling?.textContent || '');
+    if (n) return n;
+    return parseCount(btn.parentElement?.nextElementSibling?.textContent || '') || 0;
+  };
   const vals: number[] = [];
   for (const b of container.querySelectorAll<HTMLElement>('[role="button"]')) {
     if (!b.querySelector('svg')) continue; // кнопки действий содержат иконку
-    const cand = `${b.getAttribute('aria-label') || ''} ${b.textContent || ''} ${b.nextElementSibling?.textContent || ''}`;
-    const n = parseCount(cand);
+    const n = nearbyCount(b);
     if (n > 0) vals.push(n); // кнопка «подписаться» без числа пропускается
   }
   const [likes = 0, replies = 0, reposts = 0] = vals;
@@ -725,9 +734,13 @@ function collectSearchPosts(cur: { searchId: string; query: string }, max: numbe
     const id = m[1];
     if (seen.has(id)) continue;
     seen.add(id);
-    const text = (container.innerText || '').replace(/\s+/g, ' ').trim();
-    if (text.length < 10) continue;
     const author = (href.match(/\/@([\w.]+)/) || [])[1] || undefined;
+    let text = (container.innerText || '').replace(/\s+/g, ' ').trim();
+    // Чистим текст: убираем ведущий «ник дата» и хвост кнопки перевода со счётчиками.
+    if (author) text = text.replace(new RegExp('^' + author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '').trim();
+    text = text.replace(/^\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b/, '').trim(); // ведущая дата dd/mm/yyyy
+    text = text.replace(/\b(Traduci|Translate|Перевести|Traducir|Übersetzen|Traduire)\b[\s\d.,KkМмMm]*$/i, '').trim(); // хвост «перевод + числа»
+    if (text.length < 10) continue;
     const { likes, replies, reposts } = extractMetrics(container);
     const postedAt = postedAtOf(container);
     out.push({ searchId: cur.searchId, query: cur.query, threadsPostId: id, author, text: text.slice(0, 1200), permalink: BASE + href.split('?')[0], likes, replies, reposts, postedAt });

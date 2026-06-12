@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow, CompanyProfile, BrandProfile, SearchSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -1091,6 +1091,19 @@ const RESEARCH_WINDOWS = [
   { value: 'month', label: 'Месяц' },
   { value: 'all', label: 'Всё время' },
 ];
+// 1234 → «1.2K», 1200000 → «1.2M» (компактные счётчики вовлечённости).
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
+function fmtPostDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(iso));
+  } catch {
+    return '';
+  }
+}
 type ResearchDiag = { q?: string; url?: string; postLinks?: number; userPostLinks?: number; pressable?: number; articles?: number; anchors?: number; bodyLen?: number; sample?: string[]; htmlSample?: string; collected?: number };
 type ResearchResp = { posts: ResearchPostRow[]; running: boolean; lastAt: string | null; lastRunAt?: string | null; diag?: ResearchDiag | null };
 function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: string) => void }) {
@@ -1121,13 +1134,6 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
 
   const posts = resp?.posts ?? [];
   const winLabel = RESEARCH_WINDOWS.find((w) => w.value === win)?.label.toLowerCase();
-  const statusLine = resp?.running
-    ? '● идёт сбор…'
-    : resp?.lastAt
-      ? `обновлено ${relTime(resp.lastAt)}`
-      : resp?.lastRunAt
-        ? `сбор был ${relTime(resp.lastRunAt)} — ничего не нашлось`
-        : '';
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-center gap-2">
@@ -1136,7 +1142,13 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
           <TrendingUp size={16} className="shrink-0 text-accent-ink" />
           <span className="font-semibold">Топ веток · {winLabel}</span>
           {posts.length > 0 && <span className="text-xs text-muted">· {posts.length}</span>}
-          {statusLine && <span className={`text-xs ${resp?.running ? 'text-accent-ink' : 'text-muted'}`}>· {statusLine}</span>}
+          {resp?.running ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-ink">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> идёт сбор…
+            </span>
+          ) : resp?.lastAt ? (
+            <span className="text-xs text-muted">· обновлено {relTime(resp.lastAt)}</span>
+          ) : null}
         </button>
         <div className="flex shrink-0 overflow-hidden rounded-lg border border-line">
           {RESEARCH_WINDOWS.map((w) => (
@@ -1155,33 +1167,49 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
       </div>
       {resp !== null && open && (
         <div className="mt-3">
+          {/* Живой индикатор сбора */}
+          {resp.running && (
+            <div className="mb-3 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent-soft/50 px-3 py-2 text-sm text-accent-ink">
+              <Loader2 size={15} className="animate-spin" />
+              <span>Идёт сбор веток из Threads… 1–3 минуты. Список и метрики обновляются автоматически.</span>
+            </div>
+          )}
           {posts.length === 0 ? (
-            <p className="text-sm text-muted">
-              {resp.running
-                ? 'Идёт сбор — расширение открыло вкладку Threads и собирает топовые ветки. Появятся через 1–3 минуты.'
-                : resp.lastRunAt
-                  ? `Последний сбор был ${relTime(resp.lastRunAt)}, но Threads не отдал ветки в этом окне. Попробуй сменить окно на «Всё время», либо запусти ещё раз — и не закрывай вкладку Threads, пока идёт сбор.`
+            !resp.running && (
+              <p className="text-sm text-muted">
+                {resp.lastRunAt
+                  ? `Последний сбор был ${relTime(resp.lastRunAt)}, но Threads не отдал ветки в этом окне. Попробуй сменить окно на «Всё время» или запусти ещё раз.`
                   : 'Пока пусто. Включи Research во вкладке «Отбивка» и нажми «Собрать топ-ветки сейчас» (нужен залогиненный Threads в браузере).'}
-            </p>
+              </p>
+            )
           ) : (
-            <div className="space-y-2">
-              {posts.map((r) => (
-                <div key={r.id} className="rounded-xl border border-line bg-bg p-3">
-                  <p className="line-clamp-3 whitespace-pre-wrap text-sm">{r.text}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-                    {r.author && <span>@{r.author}</span>}
-                    <span className="inline-flex items-center gap-1"><Heart size={12} /> {r.likes}</span>
-                    <span className="inline-flex items-center gap-1"><MessageSquare size={12} /> {r.replies}</span>
-                    <span className="inline-flex items-center gap-1"><Repeat2 size={12} /> {r.reposts}</span>
-                    <div className="ml-auto flex items-center gap-3">
-                      {r.permalink && (
-                        <a href={r.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-accent-ink hover:underline">
-                          открыть <ExternalLink size={11} />
-                        </a>
-                      )}
-                      <button onClick={() => onUse(r.text)} className="font-medium text-accent-ink hover:underline">
-                        в ИИ-бриф →
-                      </button>
+            <div className="space-y-2.5">
+              {posts.map((r, i) => (
+                <div key={r.id} className="rounded-2xl border border-line bg-bg p-3.5">
+                  <div className="flex items-start gap-2.5">
+                    <div className="th-grad flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-on-accent">{(r.author || '?').charAt(0).toUpperCase()}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-sm">
+                        <span className="truncate font-semibold">@{r.author || '—'}</span>
+                        {r.postedAt && <span className="shrink-0 text-xs text-muted">· {fmtPostDate(r.postedAt)}</span>}
+                        {i < 3 && <span className="ml-auto shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-semibold text-accent-ink">🔥 топ</span>}
+                      </div>
+                      <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm leading-snug text-text">{r.text}</p>
+                      <div className="mt-2.5 flex items-center gap-4 text-xs text-muted">
+                        <span className="inline-flex items-center gap-1"><Heart size={13} /> {fmtNum(r.likes)}</span>
+                        <span className="inline-flex items-center gap-1"><MessageSquare size={13} /> {fmtNum(r.replies)}</span>
+                        <span className="inline-flex items-center gap-1"><Repeat2 size={13} /> {fmtNum(r.reposts)}</span>
+                        <div className="ml-auto flex items-center gap-3">
+                          {r.permalink && (
+                            <a href={r.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-accent-ink hover:underline">
+                              Открыть <ExternalLink size={11} />
+                            </a>
+                          )}
+                          <button onClick={() => onUse(r.text)} className="font-medium text-accent-ink hover:underline">
+                            в ИИ-бриф →
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

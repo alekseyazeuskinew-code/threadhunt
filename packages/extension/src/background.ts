@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.15';
+const VERSION = '0.1.16';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
