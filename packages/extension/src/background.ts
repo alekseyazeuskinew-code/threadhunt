@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.19';
+const VERSION = '0.1.20';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -77,7 +77,7 @@ async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
   if (!r?.enabled || !r.queries?.length) {
     console.log('[threadhunt] research: нечего искать — enabled:', r?.enabled, 'queries:', r?.queries?.length);
     await chrome.storage.local.set({ researchHandledAt: runAt });
-    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: [] }) }).then(() => void tick());
+    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: [], done: true }) }).then(() => void tick());
     return;
   }
 
@@ -181,9 +181,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: msg.posts || [], diag: msg.diag || null }) });
   }
   if (msg?.type === 'researchDone') {
-    // Проход завершён — гасим метку «идёт сбор» на сервере (даже при 0 собранных) и
-    // закрываем фоновую research-вкладку.
-    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: [] }) }).then(() => void tick());
+    // Весь проход завершён — done:true гасит метку «идёт сбор» на сервере и закрывает вкладку.
+    void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: [], done: true }) }).then(() => void tick());
     void closeResearchTab();
   }
   if (msg?.type === 'testResult') {

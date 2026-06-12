@@ -390,9 +390,12 @@ export async function searchRoutes(app: FastifyInstance) {
     const lastRow = await db.researchPost.findFirst({ where: { userId, searchId: id }, orderBy: { fetchedAt: 'desc' }, select: { fetchedAt: true } });
     let diag: any = null;
     try { diag = lim?.researchDiag ? JSON.parse(lim.researchDiag) : null; } catch { diag = null; }
+    // «Идёт сбор» — метка стоит и поставлена не более 4 минут назад (авто-истечение, чтобы
+    // индикатор не завис, если расширение не прислало сигнал завершения).
+    const running = !!lim?.researchRunAt && Date.now() - new Date(lim.researchRunAt).getTime() < 4 * 60_000;
     return {
       posts,
-      running: !!lim?.researchRunAt,
+      running,
       lastAt: lastRow?.fetchedAt ? lastRow.fetchedAt.toISOString() : null,
       lastRunAt: lim?.researchLastRunAt ? lim.researchLastRunAt.toISOString() : null,
       diag,

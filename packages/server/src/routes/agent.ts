@@ -153,6 +153,7 @@ export async function agentRoutes(app: FastifyInstance) {
       }),
     ).max(200),
     diag: z.any().optional(), // диагностика вёрстки выдачи (для отладки селекторов)
+    done: z.boolean().optional(), // true — весь проход завершён (гасим «идёт сбор»)
   });
   app.post('/api/agent/research', async (req, reply) => {
     const device = await authDevice(req.headers.authorization);
@@ -180,11 +181,15 @@ export async function agentRoutes(app: FastifyInstance) {
         update: data, // обновляем метрики/текст при повторном сборе
       }).catch(() => {});
     }
-    // Проход отработан: гасим «собрать сейчас», фиксируем время и сохраняем диагностику
-    // вёрстки (даже если постов 0 — чтобы в кабинете было видно, что попытка была, и почему пусто).
+    // Метку «идёт сбор» (researchRunAt) гасим ТОЛЬКО когда весь проход завершён (done),
+    // иначе индикатор пропадал бы после первого из нескольких запросов. Время последнего
+    // прохода и диагностику сохраняем всегда.
     const diagStr = parsed.data.diag ? JSON.stringify(parsed.data.diag).slice(0, 8000) : undefined;
     await db.limits
-      .updateMany({ where: { userId }, data: { researchRunAt: null, researchLastRunAt: new Date(), ...(diagStr ? { researchDiag: diagStr } : {}) } })
+      .updateMany({
+        where: { userId },
+        data: { researchLastRunAt: new Date(), ...(parsed.data.done ? { researchRunAt: null } : {}), ...(diagStr ? { researchDiag: diagStr } : {}) },
+      })
       .catch(() => {});
     return { ok: true };
   });

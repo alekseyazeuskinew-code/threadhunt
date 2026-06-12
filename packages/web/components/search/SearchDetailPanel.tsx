@@ -1190,12 +1190,12 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
               {posts.map((r, i) => (
                 <div key={r.id} className="rounded-2xl border border-line bg-bg p-3.5">
                   <div className="flex items-start gap-2.5">
-                    <div className="th-grad flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-on-accent">{(r.author || '?').charAt(0).toUpperCase()}</div>
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-panel-2 text-sm font-bold text-muted">{(r.author || '?').charAt(0).toUpperCase()}</div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 text-sm">
                         <span className="truncate font-semibold">@{r.author || '—'}</span>
                         {r.postedAt && <span className="shrink-0 text-xs text-muted">· {fmtPostDate(r.postedAt)}</span>}
-                        {i < 3 && <span className="ml-auto shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-semibold text-accent-ink">🔥 топ</span>}
+                        {i < 3 && <span className="ml-auto shrink-0 rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning">🔥 топ</span>}
                       </div>
                       <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm leading-snug text-text">{r.text}</p>
                       <div className="mt-2.5 flex items-center gap-4 text-xs text-muted">
@@ -1204,7 +1204,7 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
                         <span className="inline-flex items-center gap-1"><Repeat2 size={13} /> {fmtNum(r.reposts)}</span>
                         <div className="ml-auto flex items-center gap-3">
                           {r.permalink && (
-                            <a href={r.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-accent-ink hover:underline">
+                            <a href={r.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-muted hover:text-text">
                               Открыть <ExternalLink size={11} />
                             </a>
                           )}
