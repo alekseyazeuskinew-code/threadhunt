@@ -639,10 +639,10 @@ async function getResearch(): Promise<ResearchState | null> {
 }
 // «1.2K» / «3,4 тыс» → число (грубая эвристика).
 function parseCount(s: string): number {
-  const m = s.replace(/ /g, ' ').match(/([\d][\d.,]*)\s*([KkКкMmМм]?)/);
+  const m = s.replace(/ /g, ' ').match(/([\d][\d.,]*)([KkКкMmМм])?/);
   if (!m) return 0;
   let n = parseFloat(m[1].replace(/\s/g, '').replace(',', '.')) || 0;
-  const suf = m[2].toLowerCase();
+  const suf = (m[2] || '').toLowerCase();
   if (suf === 'k' || suf === 'к') n *= 1000;
   if (suf === 'm' || suf === 'м') n *= 1_000_000;
   return Math.round(n);
@@ -682,26 +682,32 @@ function searchDiag(query: string, collected: number) {
 // Вовлечённость поста — ЯЗЫКО-НЕЗАВИСИМО (Threads бывает на любом языке: «Mi piace»,
 // «Segui» и т.п.). Берём числа у кнопок-действий по порядку: лайки, комменты, репосты.
 function extractMetrics(container: HTMLElement): { likes: number; replies: number; reposts: number } {
-  // Число рядом с кнопкой действия: в самой кнопке, у её соседа или у соседа родителя
-  // (счётчик у Threads — отдельный <span> рядом с иконкой). Ограниченный радиус, чтобы
-  // кнопка «подписаться» (в шапке, без счётчика) не дотянулась до чужих чисел.
-  const nearbyCount = (btn: HTMLElement): number => {
-    let n = parseCount(btn.getAttribute('aria-label') || '') || parseCount(btn.textContent || '');
-    if (n) return n;
-    // следующие 2 элемента-соседа (счётчик у Threads — отдельный span рядом с иконкой)
-    let el: Element | null = btn.nextElementSibling;
-    for (let i = 0; i < 2 && el; i++) {
-      n = parseCount(el.textContent || '');
-      if (n) return n;
-      el = el.nextElementSibling;
+  // СТРОГО: счётчик — это элемент, чей текст ЦЕЛИКОМ число («26», «1.2K», «167»), а не
+  // «26 min» или «2 года» из текста поста. Threads прячет нулевые счётчики, поэтому у
+  // каждой кнопки читаем ЕЁ собственный счётчик (0, если рядом нет чисто числового span).
+  const isPureNum = (t: string): boolean => /^[\d][\d.,]*[KkКкMmМм]?$/.test(t.trim());
+  const deepNum = (el: Element | null): number => {
+    if (!el) return 0;
+    const own = (el.textContent || '').trim();
+    if (isPureNum(own)) return parseCount(own);
+    for (const c of el.querySelectorAll('*')) {
+      const t = (c.textContent || '').trim();
+      if (t && isPureNum(t)) return parseCount(t);
     }
-    return parseCount(btn.parentElement?.nextElementSibling?.textContent || '') || 0;
+    return 0;
   };
   const vals: number[] = [];
   for (const b of container.querySelectorAll<HTMLElement>('[role="button"]')) {
     if (!b.querySelector('svg')) continue; // кнопки действий содержат иконку
-    const n = nearbyCount(b);
-    if (n > 0) vals.push(n); // кнопка «подписаться» без числа пропускается
+    let n = deepNum(b);
+    if (!n) {
+      let s: Element | null = b.nextElementSibling;
+      for (let i = 0; i < 2 && s && !n; i++) {
+        n = deepNum(s);
+        s = s.nextElementSibling;
+      }
+    }
+    if (n > 0) vals.push(n);
   }
   const [likes = 0, replies = 0, reposts = 0] = vals;
   return { likes, replies, reposts };
