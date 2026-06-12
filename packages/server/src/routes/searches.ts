@@ -356,12 +356,18 @@ export async function searchRoutes(app: FastifyInstance) {
     const id = (req.params as any).id as string;
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
     const window = String((req.query as any)?.window || 'month');
-    const days = window === 'week' ? 7 : window === 'all' ? 3650 : 30;
-    const since = new Date(Date.now() - days * 86_400_000);
+    // «Лучшее за …» — окно по дате ПУБЛИКАЦИИ поста (postedAt). all = последние полгода
+    // (быстро, без древних веток). Посты без распознанной даты показываем только в «all».
+    const days = window === 'week' ? 7 : window === 'all' ? 180 : 30;
+    const cutoff = new Date(Date.now() - days * 86_400_000);
     const rows = await db.researchPost.findMany({
-      where: { userId, searchId: id, fetchedAt: { gte: since } },
+      where: {
+        userId,
+        searchId: id,
+        OR: [{ postedAt: { gte: cutoff } }, ...(window === 'all' ? [{ postedAt: null }] : [])],
+      },
       orderBy: { fetchedAt: 'desc' },
-      take: 200,
+      take: 300,
     });
     // Сортируем по вовлечённости (ответы и репосты весомее лайков).
     const posts = rows

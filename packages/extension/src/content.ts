@@ -660,7 +660,7 @@ function searchDiag(query: string, collected: number) {
     let node: HTMLElement | null = firstLink;
     if (node) for (let i = 0; i < 10 && node.parentElement; i++) node = node.parentElement;
     const el = node || document.querySelector('main') || document.body;
-    htmlSample = (el?.outerHTML || '').replace(/\s+/g, ' ').slice(0, 4000);
+    htmlSample = (el?.outerHTML || '').replace(/\s+/g, ' ').slice(0, 12000); // больше — чтобы попала панель действий (лайки/комменты)
   } catch {
     /* ignore */
   }
@@ -677,6 +677,26 @@ function searchDiag(query: string, collected: number) {
     htmlSample,
     collected,
   };
+}
+
+// Вовлечённость поста — ЯЗЫКО-НЕЗАВИСИМО (Threads бывает на любом языке: «Mi piace»,
+// «Segui» и т.п.). Берём числа у кнопок-действий по порядку: лайки, комменты, репосты.
+function extractMetrics(container: HTMLElement): { likes: number; replies: number; reposts: number } {
+  const vals: number[] = [];
+  for (const b of container.querySelectorAll<HTMLElement>('[role="button"]')) {
+    if (!b.querySelector('svg')) continue; // кнопки действий содержат иконку
+    const cand = `${b.getAttribute('aria-label') || ''} ${b.textContent || ''} ${b.nextElementSibling?.textContent || ''}`;
+    const n = parseCount(cand);
+    if (n > 0) vals.push(n); // кнопка «подписаться» без числа пропускается
+  }
+  const [likes = 0, replies = 0, reposts = 0] = vals;
+  return { likes, replies, reposts };
+}
+
+// Дата публикации поста — из <time datetime="…"> (для окна «лучшее за неделю/месяц»).
+function postedAtOf(container: HTMLElement): string | undefined {
+  const dt = container.querySelector('time')?.getAttribute('datetime');
+  return dt || undefined;
 }
 
 // Собрать посты со страницы результатов поиска (multi-strategy, best-effort).
@@ -708,17 +728,9 @@ function collectSearchPosts(cur: { searchId: string; query: string }, max: numbe
     const text = (container.innerText || '').replace(/\s+/g, ' ').trim();
     if (text.length < 10) continue;
     const author = (href.match(/\/@([\w.]+)/) || [])[1] || undefined;
-    // вовлечённость — по числам у кнопок действий (aria-label), эвристика
-    let likes = 0, replies = 0, reposts = 0;
-    for (const b of container.querySelectorAll<HTMLElement>('[aria-label]')) {
-      const al = (b.getAttribute('aria-label') || '').toLowerCase();
-      const num = parseCount(al);
-      if (!num) continue;
-      if (/like|нрав/.test(al)) likes = Math.max(likes, num);
-      else if (/repl|comment|ответ|коммент/.test(al)) replies = Math.max(replies, num);
-      else if (/repost|репост/.test(al)) reposts = Math.max(reposts, num);
-    }
-    out.push({ searchId: cur.searchId, query: cur.query, threadsPostId: id, author, text: text.slice(0, 1200), permalink: BASE + href.split('?')[0], likes, replies, reposts });
+    const { likes, replies, reposts } = extractMetrics(container);
+    const postedAt = postedAtOf(container);
+    out.push({ searchId: cur.searchId, query: cur.query, threadsPostId: id, author, text: text.slice(0, 1200), permalink: BASE + href.split('?')[0], likes, replies, reposts, postedAt });
     if (out.length >= max) break;
   }
   return out;
