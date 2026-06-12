@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Threadhunt — авто-отбивка Threads",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Авто-отбивка в директе Threads по кодовым словам. Работает в вашем браузере под вашей сессией.",
   "permissions": ["storage", "alarms"],
   "host_permissions": [

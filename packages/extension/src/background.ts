@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.7';
+const VERSION = '0.1.8';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -55,6 +55,38 @@ async function tick() {
   const tasks = (await res.json()) as AgentTasksResponse;
   await chrome.storage.local.set({ tasks });
   await maybeRunTestInBackground(tasks);
+  await maybeRunResearchInBackground(tasks);
+}
+
+// «Собрать топ-ветки сейчас» БЕЗ участия клиента: если дашборд запросил research-проход
+// (research.runAt), сами открываем ФОНОВУЮ вкладку Threads — content-script там соберёт
+// ветки и пришлёт на сервер. Вкладку закрываем по таймауту (research длится 1–3 мин).
+async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
+  const { researchHandledAt, researchTabOpenedAt, researchTabId } = await chrome.storage.local.get(['researchHandledAt', 'researchTabOpenedAt', 'researchTabId']);
+  // Таймаут: закрыть зависшую research-вкладку.
+  if (researchTabId != null && researchTabOpenedAt && Date.now() - researchTabOpenedAt > 5 * 60_000) await closeResearchTab();
+  const runAt = tasks.research?.runAt;
+  if (!runAt) return; // нет запроса «сейчас» — плановый research идёт на уже открытой вкладке
+  if (researchHandledAt === runAt) return; // этот запрос уже обработали (вкладку откроем один раз)
+  await closeResearchTab();
+  try {
+    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: false });
+    await chrome.storage.local.set({ researchHandledAt: runAt, researchTabId: tab.id ?? null, researchTabOpenedAt: Date.now() });
+  } catch {
+    /* не удалось открыть вкладку */
+  }
+}
+
+async function closeResearchTab() {
+  const { researchTabId } = await chrome.storage.local.get('researchTabId');
+  if (researchTabId != null) {
+    try {
+      await chrome.tabs.remove(researchTabId);
+    } catch {
+      /* уже закрыта */
+    }
+    await chrome.storage.local.remove(['researchTabId', 'researchTabOpenedAt']);
+  }
 }
 
 // Холостой тест отбивки БЕЗ участия клиента: если дашборд запросил тест, сами
