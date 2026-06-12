@@ -4,28 +4,35 @@ import { ShieldAlert, Clock, SlidersHorizontal } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Limits } from '@/lib/types';
 import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Toggle } from '@/components/ui/Toggle';
+import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 
 // Лимиты авто-отбивки (защита Threads-аккаунта). Используется в Настройках.
 export function LimitsSettings() {
   const [l, setL] = useState<Limits | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    api.get<Limits>('/api/limits').then(setL).catch(() => {});
+    api
+      .get<Limits>('/api/limits')
+      .then(setL)
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, []);
+
+  const autosave = useAutosave(
+    l,
+    async (v) => {
+      if (!v) return;
+      const { caps, ...payload } = v;
+      await api.put<Limits>('/api/limits', payload);
+    },
+    { enabled: ready }
+  );
+
   if (!l) return <Card><div className="text-muted">Загрузка…</div></Card>;
   const set = (patch: Partial<Limits>) => setL({ ...l, ...patch });
-
-  async function save() {
-    const { caps, ...payload } = l!;
-    const res = await api.put<Limits>('/api/limits', payload);
-    setL(res);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
 
   const risky = l.replyDelaySec < 5 || l.maxRepliesPerDay > 60 || l.maxDialogsPerSweep > 60;
 
@@ -72,7 +79,9 @@ export function LimitsSettings() {
         </p>
       )}
 
-      <Button className="mt-5" onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить лимиты'}</Button>
+      <div className="mt-5">
+        <AutosaveBadge status={autosave} />
+      </div>
     </Card>
   );
 }

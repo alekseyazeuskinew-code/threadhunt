@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
 import { LimitsSettings } from '@/components/LimitsSettings';
 import { SectionAnchors } from '@/components/SectionNav';
+import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 
 const EMPTY: BrandProfile = { companyName: '', niche: '', social: '', about: '', tone: '', audience: '', perks: '', signature: '', sample: '', avoid: '' };
 
@@ -16,14 +17,22 @@ const EMPTY: BrandProfile = { companyName: '', niche: '', social: '', about: '',
 export default function SettingsPage() {
   const [p, setP] = useState<BrandProfile | null>(null);
   const [saved, setSaved] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    api.get<BrandProfile>('/api/brand-profile').then((d) => setP({ ...EMPTY, ...d })).catch(() => setP(EMPTY));
+    api
+      .get<BrandProfile>('/api/brand-profile')
+      .then((d) => setP({ ...EMPTY, ...d }))
+      .catch(() => setP(EMPTY))
+      .finally(() => setReady(true));
   }, []);
 
   const [afUrl, setAfUrl] = useState('');
   const [af, setAf] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
+
+  // Автосохранение «Голоса бренда».
+  const autosave = useAutosave(p, async (v) => { if (v) await api.put('/api/brand-profile', v); }, { enabled: ready });
 
   if (!p) return <div className="p-8 text-muted">Загрузка…</div>;
   const set = (k: keyof BrandProfile, v: string) => setP({ ...p, [k]: v });
@@ -116,9 +125,10 @@ export default function SettingsPage() {
               <Textarea value={p.about} onChange={(e) => set('about', e.target.value)} placeholder="Небольшая команда, делаем контент для брендов…" />
             </Field>
           </div>
-          <Button className="mt-6" onClick={save}>
-            {saved ? 'Сохранено ✓' : 'Сохранить'}
-          </Button>
+          <div className="mt-6 flex items-center gap-3">
+            <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+            <AutosaveBadge status={autosave} />
+          </div>
         </Card>
 
         <Card id="sec-brand" className="scroll-mt-16">
@@ -180,9 +190,10 @@ export default function SettingsPage() {
             </Field>
           </div>
 
-          <Button className="mt-6" onClick={save}>
-            {saved ? 'Сохранено ✓' : 'Сохранить'}
-          </Button>
+          <div className="mt-6 flex items-center gap-3">
+            <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+            <AutosaveBadge status={autosave} />
+          </div>
         </Card>
 
         <div id="sec-limits" className="scroll-mt-16">

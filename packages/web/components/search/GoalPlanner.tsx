@@ -4,8 +4,8 @@ import { Target, TrendingUp, AlertTriangle, Check, RefreshCw } from 'lucide-reac
 import { api } from '@/lib/api';
 import type { GoalState } from '@/lib/types';
 import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
+import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 
 // Автопланировщик: цель найма + конверсия → нужно лидов; прогресс + флаг застоя.
 export function GoalPlanner({ searchId, onRewrite }: { searchId: string; onRewrite?: () => void }) {
@@ -14,8 +14,7 @@ export function GoalPlanner({ searchId, onRewrite }: { searchId: string; onRewri
   const [hires, setHires] = useState(3);
   const [conv, setConv] = useState(10);
   const [due, setDue] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
 
   function apply(s: GoalState) {
     setG(s);
@@ -25,25 +24,27 @@ export function GoalPlanner({ searchId, onRewrite }: { searchId: string; onRewri
     setDue(s.config.goalDueAt ? s.config.goalDueAt.slice(0, 10) : '');
   }
   useEffect(() => {
-    api.get<GoalState>(`/api/searches/${searchId}/goal`).then(apply).catch(() => {});
+    api
+      .get<GoalState>(`/api/searches/${searchId}/goal`)
+      .then(apply)
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, [searchId]);
 
-  async function save() {
-    setBusy(true);
-    try {
+  // Автосохранение цели (с обновлением расчётных полей из ответа).
+  const autosave = useAutosave(
+    { enabled, hires, conv, due },
+    async (v) => {
       const r = await api.put<GoalState>(`/api/searches/${searchId}/goal`, {
-        goalEnabled: enabled,
-        goalHires: hires,
-        goalConversion: conv,
-        goalDueAt: due ? new Date(due + 'T23:59:59').toISOString() : null,
+        goalEnabled: v.enabled,
+        goalHires: v.hires,
+        goalConversion: v.conv,
+        goalDueAt: v.due ? new Date(v.due + 'T23:59:59').toISOString() : null,
       });
-      apply(r);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-    } finally {
-      setBusy(false);
-    }
-  }
+      setG(r); // только производные данные, чтобы не перебить ввод
+    },
+    { enabled: ready }
+  );
 
   // живой расчёт нужного числа лидов (до сохранения)
   const requiredPreview = conv > 0 ? Math.ceil(hires / (conv / 100)) : 0;
@@ -90,7 +91,7 @@ export function GoalPlanner({ searchId, onRewrite }: { searchId: string; onRewri
         )}
 
         <div className="mt-3">
-          <Button onClick={save} disabled={busy}>{saved ? 'Сохранено ✓' : 'Сохранить цель'}</Button>
+          <AutosaveBadge status={autosave} />
         </div>
       </div>
 

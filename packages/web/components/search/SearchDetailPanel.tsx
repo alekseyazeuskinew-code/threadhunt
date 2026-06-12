@@ -15,7 +15,8 @@ import { CampaignsManager } from '@/components/campaigns/CampaignsManager';
 import { GoalPlanner } from '@/components/search/GoalPlanner';
 import { type Flow, type Block, type BlockType, defaultFlow, FLOW_TEMPLATES, newPage, newBlock } from '@/lib/flow';
 import { FlowPreview } from '@/components/onboarding/FlowRenderer';
-import { TIMEZONES, zonedToUtc } from '@/lib/timezones';
+import { TIMEZONES, zonedToUtc, utcToZonedLocal } from '@/lib/timezones';
+import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 
 // Четыре раздела вместо прежних восьми: обзор (пульт + хронология + цель),
 // отбивка (директ + комменты), приманки (посты + реклама), лиды (+ онбординг).
@@ -42,38 +43,6 @@ const MATCH_MODE_OPTIONS = [
 ];
 
 // ─────────────────────────── вспомогательное ───────────────────────────
-
-function useAutosave<T>(value: T, persist: (v: T) => Promise<void>, delay = 1000): 'idle' | 'saving' | 'saved' {
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const first = useRef(true);
-  const valueRef = useRef(value);
-  valueRef.current = value;
-  const key = JSON.stringify(value);
-  useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    setStatus('saving');
-    const t = setTimeout(async () => {
-      try {
-        await persist(valueRef.current);
-        setStatus('saved');
-      } catch {
-        setStatus('idle');
-      }
-    }, delay);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return status;
-}
-
-function AutosaveBadge({ status }: { status: 'idle' | 'saving' | 'saved' }) {
-  if (status === 'saving') return <span className="text-xs text-muted">Сохраняю…</span>;
-  if (status === 'saved') return <span className="text-xs text-success">Автосохранено ✓</span>;
-  return <span className="text-xs text-muted">Автосохранение включено</span>;
-}
 
 function SectionTitle({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
   return (
@@ -384,7 +353,7 @@ function OtbivkaTab({ s, reload, status, onToggleSearch }: { s: SearchDetail; re
 function DmPassCard({ searchId }: { searchId: string }) {
   const [lim, setLim] = useState<Limits | null>(null);
   const [stats, setStats] = useState<DmStats | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [ready, setReady] = useState(false);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -392,30 +361,31 @@ function DmPassCard({ searchId }: { searchId: string }) {
     const [l, st] = await Promise.all([api.get<Limits>('/api/limits'), api.get<DmStats>(`/api/searches/${searchId}/dm-stats`).catch(() => null)]);
     setLim(l);
     if (st) setStats(st);
+    setReady(true);
   }
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchId]);
 
+  const persistLimits = async (v: Limits | null) => {
+    if (!v) return;
+    await api.put('/api/limits', {
+      sweepIntervalMinutes: v.sweepIntervalMinutes,
+      maxDialogsPerSweep: v.maxDialogsPerSweep,
+      safeMode: v.safeMode,
+      sweepMain: v.sweepMain,
+      sweepRequests: v.sweepRequests,
+      sweepHidden: v.sweepHidden,
+      researchEnabled: v.researchEnabled,
+    });
+  };
+  const autosave = useAutosave(lim, persistLimits, { enabled: ready });
+
   if (!lim) return <div className="rounded-2xl border border-line bg-panel p-4 text-sm text-muted">Загрузка параметров…</div>;
 
   const set = (patch: Partial<Limits>) => setLim({ ...lim, ...patch });
   const intervalMin = lim.caps?.intervalMin ?? 30;
-
-  async function save() {
-    await api.put('/api/limits', {
-      sweepIntervalMinutes: lim!.sweepIntervalMinutes,
-      maxDialogsPerSweep: lim!.maxDialogsPerSweep,
-      safeMode: lim!.safeMode,
-      sweepMain: lim!.sweepMain,
-      sweepRequests: lim!.sweepRequests,
-      sweepHidden: lim!.sweepHidden,
-      researchEnabled: lim!.researchEnabled,
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
   async function runNow() {
     setRunning(true);
     setMsg('');
@@ -497,7 +467,8 @@ function DmPassCard({ searchId }: { searchId: string }) {
       )}
 
       <div className="mt-4 flex items-center gap-2">
-        <Button onClick={save} disabled={noSections}>{saved ? 'Сохранено ✓' : 'Сохранить параметры'}</Button>
+        <AutosaveBadge status={autosave} />
+        {noSections && <span className="text-xs text-danger">Не сохранится без выбранного раздела.</span>}
       </div>
       {msg && <p className="mt-2 text-xs text-muted">{msg}</p>}
 
@@ -682,32 +653,17 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
   const [enabled, setEnabled] = useState(cr?.enabled ?? false);
   const [mode, setMode] = useState<'keyword' | 'all'>(cr?.mode ?? 'keyword');
   const [replyText, setReplyText] = useState(cr?.replyText ?? '');
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  async function save(patch?: { enabled?: boolean }) {
-    setSaving(true);
-    try {
-      await api.put(`/api/searches/${s.id}/comment-rule`, { enabled: patch?.enabled ?? enabled, mode, replyText });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
-      reload();
-    } finally {
-      setSaving(false);
-    }
-  }
+  // Автосохранение всех полей правила (включая текст и режим, а не только тумблер).
+  const autosave = useAutosave({ enabled, mode, replyText }, async (v) => {
+    await api.put(`/api/searches/${s.id}/comment-rule`, v);
+  });
 
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm text-muted">На все комментарии или только с кодовым словом.</div>
-        <Toggle
-          checked={enabled}
-          onChange={(v) => {
-            setEnabled(v);
-            save({ enabled: v });
-          }}
-        />
+        <Toggle checked={enabled} onChange={setEnabled} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-3 text-sm">
@@ -724,7 +680,7 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
       </div>
 
       <div className="mt-3 flex items-center gap-3">
-        <Button onClick={() => save()} disabled={saving}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
+        <AutosaveBadge status={autosave} />
       </div>
 
       <p className="mt-3 rounded-lg bg-warning/5 px-3 py-2 text-xs text-warning">
@@ -1301,7 +1257,9 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   const initHours = s.obDeadlineHours || 48;
   const [dlUnit, setDlUnit] = useState<'h' | 'd'>(initHours % 24 === 0 ? 'd' : 'h');
   const [dlValue, setDlValue] = useState(initHours % 24 === 0 ? initHours / 24 : initHours);
-  const [dlLocal, setDlLocal] = useState('');
+  // Предзаполняем поле фиксированной даты из сохранённого дедлайна (иначе автосейв
+  // мог бы затереть сохранённую дату пустым значением).
+  const [dlLocal, setDlLocal] = useState(() => (s.obDeadlineMode === 'fixed' && s.obDeadlineAt ? utcToZonedLocal(s.obDeadlineAt, s.obTimezone || '') : ''));
   const [tz, setTz] = useState(s.obTimezone || '');
   const [reminders, setReminders] = useState(s.obRemindersEnabled ?? true);
   const [device, setDevice] = useState<'phone' | 'desktop'>('phone'); // режим живого превью
@@ -1392,18 +1350,29 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
     } else setPreviewDeadline(null);
   }, [dlMode, dlUnit, dlValue, dlLocal, tz]);
 
-  async function save() {
-    const hours = dlUnit === 'd' ? dlValue * 24 : dlValue;
-    const obDeadlineAt = dlMode === 'fixed' && dlLocal ? zonedToUtc(dlLocal, tz).toISOString() : null;
-    await api.put(`/api/searches/${s.id}/onboarding`, {
-      obEnabled: enabled,
-      obFlow: JSON.stringify(flow),
-      obDeadlineMode: dlMode,
+  // Единый сериализатор онбординга для сохранения.
+  const buildPayload = (v: { enabled: boolean; flow: Flow; dlMode: typeof dlMode; dlUnit: typeof dlUnit; dlValue: number; dlLocal: string; tz: string; reminders: boolean }) => {
+    const hours = v.dlUnit === 'd' ? v.dlValue * 24 : v.dlValue;
+    const obDeadlineAt = v.dlMode === 'fixed' && v.dlLocal ? zonedToUtc(v.dlLocal, v.tz).toISOString() : null;
+    return {
+      obEnabled: v.enabled,
+      obFlow: JSON.stringify(v.flow),
+      obDeadlineMode: v.dlMode,
       obDeadlineHours: Math.min(720, Math.max(1, hours)),
       obDeadlineAt,
-      obTimezone: tz,
-      obRemindersEnabled: reminders,
-    });
+      obTimezone: v.tz,
+      obRemindersEnabled: v.reminders,
+    };
+  };
+
+  // Автосохранение всего онбординга (флоу + дедлайн + напоминания). Никаких потерь
+  // при переключении вкладок.
+  const autosave = useAutosave({ enabled, flow, dlMode, dlUnit, dlValue, dlLocal, tz, reminders }, async (v) => {
+    await api.put(`/api/searches/${s.id}/onboarding`, buildPayload(v));
+  }, { delay: 1200 });
+
+  async function save() {
+    await api.put(`/api/searches/${s.id}/onboarding`, buildPayload({ enabled, flow, dlMode, dlUnit, dlValue, dlLocal, tz, reminders }));
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     reload();
@@ -1552,6 +1521,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
 
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить онбординг'}</Button>
+        <AutosaveBadge status={autosave} />
         <span className="mx-1 hidden h-5 w-px bg-line sm:block" />
         <Input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="Название шаблона" className="w-48" />
         <Button variant="ghost" onClick={saveTemplate} disabled={!tplName.trim()}>

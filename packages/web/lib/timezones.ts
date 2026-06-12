@@ -36,6 +36,25 @@ export function zonedToUtc(localStr: string, tz: string): Date {
   return new Date(guess.getTime() - off * 60000);
 }
 
+// Абсолютный момент (UTC ISO) → строка 'YYYY-MM-DDTHH:MM' настенного времени зоны
+// tz, пригодная для <input type="datetime-local">. Обратная к zonedToUtc.
+export function utcToZonedLocal(iso: string, tz: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  if (!tz) {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  const p: any = {};
+  for (const part of dtf.formatToParts(d)) p[part.type] = part.value;
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
 // Форматировать момент в зоне tz (для показа кандидату/в кабинете).
 export function fmtInTz(iso: string, tz: string): string {
   const d = new Date(iso);
