@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.12';
+const VERSION = '0.1.13';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -67,17 +67,22 @@ async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
   if (researchTabId != null && researchTabOpenedAt && Date.now() - researchTabOpenedAt > 5 * 60_000) await closeResearchTab();
   const r = tasks.research;
   const runAt = r?.runAt;
-  if (!runAt) return; // нет запроса «сейчас» — плановый research идёт на уже открытой вкладке
+  if (!runAt) {
+    console.log('[threadhunt] research: нет runAt в задачах (сервер не отдал «собрать сейчас»). research:', r);
+    return; // нет запроса «сейчас» — плановый research идёт на уже открытой вкладке
+  }
   if (researchHandledAt === runAt) return; // этот запрос уже обработали (вкладку откроем один раз)
 
   // Нечего искать (research выключен или нет запросов) — гасим метку, чтобы не висел «Сбор».
   if (!r?.enabled || !r.queries?.length) {
+    console.log('[threadhunt] research: нечего искать — enabled:', r?.enabled, 'queries:', r?.queries?.length);
     await chrome.storage.local.set({ researchHandledAt: runAt });
     void authed('/api/agent/research', { method: 'POST', body: JSON.stringify({ posts: [] }) }).then(() => void tick());
     return;
   }
 
   await closeResearchTab();
+  console.log('[threadhunt] research: открываю вкладку поиска,', r.queries.length, 'запросов; первый:', r.queries[0]?.query);
   try {
     // Сразу кладём состояние research-прохода и открываем НАПРЯМУЮ страницу поиска
     // (минуя /messages, где мог бы стартовать обход директа и заблокировать сбор).
@@ -160,6 +165,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     void authed('/api/agent/pass', { method: 'POST', body: JSON.stringify(msg.report || {}) }).then(() => {
       void tick(); // подтянуть свежие настройки (в т.ч. сброшенный runNowAt)
     });
+  }
+  if (msg?.type === 'cmd') {
+    // Команда из дашборда (напр. «собрать сейчас») — мгновенно тикаем, не ждём будильник.
+    console.log('[threadhunt] команда из дашборда:', msg.cmd, '→ tick()');
+    void tick();
   }
   if (msg?.type === 'research') {
     // Собранные топовые ветки + диагностика вёрстки → сервер.

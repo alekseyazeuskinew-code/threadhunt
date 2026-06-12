@@ -409,7 +409,9 @@ function DmPassCard({ searchId }: { searchId: string }) {
     try {
       await api.post('/api/research/run-now');
       setLim((p) => (p ? { ...p, researchEnabled: true } : p));
-      setResearchMsg('Запущено — расширение соберёт топ-ветки в открытой вкладке Threads (1–3 мин).');
+      // Будим расширение сразу (иначе ждать минутного будильника воркера).
+      try { window.postMessage({ source: 'threadhunt-cmd', cmd: 'research-now' }, window.location.origin); } catch {}
+      setResearchMsg('Запущено — расширение откроет вкладку Threads и соберёт топ-ветки (1–3 мин).');
     } catch (e: any) {
       setResearchMsg(e.message);
     } finally {

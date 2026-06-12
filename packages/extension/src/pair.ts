@@ -4,19 +4,32 @@
 // подключено без копипаста. Затем шлём подтверждение обратно в страницу.
 
 interface PairMsg {
-  source: 'threadhunt-pair';
-  token: string;
-  api: string;
+  source: 'threadhunt-pair' | 'threadhunt-cmd';
+  token?: string;
+  api?: string;
+  cmd?: string;
 }
 
 window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   const data = e.data as PairMsg | undefined;
-  if (!data || data.source !== 'threadhunt-pair' || !data.token) return;
-  chrome.storage.local.set({ token: data.token, api: data.api || 'http://localhost:3010' }, () => {
-    // подтверждаем странице, что расширение установлено и подключено
-    window.postMessage({ source: 'threadhunt-paired' }, e.origin);
-  });
+  if (!data) return;
+  // Спаривание.
+  if (data.source === 'threadhunt-pair' && data.token) {
+    chrome.storage.local.set({ token: data.token, api: data.api || 'http://localhost:3010' }, () => {
+      window.postMessage({ source: 'threadhunt-paired' }, e.origin);
+    });
+    return;
+  }
+  // Команды дашборда → будим воркер сразу (без ожидания минутного будильника).
+  // Напр. «Собрать топ-ветки сейчас» — чтобы вкладка поиска открылась мгновенно.
+  if (data.source === 'threadhunt-cmd' && data.cmd) {
+    try {
+      chrome.runtime.sendMessage({ type: 'cmd', cmd: data.cmd });
+    } catch {
+      /* воркер недоступен */
+    }
+  }
 });
 
 // Сообщаем странице, что расширение вообще установлено (чтобы UI это показал).
