@@ -2,6 +2,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Clock, Mail, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
+import { confirmDialog } from '@/components/ui/confirm';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
@@ -124,7 +125,7 @@ export function EmailSequenceBuilder() {
   async function broadcastStep(st: EmailStep) {
     if (!seq) return;
     const aud = seq.audience === 'waitlist' ? 'листу ожидания' : 'всем зарегистрированным';
-    if (!window.confirm(`Отправить это письмо по базе (${aud}) прямо сейчас? Это реальная рассылка.`)) return;
+    if (!(await confirmDialog({ title: 'Отправить рассылку?', message: `Письмо уйдёт по базе (${aud}) прямо сейчас. Это реальная рассылка.`, confirmText: 'Отправить' }))) return;
     setTestMsg({ stepId: st.id, ok: true, text: 'Рассылаю…' });
     try {
       const r = await api.post<{ total: number; sent: number; failed: number }>('/api/admin/email-broadcast', {
@@ -223,8 +224,8 @@ export function EmailSequenceBuilder() {
                   <span className={`ml-2 shrink-0 text-xs ${sq.enabled ? 'text-success' : 'text-muted'}`}>{sq.enabled ? '● вкл' : '○ выкл'}</span>
                 </button>
                 <button
-                  onClick={() => {
-                    if (window.confirm(`Удалить цепочку «${sq.name}»?`)) remove(sq.id);
+                  onClick={async () => {
+                    if (await confirmDialog({ message: `Удалить цепочку «${sq.name}»?`, confirmText: 'Удалить', danger: true })) remove(sq.id);
                   }}
                   className="shrink-0 rounded p-1.5 text-muted opacity-0 hover:text-danger group-hover:opacity-100"
                   title="Удалить"

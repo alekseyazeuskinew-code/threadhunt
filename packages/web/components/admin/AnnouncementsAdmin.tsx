@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Megaphone, Trash2 } from 'lucide-react';
+import { confirmDialog } from '@/components/ui/confirm';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/types';
 import { Card } from '@/components/ui/Card';
@@ -45,7 +46,7 @@ export function AnnouncementsAdmin() {
     }
   }
   async function remove(id: string) {
-    if (!window.confirm('Удалить объявление?')) return;
+    if (!(await confirmDialog({ message: 'Удалить объявление?', confirmText: 'Удалить', danger: true }))) return;
     await api.del(`/api/admin/announcements/${id}`);
     load();
   }

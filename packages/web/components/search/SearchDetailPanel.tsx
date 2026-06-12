@@ -17,6 +17,7 @@ import { type Flow, type Block, type BlockType, defaultFlow, FLOW_TEMPLATES, new
 import { FlowPreview } from '@/components/onboarding/FlowRenderer';
 import { TIMEZONES, zonedToUtc, utcToZonedLocal } from '@/lib/timezones';
 import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
+import { confirmDialog } from '@/components/ui/confirm';
 
 // Четыре раздела вместо прежних восьми: обзор (пульт + хронология + цель),
 // отбивка (директ + комменты), приманки (посты + реклама), лиды (+ онбординг).
@@ -235,7 +236,7 @@ function ActivityTimeline({ id }: { id: string }) {
     }
   }
   async function clear() {
-    if (!window.confirm('Очистить хронологию? Удалятся записи об ошибках публикации и логи проходов бота. Лиды и успешные посты останутся.')) return;
+    if (!(await confirmDialog({ title: 'Очистить хронологию?', message: 'Удалятся записи об ошибках публикации и логи проходов бота. Лиды и успешные посты останутся.', confirmText: 'Очистить', danger: true }))) return;
     await api.post(`/api/searches/${id}/activity/clear`).catch(() => {});
     load();
   }
@@ -776,7 +777,7 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
     }
   }
   async function runPublishNow() {
-    if (!window.confirm('Опубликовать реальный пост (или цепочку) в Threads от твоего аккаунта прямо сейчас?')) return;
+    if (!(await confirmDialog({ title: 'Опубликовать сейчас?', message: 'Реальный пост (или цепочка) будет опубликован в Threads от твоего аккаунта прямо сейчас.', confirmText: 'Опубликовать' }))) return;
     setPublishing(true);
     setPublished(null);
     try {

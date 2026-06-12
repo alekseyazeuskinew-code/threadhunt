@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { confirmDialog } from '@/components/ui/confirm';
 import type { AdminStats, AdminUser, AdminAnalytics, AdminGrowth, AdminCosts, WaitlistEntry, PromoCodeRow } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
 import { Stat } from '@/components/ui/Stat';
@@ -59,7 +60,7 @@ export default function AdminPage() {
 
   // ── Демо-данные для тура ──
   async function seedDemo() {
-    if (!window.confirm('Засеять демо-данные? Это создаст показательную когорту аккаунтов, лидов, постов, кампаний, лист ожидания и email — чтобы вся админка выглядела «живой». Прошлые демо-данные будут пересозданы.')) return;
+    if (!(await confirmDialog({ title: 'Засеять демо-данные?', message: 'Создаст показательную когорту аккаунтов, лидов, постов, кампаний, лист ожидания и email — чтобы вся админка выглядела «живой». Прошлые демо-данные будут пересозданы.', confirmText: 'Засеять' }))) return;
     setDemoBusy(true);
     setDemoMsg('Заполняю демо-данными…');
     try {
@@ -73,7 +74,7 @@ export default function AdminPage() {
     }
   }
   async function clearDemo() {
-    if (!window.confirm('Удалить ВСЕ демо-данные (аккаунты с пометкой demo, их активность, демо-заявки и демо-цепочки)? Реальные данные не затрагиваются.')) return;
+    if (!(await confirmDialog({ title: 'Удалить все демо-данные?', message: 'Аккаунты с пометкой demo, их активность, демо-заявки и демо-цепочки будут удалены. Реальные данные не затрагиваются.', confirmText: 'Удалить', danger: true }))) return;
     setDemoBusy(true);
     setDemoMsg('Очищаю демо-данные…');
     try {
@@ -102,7 +103,7 @@ export default function AdminPage() {
     }
   }
   async function issueWaitlist() {
-    if (!window.confirm('Выдать персональный уникальный код каждому из листа ожидания, у кого его ещё нет? Потом выгрузишь CSV (email→код) для рассылки.')) return;
+    if (!(await confirmDialog({ title: 'Выдать коды из листа ожидания?', message: 'Каждому из листа ожидания, у кого ещё нет кода, выдадим персональный уникальный код. Потом выгрузишь CSV (email→код) для рассылки.', confirmText: 'Выдать' }))) return;
     setPromoBusy(true);
     setPromoMsg('Выдаю коды листу ожидания…');
     try {
