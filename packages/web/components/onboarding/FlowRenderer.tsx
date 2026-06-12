@@ -1,12 +1,13 @@
 'use client';
-import { useRef, useState, type CSSProperties } from 'react';
-import { Check, ArrowRight, ImagePlus, ChevronUp, ChevronDown, Trash2, Plus } from 'lucide-react';
+import { useRef, useState, useEffect, type CSSProperties } from 'react';
+import { Check, ArrowRight, ImagePlus, ChevronUp, ChevronDown, Trash2, Plus, GripVertical, Clock, X } from 'lucide-react';
 import type { Block, Flow, BlockType } from '@/lib/flow';
 import { BLOCK_LABELS } from '@/lib/flow';
 import type { CompanyProfile } from '@/lib/types';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
+import { fmtInTz } from '@/lib/timezones';
 
 // Маркетинговый сайт — вирусный хук: кандидат видит, чем собрали отклик, и идёт к нам.
 export const THREADHUNT_SITE = 'https://threadhunt.app';
@@ -93,13 +94,45 @@ export interface BlockControls {
 }
 
 // Палитра типов для быстрого добавления из превью.
-const ADD_TYPES: BlockType[] = ['heading', 'text', 'field', 'choice', 'multi', 'scale', 'image', 'video', 'file', 'faq', 'consent', 'submit', 'support'];
+const ADD_TYPES: BlockType[] = ['heading', 'text', 'deadline', 'field', 'choice', 'multi', 'scale', 'image', 'video', 'file', 'faq', 'consent', 'submit', 'support'];
 
-function BlockWrap({ children, first, last, c, id }: { children: React.ReactNode; first: boolean; last: boolean; c: BlockControls; id: string }) {
+function BlockWrap({ children, first, last, c, id, dragId, setDragId, onReorder }: { children: React.ReactNode; first: boolean; last: boolean; c: BlockControls; id: string; dragId: string | null; setDragId: (v: string | null) => void; onReorder: (fromId: string, toId: string, before: boolean) => void }) {
   const [menu, setMenu] = useState(false);
+  const [over, setOver] = useState<null | 'before' | 'after'>(null);
+  const dragging = dragId === id;
   const btn = 'flex h-6 w-6 items-center justify-center rounded-md border border-line bg-panel text-muted shadow-sm hover:text-text disabled:opacity-30';
   return (
-    <div className="group/blk relative rounded-xl">
+    <div
+      onDragOver={(e) => {
+        if (!dragId || dragId === id) return;
+        e.preventDefault();
+        const r = e.currentTarget.getBoundingClientRect();
+        setOver(e.clientY < r.top + r.height / 2 ? 'before' : 'after');
+      }}
+      onDragLeave={() => setOver(null)}
+      onDrop={(e) => {
+        e.preventDefault();
+        if (dragId && dragId !== id) onReorder(dragId, id, over !== 'after');
+        setOver(null);
+        setDragId(null);
+      }}
+      className={`group/blk relative rounded-xl transition ${dragging ? 'opacity-40' : ''} ${
+        over === 'before' ? 'before:absolute before:-top-1 before:left-0 before:right-0 before:h-0.5 before:rounded-full before:bg-accent before:content-[""]' : ''
+      } ${over === 'after' ? 'after:absolute after:-bottom-1 after:left-0 after:right-0 after:h-0.5 after:rounded-full after:bg-accent after:content-[""]' : ''}`}
+    >
+      {/* Ручка перетаскивания (drag-and-drop меняет порядок) */}
+      <div
+        draggable
+        onDragStart={() => setDragId(id)}
+        onDragEnd={() => {
+          setDragId(null);
+          setOver(null);
+        }}
+        title="Перетащить"
+        className="absolute -left-2.5 top-0 z-20 flex h-6 w-6 cursor-grab items-center justify-center rounded-md border border-line bg-panel text-muted shadow-sm opacity-0 transition hover:text-text group-hover/blk:opacity-100 active:cursor-grabbing"
+      >
+        <GripVertical size={13} />
+      </div>
       {/* Тулбар блока */}
       <div className="absolute -right-2.5 top-0 z-20 flex flex-col gap-0.5 opacity-0 transition group-hover/blk:opacity-100">
         <button onClick={() => c.move(id, -1)} disabled={first} className={btn} title="Выше">
@@ -142,6 +175,76 @@ function BlockWrap({ children, first, last, c, id }: { children: React.ReactNode
   );
 }
 
+// Таймер обратного отсчёта до дедлайна сдачи — тикает каждую секунду.
+// Заголовок («До дедлайна сдачи») редактируется прямо в конструкторе.
+function DeadlineCountdown({ deadline, timezone, label, block, onEdit }: { deadline?: string | null; timezone?: string; label?: string; block?: Block; onEdit?: (id: string, patch: Partial<Block>) => void }) {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const edit = !!(onEdit && block);
+  const title = label || 'До дедлайна сдачи';
+  const titleEl = edit ? (
+    <Editable className="text-xs font-medium uppercase tracking-wide text-accent-ink" value={title} onChange={(t) => onEdit!(block!.id, { text: t })} />
+  ) : (
+    <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{title}</div>
+  );
+
+  if (!deadline) {
+    return (
+      <div className="rounded-2xl border border-dashed border-line bg-bg p-4">
+        {titleEl}
+        <p className="mt-1 text-sm text-muted">Включите «Срок сдачи» в настройках онбординга — здесь появится живой таймер обратного отсчёта.</p>
+      </div>
+    );
+  }
+
+  const ms = now == null ? null : new Date(deadline).getTime() - now;
+  const overdue = ms != null && ms <= 0;
+  const a = ms == null ? 0 : Math.abs(ms);
+  const dd = Math.floor(a / 86_400_000);
+  const hh = Math.floor((a % 86_400_000) / 3_600_000);
+  const mm = Math.floor((a % 3_600_000) / 60_000);
+  const ss = Math.floor((a % 60_000) / 1000);
+  const cell = (v: number, lbl: string) => (
+    <div className="flex flex-col items-center">
+      <span className="tabular-nums text-2xl font-bold leading-none">{ms == null ? '--' : String(v).padStart(2, '0')}</span>
+      <span className="mt-1 text-[10px] uppercase tracking-wide text-muted">{lbl}</span>
+    </div>
+  );
+  const sep = <span className="self-start pt-0.5 text-xl text-muted">:</span>;
+  return (
+    <div className={`rounded-2xl border p-4 ${overdue ? 'border-danger/30 bg-danger/5' : 'border-accent/25 bg-accent-soft/40'}`}>
+      <div className="flex items-center gap-1.5">
+        <Clock size={13} className={overdue ? 'text-danger' : 'text-accent-ink'} />
+        {titleEl}
+      </div>
+      {overdue ? (
+        <p className="mt-2 text-sm font-semibold text-danger">Дедлайн прошёл{dd > 0 ? ` ${dd} дн` : ''} {hh} ч {mm} мин назад</p>
+      ) : (
+        <div className="mt-3 flex items-center gap-2.5">
+          {dd > 0 && (
+            <>
+              {cell(dd, 'дней')}
+              {sep}
+            </>
+          )}
+          {cell(hh, 'часов')}
+          {sep}
+          {cell(mm, 'минут')}
+          {sep}
+          {cell(ss, 'секунд')}
+        </div>
+      )}
+      <div className="mt-2.5 text-xs text-muted">
+        Сдать до: <b className="text-text">{fmtInTz(deadline, timezone || '')}</b>
+      </div>
+    </div>
+  );
+}
+
 export function BlockView({
   b,
   values,
@@ -151,6 +254,8 @@ export function BlockView({
   company,
   positions,
   onEdit,
+  deadline,
+  timezone,
 }: {
   b: Block;
   values: Record<string, string>;
@@ -160,9 +265,13 @@ export function BlockView({
   company?: CompanyProfile | null;
   positions?: string[];
   onEdit?: (blockId: string, patch: Partial<Block>) => void;
+  deadline?: string | null;
+  timezone?: string;
 }) {
   if (b.type === 'company') return <CompanyCard company={company} block={b} onEdit={onEdit} />;
   if (b.type === 'positions') return <PositionsList positions={positions} />;
+  if (b.type === 'deadline')
+    return <DeadlineCountdown deadline={deadline} timezone={timezone} label={b.text} block={b} onEdit={onEdit} />;
   if (b.type === 'heading')
     return onEdit ? (
       <Editable className="text-base font-semibold" value={b.text || ''} onChange={(t) => onEdit(b.id, { text: t })} />
@@ -366,11 +475,15 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
   const logo = block?.logo;
   const cover = block?.cover;
   const style = block?.style || 'minimal';
-  const perks = (company?.perks || '')
-    .split(/[,\n;]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 6);
+  // Перки-чипы: если в блоке задано переопределение — берём его, иначе из «Голоса бренда».
+  const perks = (
+    block?.perks ??
+    (company?.perks || '')
+      .split(/[,\n;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  ).slice(0, 8);
+  const setPerks = (next: string[]) => onEdit!(block!.id, { perks: next });
   let social = (company?.social || '').trim();
   if (social && !/^https?:\/\//i.test(social)) social = social.startsWith('@') ? `https://t.me/${social.slice(1)}` : `https://${social}`;
 
@@ -450,12 +563,40 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
           about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{about}</p>
         )}
 
-        {perks.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
+        {edit ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
             {perks.map((p, i) => (
-              <span key={i} className="rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">{p}</span>
+              <span key={i} className="group/perk inline-flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">
+                <Editable
+                  className="min-w-[1ch]"
+                  value={p}
+                  onChange={(t) => {
+                    const next = perks.slice();
+                    const v = t.trim();
+                    if (v) next[i] = v;
+                    else next.splice(i, 1);
+                    setPerks(next);
+                  }}
+                />
+                <button onClick={() => setPerks(perks.filter((_, j) => j !== i))} className="text-accent-ink/50 hover:text-danger" title="Убрать">
+                  <X size={11} />
+                </button>
+              </span>
             ))}
+            {perks.length < 8 && (
+              <button onClick={() => setPerks([...perks, 'Новое преимущество'])} className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-line px-2.5 py-1 text-xs text-muted hover:border-accent/50 hover:text-accent-ink">
+                <Plus size={11} /> чип
+              </button>
+            )}
           </div>
+        ) : (
+          perks.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {perks.map((p, i) => (
+                <span key={i} className="rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent-ink">{p}</span>
+              ))}
+            </div>
+          )
         )}
         {social && (
           <a href={social} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent-ink hover:underline">
@@ -519,8 +660,9 @@ function hexToRgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-export function FlowPreview({ flow, role, company, positions, device = 'phone', onEdit, controls, onAddPage, onAddBlockToPage }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[]; device?: 'phone' | 'desktop'; onEdit?: (blockId: string, patch: Partial<Block>) => void; controls?: BlockControls; onAddPage?: () => void; onAddBlockToPage?: (pageIdx: number, type: BlockType) => void }) {
+export function FlowPreview({ flow, role, company, positions, device = 'phone', onEdit, controls, onAddPage, onAddBlockToPage, onReorder, deadline, timezone }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[]; device?: 'phone' | 'desktop'; onEdit?: (blockId: string, patch: Partial<Block>) => void; controls?: BlockControls; onAddPage?: () => void; onAddBlockToPage?: (pageIdx: number, type: BlockType) => void; onReorder?: (fromId: string, toId: string, before: boolean) => void; deadline?: string | null; timezone?: string }) {
   const [idx, setIdx] = useState(0);
+  const [dragId, setDragId] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [consents, setConsents] = useState<Record<string, boolean>>({});
   const pages = flow.pages || [];
@@ -571,12 +713,12 @@ export function FlowPreview({ flow, role, company, positions, device = 'phone', 
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
                 {page.blocks.map((b, bi) =>
-                  controls ? (
-                    <BlockWrap key={b.id} id={b.id} first={bi === 0} last={bi === page.blocks.length - 1} c={controls}>
-                      <BlockView b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} />
+                  controls && onReorder ? (
+                    <BlockWrap key={b.id} id={b.id} first={bi === 0} last={bi === page.blocks.length - 1} c={controls} dragId={dragId} setDragId={setDragId} onReorder={onReorder}>
+                      <BlockView b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} deadline={deadline} timezone={timezone} />
                     </BlockWrap>
                   ) : (
-                    <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} />
+                    <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} deadline={deadline} timezone={timezone} />
                   )
                 )}
                 {/* Добавить блок в конец пустой/любой страницы */}

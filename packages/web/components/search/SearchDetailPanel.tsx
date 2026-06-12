@@ -1348,6 +1348,49 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   const addBlockToPage = (pageIdx: number, type: BlockType) =>
     setFlow((f) => ({ ...f, pages: f.pages.map((p, i) => (i === pageIdx ? { ...p, blocks: [...p.blocks, newBlock(type)] } : p)) }));
   const addPage = () => setFlow((f) => ({ ...f, pages: [...f.pages, newPage(`Шаг ${f.pages.length + 1}`)] }));
+  // Drag-and-drop: перенос блока относительно целевого (в пределах текущей страницы).
+  const reorderBlock = (fromId: string, toId: string, before: boolean) =>
+    setFlow((f) => ({
+      ...f,
+      pages: f.pages.map((p) => {
+        if (!p.blocks.some((b) => b.id === fromId) || !p.blocks.some((b) => b.id === toId)) return p;
+        const blocks = p.blocks.slice();
+        const [moved] = blocks.splice(blocks.findIndex((b) => b.id === fromId), 1);
+        const t = blocks.findIndex((b) => b.id === toId);
+        blocks.splice(before ? t : t + 1, 0, moved);
+        return { ...p, blocks };
+      }),
+    }));
+  // Поставить блок-таймер на первую и последнюю страницу (если ещё нет).
+  const ensureDeadlineBlocks = () =>
+    setFlow((f) => {
+      if (!f.pages.length) return f;
+      const last = f.pages.length - 1;
+      return {
+        ...f,
+        pages: f.pages.map((p, i) => {
+          const edge = i === 0 || i === last;
+          if (!edge || p.blocks.some((b) => b.type === 'deadline')) return p;
+          const blk = newBlock('deadline');
+          return { ...p, blocks: i === 0 ? [blk, ...p.blocks] : [...p.blocks, blk] };
+        }),
+      };
+    });
+
+  // Демо-дедлайн для живого превью (из текущих настроек срока сдачи). Считаем в эффекте,
+  // чтобы не было рассинхрона SSR/CSR из-за Date.now().
+  const [previewDeadline, setPreviewDeadline] = useState<string | null>(null);
+  useEffect(() => {
+    const hrs = dlUnit === 'd' ? dlValue * 24 : dlValue;
+    if (dlMode === 'relative' && hrs > 0) setPreviewDeadline(new Date(Date.now() + hrs * 3_600_000).toISOString());
+    else if (dlMode === 'fixed' && dlLocal) {
+      try {
+        setPreviewDeadline(zonedToUtc(dlLocal, tz).toISOString());
+      } catch {
+        setPreviewDeadline(null);
+      }
+    } else setPreviewDeadline(null);
+  }, [dlMode, dlUnit, dlValue, dlLocal, tz]);
 
   async function save() {
     const hours = dlUnit === 'd' ? dlValue * 24 : dlValue;
@@ -1490,6 +1533,11 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
           </div>
         )}
         <p className="mt-2 text-xs text-muted">Кандидат увидит дедлайн, обратный отсчёт и кнопку «Добавить в календарь». По истечении — в канбане «тест просрочен».</p>
+        {dlMode !== 'none' && (
+          <button onClick={ensureDeadlineBlocks} className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs font-medium text-accent-ink hover:bg-accent-soft">
+            <Clock size={13} /> Поставить таймер на первую и последнюю страницу
+          </button>
+        )}
 
         {dlMode !== 'none' && (
           <div className="mt-3 flex items-start justify-between gap-3 border-t border-line pt-3">
@@ -1548,7 +1596,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
           {device === 'phone' ? (
             <div className="mx-auto w-[360px] overflow-hidden rounded-[2.4rem] border-[7px] border-neutral-800 bg-bg shadow-xl">
               <div className="h-[620px] overflow-y-auto">
-                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="phone" onEdit={editBlock} controls={flowControls} onAddPage={addPage} onAddBlockToPage={addBlockToPage} />
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="phone" onEdit={editBlock} controls={flowControls} onAddPage={addPage} onAddBlockToPage={addBlockToPage} onReorder={reorderBlock} deadline={previewDeadline} timezone={tz} />
               </div>
             </div>
           ) : (
@@ -1560,7 +1608,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
                 <span className="ml-3 truncate rounded bg-bg px-3 py-0.5 text-[11px] text-muted">{s.title} · отклик на роль</span>
               </div>
               <div className="h-[620px] overflow-y-auto">
-                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="desktop" onEdit={editBlock} controls={flowControls} onAddPage={addPage} onAddBlockToPage={addBlockToPage} />
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="desktop" onEdit={editBlock} controls={flowControls} onAddPage={addPage} onAddBlockToPage={addBlockToPage} onReorder={reorderBlock} deadline={previewDeadline} timezone={tz} />
               </div>
             </div>
           )}

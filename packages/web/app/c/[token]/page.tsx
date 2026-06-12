@@ -145,7 +145,8 @@ export default function CandidateFlow() {
             <div className="mt-5">
               {data.deadline && (
                 <>
-                  <DeadlineBanner deadline={data.deadline} tz={data.timezone} now={now} />
+                  {/* Если на странице нет собственного блока-таймера — показываем баннер-дедлайн сверху. */}
+                  {!page.blocks.some((b) => b.type === 'deadline') && <DeadlineBanner deadline={data.deadline} tz={data.timezone} now={now} />}
                   <CalendarLinks deadline={data.deadline} role={data.role} token={token} />
                 </>
               )}
@@ -157,7 +158,7 @@ export default function CandidateFlow() {
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
                 {page.blocks.map((b) => (
-                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={data.companyProfile} positions={data.positions} />
+                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={data.companyProfile} positions={data.positions} deadline={data.deadline} timezone={data.timezone} />
                 ))}
               </div>
               {err && <div className="mt-3 text-sm text-danger">{err}</div>}

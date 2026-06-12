@@ -4,6 +4,7 @@
 export type BlockType =
   | 'company' // авто-презентация компании (из «Голоса бренда»)
   | 'positions' // другие активные вакансии компании
+  | 'deadline' // таймер обратного отсчёта до дедлайна сдачи
   | 'heading'
   | 'text'
   | 'image'
@@ -38,6 +39,7 @@ export interface Block {
   logo?: string; // URL логотипа компании
   cover?: string; // URL фоновой обложки
   style?: string; // пресет оформления: minimal | gradient | dark | bold
+  perks?: string[]; // чипы-преимущества компании (переопределяют perks из «Голоса бренда»)
 }
 
 export interface Page {
@@ -57,6 +59,7 @@ export const uid = (p = 'b') => `${p}${Date.now().toString(36)}${(_n++).toString
 export const BLOCK_LABELS: Record<BlockType, string> = {
   company: 'О компании (авто)',
   positions: 'Другие вакансии',
+  deadline: 'Таймер / дедлайн',
   heading: 'Заголовок',
   text: 'Текст',
   image: 'Фото',
@@ -80,6 +83,8 @@ export function newBlock(type: BlockType): Block {
       return { id, type }; // данные подтянутся автоматически из «Голоса бренда»
     case 'positions':
       return { id, type };
+    case 'deadline':
+      return { id, type, text: 'До дедлайна сдачи' };
     case 'heading':
       return { id, type, text: 'Заголовок' };
     case 'text':
