@@ -22,6 +22,7 @@ const DEFAULTS = {
   sweepHidden: true,
   runNowAt: null as Date | null,
   researchEnabled: false,
+  researchByKeywords: false, // false = искать по названию роли, true = по кодовым словам
 };
 
 // Анти-бан потолки: нельзя быстрее/больше/чаще этих значений.
@@ -49,6 +50,7 @@ export async function limitsRoutes(app: FastifyInstance) {
     sweepRequests: z.boolean().optional(),
     sweepHidden: z.boolean().optional(),
     researchEnabled: z.boolean().optional(),
+    researchByKeywords: z.boolean().optional(),
   });
 
   app.put('/api/limits', async (req, reply) => {

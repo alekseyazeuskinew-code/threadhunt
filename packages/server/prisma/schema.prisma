@@ -88,6 +88,7 @@ model Limits {
   sweepHidden          Boolean @default(true)  // обходить «Скрытые»
   runNowAt             DateTime? // «Прогон сейчас»: метка, по которой расширение запустит обход вне расписания
   researchEnabled      Boolean @default(false) // сбор топовых вакансий-веток в Threads (research через расширение)
+  researchByKeywords   Boolean @default(false) // искать ветки по кодовым словам (true) или по названию роли (false)
   researchRunAt        DateTime? // «Собрать топ-ветки сейчас»: метка для немедленного research-прохода
   // Холостой ТЕСТ отбивки из дашборда (без отправки/приёма): запрос + результат.
   dmTestAt             DateTime? // запрошен тест — расширение запустит холостой проход

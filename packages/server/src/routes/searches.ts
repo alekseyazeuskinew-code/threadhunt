@@ -364,7 +364,7 @@ export async function searchRoutes(app: FastifyInstance) {
       take: 200,
     });
     // Сортируем по вовлечённости (ответы и репосты весомее лайков).
-    const scored = rows
+    const posts = rows
       .map((r) => ({ ...r, score: r.likes + r.replies * 2 + r.reposts * 3 }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 20)
@@ -379,7 +379,10 @@ export async function searchRoutes(app: FastifyInstance) {
         score: r.score,
         postedAt: r.postedAt,
       }));
-    return scored;
+    // Статус: идёт ли сбор сейчас (есть незакрытый researchRunAt) и когда был последний сбор.
+    const lim = await db.limits.findUnique({ where: { userId }, select: { researchRunAt: true } });
+    const lastRow = await db.researchPost.findFirst({ where: { userId, searchId: id }, orderBy: { fetchedAt: 'desc' }, select: { fetchedAt: true } });
+    return { posts, running: !!lim?.researchRunAt, lastAt: lastRow?.fetchedAt ? lastRow.fetchedAt.toISOString() : null };
   });
 
   // ── ИИ-генерация постов / ответов / цепочек веток ──

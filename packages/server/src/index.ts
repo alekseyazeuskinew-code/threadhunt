@@ -175,6 +175,7 @@ async function ensureSchema() {
     'ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "obLastReminderAt" TIMESTAMP',
     // Research топовых веток (сбор через расширение).
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchEnabled" BOOLEAN NOT NULL DEFAULT false',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchByKeywords" BOOLEAN NOT NULL DEFAULT false',
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "researchRunAt" TIMESTAMP',
     `CREATE TABLE IF NOT EXISTS "ResearchPost" (
       "id" TEXT PRIMARY KEY,

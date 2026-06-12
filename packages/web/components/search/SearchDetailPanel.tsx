@@ -381,6 +381,7 @@ function DmPassCard({ searchId }: { searchId: string }) {
       sweepRequests: v.sweepRequests,
       sweepHidden: v.sweepHidden,
       researchEnabled: v.researchEnabled,
+      researchByKeywords: v.researchByKeywords,
     });
   };
   const autosave = useAutosave(lim, persistLimits, { enabled: ready });
@@ -475,6 +476,20 @@ function DmPassCard({ searchId }: { searchId: string }) {
         <input type="checkbox" checked={lim.researchEnabled} onChange={(e) => set({ researchEnabled: e.target.checked })} />
         <span>Research — раз в ~12 ч собирать <b>топовые вакансии-ветки</b> в Threads по твоим ролям (для вдохновения постов)</span>
       </label>
+      {lim.researchEnabled && (
+        <label className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-sm text-muted">
+          Искать ветки по:
+          <Select
+            className="w-52"
+            value={lim.researchByKeywords ? 'keywords' : 'role'}
+            onChange={(v) => set({ researchByKeywords: v === 'keywords' })}
+            options={[
+              { value: 'role', label: 'названию роли' },
+              { value: 'keywords', label: 'кодовым словам' },
+            ]}
+          />
+        </label>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button size="sm" variant="ghost" onClick={researchNow} disabled={researchBusy}>
           <TrendingUp size={14} /> {researchBusy ? 'Запускаю…' : 'Собрать топ-ветки сейчас'}
@@ -1074,8 +1089,9 @@ const RESEARCH_WINDOWS = [
   { value: 'month', label: 'Месяц' },
   { value: 'all', label: 'Всё время' },
 ];
+type ResearchResp = { posts: ResearchPostRow[]; running: boolean; lastAt: string | null };
 function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: string) => void }) {
-  const [rows, setRows] = useState<ResearchPostRow[] | null>(null);
+  const [resp, setResp] = useState<ResearchResp | null>(null);
   const [open, setOpen] = useState(false);
   const [win, setWin] = useState<'week' | 'month' | 'all'>('month');
   useEffect(() => {
@@ -1084,12 +1100,29 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
       if (w === 'week' || w === 'month' || w === 'all') setWin(w);
     } catch {}
   }, []);
+  const load = (silent = false) => {
+    if (!silent) setResp(null);
+    return api.get<ResearchResp>(`/api/searches/${searchId}/research?window=${win}`).then(setResp).catch(() => setResp({ posts: [], running: false, lastAt: null }));
+  };
   useEffect(() => {
-    setRows(null);
-    api.get<ResearchPostRow[]>(`/api/searches/${searchId}/research?window=${win}`).then(setRows).catch(() => setRows([]));
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchId, win]);
+  // Пока идёт сбор — мягко опрашиваем сервер, чтобы статус и ветки обновлялись вживую.
+  useEffect(() => {
+    if (!resp?.running) return;
+    const t = setInterval(() => load(true), 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resp?.running, searchId, win]);
 
+  const posts = resp?.posts ?? [];
   const winLabel = RESEARCH_WINDOWS.find((w) => w.value === win)?.label.toLowerCase();
+  const statusLine = resp?.running
+    ? '● идёт сбор…'
+    : resp?.lastAt
+      ? `обновлено ${relTime(resp.lastAt)}`
+      : '';
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-center gap-2">
@@ -1097,7 +1130,8 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
           <span className="text-accent-ink">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
           <TrendingUp size={16} className="shrink-0 text-accent-ink" />
           <span className="font-semibold">Топ веток · {winLabel}</span>
-          {rows && rows.length > 0 && <span className="text-xs text-muted">· {rows.length} собрано</span>}
+          {posts.length > 0 && <span className="text-xs text-muted">· {posts.length}</span>}
+          {statusLine && <span className={`text-xs ${resp?.running ? 'text-accent-ink' : 'text-muted'}`}>· {statusLine}</span>}
         </button>
         <div className="flex shrink-0 overflow-hidden rounded-lg border border-line">
           {RESEARCH_WINDOWS.map((w) => (
@@ -1114,16 +1148,17 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
           ))}
         </div>
       </div>
-      {rows !== null && open && (
+      {resp !== null && open && (
         <div className="mt-3">
-          {rows.length === 0 ? (
+          {posts.length === 0 ? (
             <p className="text-sm text-muted">
-              Пока пусто. Включи <b>Research</b> во вкладке «Отбивка» — расширение раз в ~12 ч соберёт самые заходящие
-              вакансии-ветки по этой роли (нужен открытый Threads в браузере).
+              {resp.running
+                ? 'Идёт сбор — расширение открыло фоновую вкладку Threads и собирает топовые ветки. Появятся через 1–3 минуты.'
+                : 'Пока пусто. Включи Research во вкладке «Отбивка» и нажми «Собрать топ-ветки сейчас» (нужен залогиненный Threads в браузере).'}
             </p>
           ) : (
             <div className="space-y-2">
-              {rows.map((r) => (
+              {posts.map((r) => (
                 <div key={r.id} className="rounded-xl border border-line bg-bg p-3">
                   <p className="line-clamp-3 whitespace-pre-wrap text-sm">{r.text}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">

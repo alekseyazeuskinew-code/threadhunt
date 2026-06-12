@@ -448,6 +448,7 @@ export interface Limits {
   sweepRequests: boolean;
   sweepHidden: boolean;
   researchEnabled: boolean;
+  researchByKeywords?: boolean;
   runNowAt?: string | null;
   caps?: { replyDelayMin: number; repliesMax: number; dialogsMax: number; intervalMin: number };
 }

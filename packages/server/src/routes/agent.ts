@@ -100,8 +100,11 @@ export async function agentRoutes(app: FastifyInstance) {
       },
       research: {
         enabled: !!lim.researchEnabled,
-        // Запросы — названия активных поисков (роли). По ним ищем вакансии-ветки в Threads.
-        queries: searches.slice(0, 12).map((s) => ({ searchId: s.id, query: s.title })),
+        // Запросы: по кодовым словам поиска ИЛИ по названию роли (настройка researchByKeywords).
+        queries: (lim.researchByKeywords
+          ? searches.flatMap((s) => s.keywords.map((k) => ({ searchId: s.id, query: k.text })))
+          : searches.map((s) => ({ searchId: s.id, query: s.title }))
+        ).slice(0, 12),
         intervalMinutes: 720, // раз в ~12 часов
         maxPerQuery: 15,
         runAt: lim.researchRunAt ? new Date(lim.researchRunAt).toISOString() : null,
