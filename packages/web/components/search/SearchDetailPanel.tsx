@@ -1314,8 +1314,40 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   }, [s.id]);
 
   // Правка блока прямо из живого превью (клик по тексту/заголовку → редактирование на месте).
-  const editBlock = (blockId: string, patch: Partial<import('@/lib/flow').Block>) =>
+  const editBlock = (blockId: string, patch: Partial<Block>) =>
     setFlow((f) => ({ ...f, pages: f.pages.map((p) => ({ ...p, blocks: p.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b)) })) }));
+
+  // Гибкая структура прямо в превью: подвинуть/удалить/добавить блок, добавить шаг.
+  const flowControls = {
+    move: (blockId: string, dir: -1 | 1) =>
+      setFlow((f) => ({
+        ...f,
+        pages: f.pages.map((p) => {
+          const i = p.blocks.findIndex((b) => b.id === blockId);
+          if (i < 0) return p;
+          const j = i + dir;
+          if (j < 0 || j >= p.blocks.length) return p;
+          const blocks = [...p.blocks];
+          [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+          return { ...p, blocks };
+        }),
+      })),
+    remove: (blockId: string) => setFlow((f) => ({ ...f, pages: f.pages.map((p) => ({ ...p, blocks: p.blocks.filter((b) => b.id !== blockId) })) })),
+    add: (afterBlockId: string, type: BlockType) =>
+      setFlow((f) => ({
+        ...f,
+        pages: f.pages.map((p) => {
+          const i = p.blocks.findIndex((b) => b.id === afterBlockId);
+          if (i < 0) return p;
+          const blocks = [...p.blocks];
+          blocks.splice(i + 1, 0, newBlock(type));
+          return { ...p, blocks };
+        }),
+      })),
+  };
+  const addBlockToPage = (pageIdx: number, type: BlockType) =>
+    setFlow((f) => ({ ...f, pages: f.pages.map((p, i) => (i === pageIdx ? { ...p, blocks: [...p.blocks, newBlock(type)] } : p)) }));
+  const addPage = () => setFlow((f) => ({ ...f, pages: [...f.pages, newPage(`Шаг ${f.pages.length + 1}`)] }));
 
   async function save() {
     const hours = dlUnit === 'd' ? dlValue * 24 : dlValue;
@@ -1516,7 +1548,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
           {device === 'phone' ? (
             <div className="mx-auto w-[360px] overflow-hidden rounded-[2.4rem] border-[7px] border-neutral-800 bg-bg shadow-xl">
               <div className="h-[620px] overflow-y-auto">
-                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="phone" onEdit={editBlock} />
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="phone" onEdit={editBlock} controls={flowControls} onAddPage={addPage} onAddBlockToPage={addBlockToPage} />
               </div>
             </div>
           ) : (
@@ -1528,11 +1560,11 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
                 <span className="ml-3 truncate rounded bg-bg px-3 py-0.5 text-[11px] text-muted">{s.title} · отклик на роль</span>
               </div>
               <div className="h-[620px] overflow-y-auto">
-                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="desktop" onEdit={editBlock} />
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="desktop" onEdit={editBlock} controls={flowControls} onAddPage={addPage} onAddBlockToPage={addBlockToPage} />
               </div>
             </div>
           )}
-          <p className="text-center text-[11px] text-muted">Заголовки и тексты можно править прямо в превью (клик) · обновляется вживую</p>
+          <p className="text-center text-[11px] text-muted">Клик по тексту — правка · наведи на блок: ↑↓ порядок, 🗑 удалить, «+ блок» — добавить вопрос · цифры сверху — шаги</p>
         </div>
       </div>
 

@@ -1,7 +1,8 @@
 'use client';
 import { useRef, useState, type CSSProperties } from 'react';
-import { Check, ArrowRight, ImagePlus } from 'lucide-react';
-import type { Block, Flow } from '@/lib/flow';
+import { Check, ArrowRight, ImagePlus, ChevronUp, ChevronDown, Trash2, Plus } from 'lucide-react';
+import type { Block, Flow, BlockType } from '@/lib/flow';
+import { BLOCK_LABELS } from '@/lib/flow';
 import type { CompanyProfile } from '@/lib/types';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -79,6 +80,64 @@ function Editable({ value, onChange, className }: { value: string; onChange: (v:
       className={`-mx-1 min-h-[1.2em] cursor-text whitespace-pre-wrap rounded px-1 outline-none transition-colors hover:bg-accent-soft/40 focus:bg-accent-soft/60 ${className || ''}`}
     >
       {value}
+    </div>
+  );
+}
+
+// Управление структурой прямо в превью (конструктор): подвинуть/удалить блок и
+// добавить новый под ним. Появляется по наведению.
+export interface BlockControls {
+  move: (blockId: string, dir: -1 | 1) => void;
+  remove: (blockId: string) => void;
+  add: (afterBlockId: string, type: BlockType) => void;
+}
+
+// Палитра типов для быстрого добавления из превью.
+const ADD_TYPES: BlockType[] = ['heading', 'text', 'field', 'choice', 'multi', 'scale', 'image', 'video', 'file', 'faq', 'consent', 'submit', 'support'];
+
+function BlockWrap({ children, first, last, c, id }: { children: React.ReactNode; first: boolean; last: boolean; c: BlockControls; id: string }) {
+  const [menu, setMenu] = useState(false);
+  const btn = 'flex h-6 w-6 items-center justify-center rounded-md border border-line bg-panel text-muted shadow-sm hover:text-text disabled:opacity-30';
+  return (
+    <div className="group/blk relative rounded-xl">
+      {/* Тулбар блока */}
+      <div className="absolute -right-2.5 top-0 z-20 flex flex-col gap-0.5 opacity-0 transition group-hover/blk:opacity-100">
+        <button onClick={() => c.move(id, -1)} disabled={first} className={btn} title="Выше">
+          <ChevronUp size={14} />
+        </button>
+        <button onClick={() => c.move(id, 1)} disabled={last} className={btn} title="Ниже">
+          <ChevronDown size={14} />
+        </button>
+        <button onClick={() => c.remove(id)} className={`${btn} hover:text-danger`} title="Удалить">
+          <Trash2 size={13} />
+        </button>
+      </div>
+      {children}
+      {/* Добавить блок под этим */}
+      <div className="relative mt-1.5 flex justify-center">
+        <button
+          onClick={() => setMenu((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2.5 py-0.5 text-[11px] text-muted opacity-0 transition hover:border-accent/50 hover:text-accent-ink group-hover/blk:opacity-100"
+        >
+          <Plus size={11} /> блок
+        </button>
+        {menu && (
+          <div className="absolute top-7 z-30 grid w-56 grid-cols-2 gap-1 rounded-xl border border-line bg-panel p-2 shadow-2xl">
+            {ADD_TYPES.map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  c.add(id, t);
+                  setMenu(false);
+                }}
+                className="rounded-lg px-2 py-1.5 text-left text-xs hover:bg-panel-2"
+              >
+                {BLOCK_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -357,10 +416,10 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
       </div>
 
       <div className="px-4 pb-4">
-        <div className="-mt-7 flex items-end gap-3">
-          {/* Логотип «наезжает» на обложку (клик → загрузка) */}
+        {/* Логотип «наезжает» на обложку (клик → загрузка); название — ПОД ним, чтобы не перекрывалось. */}
+        <div className="-mt-7">
           {edit ? (
-            <button onClick={() => logoRef.current?.click()} title="Загрузить логотип" className="group/logo relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl border-4 border-bg">
+            <button onClick={() => logoRef.current?.click()} title="Загрузить логотип" className="group/logo relative h-14 w-14 overflow-hidden rounded-2xl border-4 border-bg">
               {logo ? (
                 <img src={logo} alt="" className="h-full w-full bg-panel object-cover" />
               ) : (
@@ -371,18 +430,18 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
               </span>
             </button>
           ) : logo ? (
-            <img src={logo} alt="" className="h-14 w-14 shrink-0 rounded-2xl border-4 border-bg bg-panel object-cover" />
+            <img src={logo} alt="" className="h-14 w-14 rounded-2xl border-4 border-bg bg-panel object-cover" />
           ) : (
-            <div className="th-grad flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-4 border-bg text-lg font-bold">{initial}</div>
+            <div className="th-grad flex h-14 w-14 items-center justify-center rounded-2xl border-4 border-bg text-lg font-bold">{initial}</div>
           )}
-          <div className="min-w-0 pb-1">
-            {edit ? (
-              <Editable className="font-semibold" value={name} onChange={(t) => onEdit!(block!.id, { label: t })} />
-            ) : (
-              <div className="truncate font-semibold">{name}</div>
-            )}
-            {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
-          </div>
+        </div>
+        <div className="mt-2">
+          {edit ? (
+            <Editable className="font-semibold" value={name} onChange={(t) => onEdit!(block!.id, { label: t })} />
+          ) : (
+            <div className="truncate font-semibold">{name}</div>
+          )}
+          {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
         </div>
 
         {edit ? (
@@ -460,7 +519,7 @@ function hexToRgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-export function FlowPreview({ flow, role, company, positions, device = 'phone', onEdit }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[]; device?: 'phone' | 'desktop'; onEdit?: (blockId: string, patch: Partial<Block>) => void }) {
+export function FlowPreview({ flow, role, company, positions, device = 'phone', onEdit, controls, onAddPage, onAddBlockToPage }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[]; device?: 'phone' | 'desktop'; onEdit?: (blockId: string, patch: Partial<Block>) => void; controls?: BlockControls; onAddPage?: () => void; onAddBlockToPage?: (pageIdx: number, type: BlockType) => void }) {
   const [idx, setIdx] = useState(0);
   const [values, setValues] = useState<Record<string, string>>({});
   const [consents, setConsents] = useState<Record<string, boolean>>({});
@@ -490,11 +549,42 @@ export function FlowPreview({ flow, role, company, positions, device = 'phone', 
             <CompletionView onRestart={() => setIdx(0)} />
           ) : (
             <div className="mt-5">
+              {/* Навигация по шагам в конструкторе: переключай/добавляй страницы прямо в превью */}
+              {controls && (
+                <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                  {pages.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setIdx(i)}
+                      className={`h-6 min-w-6 rounded-full px-2 text-xs font-medium transition ${i === idx ? 'bg-accent text-on-accent' : 'border border-line text-muted hover:text-text'}`}
+                    >
+                      {i + 1}
+                    </button>
+                  ))}
+                  {onAddPage && (
+                    <button onClick={onAddPage} className="inline-flex h-6 items-center gap-0.5 rounded-full border border-dashed border-line px-2 text-xs text-muted hover:border-accent/50 hover:text-accent-ink" title="Добавить шаг">
+                      <Plus size={11} /> шаг
+                    </button>
+                  )}
+                </div>
+              )}
               <OnbProgress step={idx} total={total} />
               <div key={idx} className="anim-up space-y-4">
-                {page.blocks.map((b) => (
-                  <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} />
-                ))}
+                {page.blocks.map((b, bi) =>
+                  controls ? (
+                    <BlockWrap key={b.id} id={b.id} first={bi === 0} last={bi === page.blocks.length - 1} c={controls}>
+                      <BlockView b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} />
+                    </BlockWrap>
+                  ) : (
+                    <BlockView key={b.id} b={b} values={values} setVal={setVal} consents={consents} setConsents={setConsents} company={company} positions={positions} onEdit={onEdit} />
+                  )
+                )}
+                {/* Добавить блок в конец пустой/любой страницы */}
+                {controls && page.blocks.length === 0 && onAddBlockToPage && (
+                  <button onClick={() => onAddBlockToPage(idx, 'heading')} className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-line py-3 text-sm text-muted hover:border-accent/50 hover:text-accent-ink">
+                    <Plus size={14} /> Добавить блок
+                  </button>
+                )}
               </div>
               <div className="mt-6 flex gap-2">
                 <Button variant="ghost" disabled={idx === 0} onClick={() => setIdx((i) => Math.max(0, i - 1))}>
