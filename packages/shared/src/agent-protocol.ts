@@ -16,6 +16,9 @@ export interface AgentSearchRule {
   /** Анти-бан: пауза между ответами и дневной лимит. */
   minDelayMs: number;
   maxRepliesPerDay: number;
+  /** База персональной ссылки онбординга (если включено). Агент дописывает в конец:
+   *  `${obLink}${encodeURIComponent(fromUserKey)}`. Пусто = не прикреплять. */
+  obLink?: string;
 }
 
 /** Лимиты + параметры прохода отбивки (на аккаунт). Расширение строго соблюдает. */

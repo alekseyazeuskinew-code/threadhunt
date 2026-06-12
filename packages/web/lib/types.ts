@@ -110,6 +110,7 @@ export interface SearchDetail extends SearchSummary {
   obDeadlineAt?: string | null;
   obTimezone?: string;
   obRemindersEnabled?: boolean;
+  obLinkInReply?: boolean;
   commentRule?: CommentRuleConfig | null;
 }
 

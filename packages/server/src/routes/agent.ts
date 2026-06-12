@@ -9,6 +9,7 @@ import { hashToken } from '../crypto.js';
 import { getUserLimits } from './limits.js';
 import { fireWebhook } from '../webhook.js';
 import { applyDmWatermark } from '../branding.js';
+import { env } from '../env.js';
 import type { AgentTasksResponse, AgentSearchRule } from '@threadhunt/shared';
 
 const POLL_INTERVAL_SEC = 20;
@@ -79,6 +80,8 @@ export async function agentRoutes(app: FastifyInstance) {
       alreadyReplied: s.leads.map((l) => l.fromUserKey),
       minDelayMs: lim.replyDelaySec * 1000,
       maxRepliesPerDay: lim.maxRepliesPerDay,
+      // Персональная ссылка онбординга в ответ (если включено в настройках поиска).
+      obLink: s.obEnabled && s.obLinkInReply ? `${env.WEB_ORIGIN}/api/c/by/${s.id}/` : undefined,
     }));
 
     const res: AgentTasksResponse = {

@@ -1262,6 +1262,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   const [dlLocal, setDlLocal] = useState(() => (s.obDeadlineMode === 'fixed' && s.obDeadlineAt ? utcToZonedLocal(s.obDeadlineAt, s.obTimezone || '') : ''));
   const [tz, setTz] = useState(s.obTimezone || '');
   const [reminders, setReminders] = useState(s.obRemindersEnabled ?? true);
+  const [linkInReply, setLinkInReply] = useState(s.obLinkInReply ?? false);
   const [device, setDevice] = useState<'phone' | 'desktop'>('phone'); // режим живого превью
   // Для предпросмотра «О компании» / «Другие вакансии» — реальные данные бренда и позиций.
   const [brand, setBrand] = useState<CompanyProfile | null>(null);
@@ -1351,7 +1352,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   }, [dlMode, dlUnit, dlValue, dlLocal, tz]);
 
   // Единый сериализатор онбординга для сохранения.
-  const buildPayload = (v: { enabled: boolean; flow: Flow; dlMode: typeof dlMode; dlUnit: typeof dlUnit; dlValue: number; dlLocal: string; tz: string; reminders: boolean }) => {
+  const buildPayload = (v: { enabled: boolean; flow: Flow; dlMode: typeof dlMode; dlUnit: typeof dlUnit; dlValue: number; dlLocal: string; tz: string; reminders: boolean; linkInReply: boolean }) => {
     const hours = v.dlUnit === 'd' ? v.dlValue * 24 : v.dlValue;
     const obDeadlineAt = v.dlMode === 'fixed' && v.dlLocal ? zonedToUtc(v.dlLocal, v.tz).toISOString() : null;
     return {
@@ -1362,17 +1363,18 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
       obDeadlineAt,
       obTimezone: v.tz,
       obRemindersEnabled: v.reminders,
+      obLinkInReply: v.linkInReply,
     };
   };
 
   // Автосохранение всего онбординга (флоу + дедлайн + напоминания). Никаких потерь
   // при переключении вкладок.
-  const autosave = useAutosave({ enabled, flow, dlMode, dlUnit, dlValue, dlLocal, tz, reminders }, async (v) => {
+  const autosave = useAutosave({ enabled, flow, dlMode, dlUnit, dlValue, dlLocal, tz, reminders, linkInReply }, async (v) => {
     await api.put(`/api/searches/${s.id}/onboarding`, buildPayload(v));
   }, { delay: 1200 });
 
   async function save() {
-    await api.put(`/api/searches/${s.id}/onboarding`, buildPayload({ enabled, flow, dlMode, dlUnit, dlValue, dlLocal, tz, reminders }));
+    await api.put(`/api/searches/${s.id}/onboarding`, buildPayload({ enabled, flow, dlMode, dlUnit, dlValue, dlLocal, tz, reminders, linkInReply }));
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
     reload();
@@ -1516,6 +1518,23 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
             </div>
             <Toggle checked={reminders} onChange={setReminders} />
           </div>
+        )}
+      </div>
+
+      {/* Персональная ссылка онбординга в ответ директа */}
+      <div className="rounded-2xl border border-line bg-panel p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-medium">Ссылка онбординга в ответе директа</div>
+            <div className="mt-0.5 text-sm text-muted">
+              Когда бот отвечает на кодовое слово, в конец сообщения автоматически добавится <b>персональная</b> ссылка на эту анкету — у каждого кандидата своя. Прогресс по нему виден в «Лидах» и воронке.
+            </div>
+          </div>
+          <Toggle checked={linkInReply} onChange={setLinkInReply} />
+        </div>
+        {linkInReply && !enabled && <p className="mt-2 text-xs text-warning">Включите сам онбординг выше — иначе ссылку прикреплять некуда.</p>}
+        {linkInReply && enabled && (
+          <p className="mt-2 text-xs text-muted">Кандидату уйдёт, напр.: «…ваш текст…\n\n→ Заполни короткую анкету: …/c/ob_xxx». Ссылка резолвится по человеку автоматически — вручную ничего не нужно.</p>
         )}
       </div>
 

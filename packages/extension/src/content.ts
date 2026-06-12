@@ -31,6 +31,13 @@ function pickReply(
   return tpl ? { id: tpl.id, text: tpl.text } : null;
 }
 
+// Дописать персональную ссылку онбординга в конец ответа (если включено для поиска).
+// Ключ — id чата (тот же fromUserKey, что уходит в события), сервер по нему найдёт лида.
+function withObLink(text: string, base: string | undefined, chatId: string): string {
+  if (!base) return text;
+  return `${text}\n\n→ Заполни короткую анкету: ${base}${encodeURIComponent(chatId)}`;
+}
+
 // Разделы директа в порядке приоритета (как в bot.js).
 const SECTIONS = [
   { url: '/messages/requests', label: 'requests' },
@@ -74,6 +81,7 @@ interface Sweep {
   // правила, снятые на старте прохода (чтобы не зависеть от обновления tasks в середине)
   keywords: (Keyword & { searchId: string })[];
   replyBySearch: Record<string, { id: string; text: string } | undefined>;
+  obLinkBySearch: Record<string, string | undefined>; // база персональной ссылки онбординга на поиск
   repliedKeys: string[];
   minDelayMs: number;
   maxDialogs: number; // лимит читаемых диалогов за проход
@@ -320,6 +328,7 @@ async function step() {
       events: [],
       keywords: tasks.searches.flatMap((s) => s.keywords.map((k) => ({ ...k, searchId: s.searchId }))),
       replyBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.replyTemplates[0]])),
+      obLinkBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.obLink])),
       repliedKeys: tasks.searches.flatMap((s) => s.alreadyReplied),
       minDelayMs: lim?.minDelayMs ?? 8000,
       maxDialogs: lim?.maxDialogs ?? 40,
@@ -423,7 +432,7 @@ async function step() {
       const tpl = pickReply(kw, sweep.replyBySearch);
       if (tpl) {
         await acceptRequestIfNeeded(); // закрыть OK-окно → Accept → пост-подтверждение (D.13)
-        const sent = await sendReply(tpl.text);
+        const sent = await sendReply(withObLink(tpl.text, sweep.obLinkBySearch[kw.searchId], chat.id));
         if (sent) sweep.sent++;
         sweep.events.push({
           searchId: kw.searchId,
@@ -450,7 +459,7 @@ async function step() {
           if (tpl) {
             let sent = false;
             if (!sweep.dryRun) {
-              sent = await sendReply(tpl.text);
+              sent = await sendReply(withObLink(tpl.text, sweep.obLinkBySearch[kw.searchId], chat.id));
               if (sent) sweep.sent++;
             }
             sweep.events.push({
@@ -539,6 +548,7 @@ async function startTestSweep(): Promise<{ ok: boolean; reason?: string }> {
     events: [],
     keywords,
     replyBySearch: Object.fromEntries(searches.map((s) => [s.searchId, s.replyTemplates[0]])),
+    obLinkBySearch: Object.fromEntries(searches.map((s) => [s.searchId, s.obLink])),
     repliedKeys: [], // в тесте смотрим всех, даже тех, кому уже отвечали
     minDelayMs: 0,
     maxDialogs: tasks?.limits?.maxDialogs ?? 40,
@@ -580,6 +590,7 @@ async function maybeStartDmTest(tasks: AgentTasksResponse): Promise<boolean> {
     events: [],
     keywords,
     replyBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.replyTemplates[0]])),
+    obLinkBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.obLink])),
     repliedKeys: [],
     minDelayMs: 0,
     maxDialogs: tasks.limits?.maxDialogs ?? 40,

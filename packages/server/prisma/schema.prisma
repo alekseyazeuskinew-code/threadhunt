@@ -299,6 +299,7 @@ model Search {
   obDeadlineAt   DateTime? // для fixed: абсолютный момент (UTC)
   obTimezone     String  @default("") // IANA-зона для показа кандидату (пусто = его локальная)
   obRemindersEnabled Boolean @default(true) // слать кандидату email-напоминания о дедлайне теста
+  obLinkInReply  Boolean @default(false) // вкладывать персональную ссылку онбординга в авто-ответ директа
 
   // ── Автопланировщик целей найма ──
   goalEnabled    Boolean   @default(false)

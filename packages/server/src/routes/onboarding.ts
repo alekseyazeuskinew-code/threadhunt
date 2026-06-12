@@ -47,6 +47,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
     obDeadlineAt: z.string().datetime().nullable().optional(),
     obTimezone: z.string().max(64).optional(),
     obRemindersEnabled: z.boolean().optional(),
+    obLinkInReply: z.boolean().optional(), // вкладывать персональную ссылку онбординга в ответ директа
   });
   app.put('/api/searches/:id/onboarding', async (req, reply) => {
     const userId = await requireUser(req, reply);
@@ -191,6 +192,25 @@ export async function onboardingRoutes(app: FastifyInstance) {
       pages.push({ id: 'p4', title: 'Сдача', blocks: [{ id: 's1', type: 'heading', text: 'Пришли ссылку на работу' }, { id: 's2', type: 'submit', key: 'work_url', label: 'Ссылка на тестовое' }] });
     return { pages };
   }
+
+  // ── ПУБЛИЧНО: персональная ссылка из ответа директа → upsert лида по (поиск, ключ
+  // чата) → выдать/создать токен → редирект на онбординг. Ключ = fromUserKey (id чата),
+  // тот же, что расширение шлёт в /api/agent/events, поэтому лид совпадает с реальным.
+  app.get('/api/c/by/:sid/:key', async (req, reply) => {
+    const { sid, key } = req.params as any;
+    const search = await db.search.findUnique({ where: { id: sid }, select: { id: true, userId: true, obEnabled: true } });
+    if (!search || !search.obEnabled) return reply.code(404).send({ error: 'not found' });
+    let lead = await db.lead.findUnique({ where: { searchId_fromUserKey: { searchId: sid, fromUserKey: key } } });
+    if (!lead) {
+      lead = await db.lead.create({ data: { userId: search.userId, searchId: sid, fromUserKey: key, matchedKeyword: '(link)', status: 'MANUAL' } });
+    }
+    let token = lead.onboardToken;
+    if (!token) {
+      token = 'ob_' + randomBytes(18).toString('hex');
+      await db.lead.update({ where: { id: lead.id }, data: { onboardToken: token } });
+    }
+    return reply.redirect(`${env.WEB_ORIGIN}/c/${token}`);
+  });
 
   // ── ПУБЛИЧНО: получить флоу по токену ──
   app.get('/api/c/:token', async (req, reply) => {

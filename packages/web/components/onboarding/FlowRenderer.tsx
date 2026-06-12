@@ -902,7 +902,7 @@ export function FlowPreview({ flow, role, company, positions, device = 'phone', 
                 </div>
               )}
               <OnbProgress step={idx} total={total} />
-              <div key={idx} className="anim-up space-y-4">
+              <div key={idx} className="anim-up relative z-10 space-y-4">
                 {page.blocks.map((b, bi) =>
                   controls && onReorder ? (
                     <BlockWrap key={b.id} id={b.id} first={bi === 0} last={bi === page.blocks.length - 1} c={controls} dragId={dragId} setDragId={setDragId} onReorder={onReorder}>
@@ -919,7 +919,7 @@ export function FlowPreview({ flow, role, company, positions, device = 'phone', 
                   </button>
                 )}
               </div>
-              <div className="mt-6 flex gap-2">
+              <div className="relative z-0 mt-6 flex gap-2">
                 <Button variant="ghost" disabled={idx === 0} onClick={() => setIdx((i) => Math.max(0, i - 1))}>
                   Назад
                 </Button>
