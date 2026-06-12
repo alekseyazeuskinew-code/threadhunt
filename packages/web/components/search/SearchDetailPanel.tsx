@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2 } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow, CompanyProfile, BrandProfile, SearchSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -156,7 +156,8 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
         </div>
       </header>
 
-      <div className="max-w-3xl p-6">
+      {/* Вкладка «Лиды/онбординг» шире — там split-view конструктор + живое превью. */}
+      <div className={tab === 'leads' ? 'max-w-6xl p-6' : 'max-w-3xl p-6'}>
         {tab === 'overview' && <OverviewTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} goTo={setTab} />}
         {tab === 'otbivka' && <OtbivkaTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} />}
         {tab === 'baits' && <BaitsTab s={s} reload={reload} />}
@@ -1303,6 +1304,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   const [dlLocal, setDlLocal] = useState('');
   const [tz, setTz] = useState(s.obTimezone || '');
   const [reminders, setReminders] = useState(s.obRemindersEnabled ?? true);
+  const [device, setDevice] = useState<'phone' | 'desktop'>('phone'); // режим живого превью
   // Для предпросмотра «О компании» / «Другие вакансии» — реальные данные бренда и позиций.
   const [brand, setBrand] = useState<CompanyProfile | null>(null);
   const [positions, setPositions] = useState<string[]>([]);
@@ -1378,12 +1380,13 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
   };
 
   return (
-    <div className="space-y-5">
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
+      <div className="space-y-5">
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="flex items-center justify-between">
           <div className="text-sm text-muted">Ссылку выдашь из карточки лида во вкладке «Лиды».</div>
           <div className="flex shrink-0 items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => setShowPreview(true)}>
+            <Button variant="ghost" size="sm" onClick={() => setShowPreview(true)} className="lg:hidden">
               <Eye size={15} /> Предпросмотр
             </Button>
             <Toggle checked={enabled} onChange={setEnabled} />
@@ -1473,6 +1476,60 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
       </div>
 
       <OnboardingFunnelBlock id={s.id} />
+      </div>
+
+      {/* ── ПРАВО: живое превью (десктоп) — обновляется на каждое изменение слева ── */}
+      <div className="mt-6 hidden lg:mt-0 lg:block">
+        <div className="sticky top-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold">Превью вживую</div>
+            <div className="flex rounded-full border border-line p-0.5 text-xs">
+              <button onClick={() => setDevice('phone')} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 ${device === 'phone' ? 'bg-accent-soft text-accent-ink' : 'text-muted'}`}>
+                <Smartphone size={13} /> Телефон
+              </button>
+              <button onClick={() => setDevice('desktop')} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 ${device === 'desktop' ? 'bg-accent-soft text-accent-ink' : 'text-muted'}`}>
+                <Monitor size={13} /> Комп
+              </button>
+            </div>
+          </div>
+
+          {/* Палитра акцентного цвета — перекрашивает превью на лету */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted">Цвет:</span>
+            {['#6d5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#111827'].map((c) => (
+              <button key={c} onClick={() => setFlow({ ...flow, accent: c })} style={{ background: c }} className={`h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 ${flow.accent === c ? 'border-text' : 'border-transparent'}`} title={c} />
+            ))}
+            <input type="color" value={flow.accent || '#6d5cf6'} onChange={(e) => setFlow({ ...flow, accent: e.target.value })} className="h-6 w-6 cursor-pointer rounded-full border border-line bg-transparent p-0" title="Свой цвет" />
+            {flow.accent && (
+              <button onClick={() => setFlow({ ...flow, accent: undefined })} className="text-xs text-muted hover:text-text">
+                сброс
+              </button>
+            )}
+          </div>
+
+          {/* Кадр устройства */}
+          {device === 'phone' ? (
+            <div className="mx-auto w-[300px] overflow-hidden rounded-[2.2rem] border-[6px] border-neutral-800 bg-bg shadow-xl">
+              <div className="h-[560px] overflow-y-auto">
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="phone" />
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-line bg-bg shadow-xl">
+              <div className="flex items-center gap-1.5 border-b border-line bg-panel-2 px-3 py-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-danger/60" />
+                <span className="h-2.5 w-2.5 rounded-full bg-warning/60" />
+                <span className="h-2.5 w-2.5 rounded-full bg-success/60" />
+                <span className="ml-2 truncate rounded bg-bg px-2 py-0.5 text-[10px] text-muted">отклик на роль</span>
+              </div>
+              <div className="h-[560px] overflow-y-auto">
+                <FlowPreview flow={flow} role={s.title} company={brand} positions={positions} device="desktop" />
+              </div>
+            </div>
+          )}
+          <p className="text-center text-[11px] text-muted">Обновляется вживую при правках слева</p>
+        </div>
+      </div>
 
       {showPreview && (
         <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/70 p-4 py-6 backdrop-blur-sm" onClick={() => setShowPreview(false)}>

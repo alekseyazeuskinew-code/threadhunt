@@ -48,6 +48,7 @@ export interface Page {
 
 export interface Flow {
   pages: Page[];
+  accent?: string; // акцентный цвет страницы кандидата (hex) — перекрашивает кнопки/прогресс/чипы
 }
 
 let _n = 0;

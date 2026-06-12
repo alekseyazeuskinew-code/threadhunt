@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowRight, Clock, CalendarPlus } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -125,8 +125,14 @@ export default function CandidateFlow() {
     }
   }
 
+  // Акцентный цвет страницы (из конструктора) — перекрашивает кнопки/прогресс/чипы.
+  const ac = data.flow.accent;
+  const accentStyle = ac
+    ? ({ '--accent': ac, '--accent-press': ac, '--accent-ink': ac, '--accent-soft': hexToRgba(ac, 0.14), '--on-accent': '#ffffff' } as CSSProperties)
+    : undefined;
+
   return (
-    <div className="th-aurora relative min-h-screen overflow-hidden">
+    <div className="th-aurora relative min-h-screen overflow-hidden" style={accentStyle}>
       <div className="th-grid pointer-events-none fixed inset-0 opacity-[0.3]" />
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
         <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.08] backdrop-blur sm:p-7">
@@ -208,6 +214,14 @@ function CalendarLinks({ deadline, role, token }: { deadline: string; role: stri
       </a>
     </div>
   );
+}
+
+function hexToRgba(hex: string, a: number): string {
+  const m = hex.replace('#', '');
+  const full = m.length === 3 ? m.split('').map((c) => c + c).join('') : m;
+  const n = parseInt(full, 16);
+  if (Number.isNaN(n) || full.length !== 6) return `rgba(109,92,246,${a})`;
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
 function Center({ children }: { children: React.ReactNode }) {

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Check, ArrowRight } from 'lucide-react';
 import type { Block, Flow } from '@/lib/flow';
 import type { CompanyProfile } from '@/lib/types';
@@ -325,7 +325,16 @@ export function ytEmbed(url: string): string | null {
 
 // Интерактивный предпросмотр всего флоу (как увидит кандидат), без API и без
 // записи ответов. Можно листать страницы вперёд/назад, заполнять поля.
-export function FlowPreview({ flow, role, company, positions }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[] }) {
+// Hex → rgba с альфой (для --accent-soft).
+function hexToRgba(hex: string, a: number): string {
+  const m = hex.replace('#', '');
+  const full = m.length === 3 ? m.split('').map((c) => c + c).join('') : m;
+  const n = parseInt(full, 16);
+  if (Number.isNaN(n) || full.length !== 6) return `rgba(109,92,246,${a})`;
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+export function FlowPreview({ flow, role, company, positions, device = 'phone' }: { flow: Flow; role: string; company?: CompanyProfile | null; positions?: string[]; device?: 'phone' | 'desktop' }) {
   const [idx, setIdx] = useState(0);
   const [values, setValues] = useState<Record<string, string>>({});
   const [consents, setConsents] = useState<Record<string, boolean>>({});
@@ -335,10 +344,16 @@ export function FlowPreview({ flow, role, company, positions }: { flow: Flow; ro
   const page = pages[idx];
   const setVal = (k: string, v: string) => setValues((s) => ({ ...s, [k]: v }));
 
+  // Акцентный цвет страницы кандидата — перекрашивает кнопки/прогресс/чипы.
+  const accentStyle = flow.accent
+    ? ({ '--accent': flow.accent, '--accent-press': flow.accent, '--accent-ink': flow.accent, '--accent-soft': hexToRgba(flow.accent, 0.14), '--on-accent': '#ffffff' } as CSSProperties)
+    : undefined;
+  const widthClass = device === 'desktop' ? 'max-w-2xl' : 'max-w-md';
+
   return (
-    <div className="th-aurora relative flex min-h-full w-full flex-col">
+    <div className="th-aurora relative flex min-h-full w-full flex-col" style={accentStyle}>
       <div className="th-grid pointer-events-none absolute inset-0 opacity-[0.25]" />
-      <div className="relative mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-7">
+      <div className={`relative mx-auto flex w-full ${widthClass} flex-1 flex-col justify-center px-5 py-7`}>
         <div className="th-rise rounded-3xl border border-line bg-panel/90 p-6 shadow-2xl shadow-black/[0.06] backdrop-blur sm:p-7">
           <div className="text-xs font-medium uppercase tracking-wide text-accent-ink">{company?.name ? company.name : 'Отклик на роль'}</div>
           <h1 className="mt-1 text-2xl font-semibold leading-tight">{role || 'Роль'}</h1>
