@@ -1,8 +1,9 @@
 'use client';
-import { useState, type CSSProperties } from 'react';
-import { Check, ArrowRight } from 'lucide-react';
+import { useRef, useState, type CSSProperties } from 'react';
+import { Check, ArrowRight, ImagePlus } from 'lucide-react';
 import type { Block, Flow } from '@/lib/flow';
 import type { CompanyProfile } from '@/lib/types';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
 
@@ -169,7 +170,11 @@ export function BlockView({
     const k = b.key || 'work_url';
     return (
       <div>
-        <label className="mb-1.5 block text-sm">{b.label || 'Ссылка на работу'}</label>
+        {onEdit ? (
+          <Editable className="mb-1.5 text-sm" value={b.label || ''} onChange={(t) => onEdit(b.id, { label: t })} />
+        ) : (
+          <label className="mb-1.5 block text-sm">{b.label || 'Ссылка на работу'}</label>
+        )}
         <Input placeholder="https://…" value={values[k] || ''} onChange={(e) => setVal(k, e.target.value)} />
       </div>
     );
@@ -178,9 +183,16 @@ export function BlockView({
     const k = b.key || b.id;
     return (
       <div>
-        <label className="mb-2 block text-sm">
-          {b.label} {b.required && <span className="text-danger">*</span>}
-        </label>
+        {onEdit ? (
+          <div className="mb-2 flex items-center gap-1 text-sm">
+            <Editable value={b.label || ''} onChange={(t) => onEdit(b.id, { label: t })} />
+            {b.required && <span className="text-danger">*</span>}
+          </div>
+        ) : (
+          <label className="mb-2 block text-sm">
+            {b.label} {b.required && <span className="text-danger">*</span>}
+          </label>
+        )}
         <div className="flex flex-col gap-2">
           {(b.options || []).map((o) => (
             <button
@@ -248,9 +260,16 @@ export function BlockView({
   const k = b.key || b.id;
   return (
     <div>
-      <label className="mb-1.5 block text-sm">
-        {b.label} {b.required && <span className="text-danger">*</span>}
-      </label>
+      {onEdit ? (
+        <div className="mb-1.5 flex items-center gap-1 text-sm">
+          <Editable value={b.label || ''} onChange={(t) => onEdit(b.id, { label: t })} />
+          {b.required && <span className="text-danger">*</span>}
+        </div>
+      ) : (
+        <label className="mb-1.5 block text-sm">
+          {b.label} {b.required && <span className="text-danger">*</span>}
+        </label>
+      )}
       {b.input === 'textarea' ? (
         <Textarea value={values[k] || ''} onChange={(e) => setVal(k, e.target.value)} />
       ) : (
@@ -274,9 +293,14 @@ export const COMPANY_STYLES = [
   { value: 'bold', label: 'Яркий' },
 ];
 
-// Презентация компании: данные из «Голоса бренда», но название/«о компании»/логотип/
-// обложку/стиль можно переопределить в блоке (поля logo/cover/style/label/text).
+// Презентация компании: данные из «Голоса бренда» + переопределения. В режиме
+// конструктора (onEdit) логотип/обложку/стиль/тексты можно менять прямо в карточке.
 function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | null; block?: Block; onEdit?: (blockId: string, patch: Partial<Block>) => void }) {
+  const edit = !!(onEdit && block);
+  const logoRef = useRef<HTMLInputElement>(null);
+  const coverRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<'logo' | 'cover' | null>(null);
+
   const name = (block?.label || company?.name || '').trim() || 'Ваша компания';
   const about = (block?.text || company?.about || '').trim();
   const initial = name.charAt(0).toUpperCase();
@@ -291,35 +315,82 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
   let social = (company?.social || '').trim();
   if (social && !/^https?:\/\//i.test(social)) social = social.startsWith('@') ? `https://t.me/${social.slice(1)}` : `https://${social}`;
 
+  async function upload(kind: 'logo' | 'cover', f: File) {
+    if (!edit) return;
+    setBusy(kind);
+    try {
+      const r = await api.upload(f);
+      onEdit!(block!.id, kind === 'logo' ? { logo: r.url } : { cover: r.url });
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(null);
+      if (kind === 'logo' && logoRef.current) logoRef.current.value = '';
+      if (kind === 'cover' && coverRef.current) coverRef.current.value = '';
+    }
+  }
+
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-bg">
-      {/* Обложка (картинка или пресет-фон) */}
+      {edit && (
+        <>
+          <input ref={logoRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && upload('logo', e.target.files[0])} />
+          <input ref={coverRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && upload('cover', e.target.files[0])} />
+        </>
+      )}
+
+      {/* Обложка (картинка или пресет-фон) + оверлей редактирования */}
       <div
-        className={`w-full ${COVER_PRESET[style] || COVER_PRESET.minimal}`}
+        className={`group/cover relative w-full ${COVER_PRESET[style] || COVER_PRESET.minimal}`}
         style={cover ? { backgroundImage: `url(${cover})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
-      />
+      >
+        {edit && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition group-hover/cover:bg-black/35 group-hover/cover:opacity-100">
+            <button onClick={() => coverRef.current?.click()} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-medium text-neutral-900 shadow">
+              <ImagePlus size={12} /> {busy === 'cover' ? 'Загружаю…' : cover ? 'Сменить обложку' : 'Добавить обложку'}
+            </button>
+            {cover && (
+              <button onClick={() => onEdit!(block!.id, { cover: '' })} className="rounded-full bg-white/25 px-2.5 py-1 text-xs text-white">убрать</button>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="px-4 pb-4">
-        {/* Логотип «наезжает» на обложку */}
         <div className="-mt-7 flex items-end gap-3">
-          {logo ? (
+          {/* Логотип «наезжает» на обложку (клик → загрузка) */}
+          {edit ? (
+            <button onClick={() => logoRef.current?.click()} title="Загрузить логотип" className="group/logo relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl border-4 border-bg">
+              {logo ? (
+                <img src={logo} alt="" className="h-full w-full bg-panel object-cover" />
+              ) : (
+                <div className="th-grad flex h-full w-full items-center justify-center text-lg font-bold">{initial}</div>
+              )}
+              <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover/logo:bg-black/45 group-hover/logo:opacity-100">
+                {busy === 'logo' ? '…' : <ImagePlus size={16} />}
+              </span>
+            </button>
+          ) : logo ? (
             <img src={logo} alt="" className="h-14 w-14 shrink-0 rounded-2xl border-4 border-bg bg-panel object-cover" />
           ) : (
             <div className="th-grad flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-4 border-bg text-lg font-bold">{initial}</div>
           )}
           <div className="min-w-0 pb-1">
-            {onEdit && block ? (
-              <Editable className="font-semibold" value={name} onChange={(t) => onEdit(block.id, { label: t })} />
+            {edit ? (
+              <Editable className="font-semibold" value={name} onChange={(t) => onEdit!(block!.id, { label: t })} />
             ) : (
               <div className="truncate font-semibold">{name}</div>
             )}
             {company?.niche && <div className="truncate text-xs text-muted">{company.niche}</div>}
           </div>
         </div>
-        {onEdit && block ? (
-          <Editable className="mt-3 text-sm text-muted" value={about} onChange={(t) => onEdit(block.id, { text: t })} />
+
+        {edit ? (
+          <Editable className="mt-3 text-sm text-muted" value={about} onChange={(t) => onEdit!(block!.id, { text: t })} />
         ) : (
           about && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{about}</p>
         )}
+
         {perks.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {perks.map((p, i) => (
@@ -331,6 +402,22 @@ function CompanyCard({ company, block, onEdit }: { company?: CompanyProfile | nu
           <a href={social} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent-ink hover:underline">
             Соцсети компании <ArrowRight size={13} />
           </a>
+        )}
+
+        {/* Выбор стиля прямо в карточке (только в конструкторе) */}
+        {edit && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-3">
+            <span className="text-[11px] text-muted">Стиль:</span>
+            {COMPANY_STYLES.map((st) => (
+              <button
+                key={st.value}
+                onClick={() => onEdit!(block!.id, { style: st.value })}
+                className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${style === st.value ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line text-muted hover:bg-panel-2'}`}
+              >
+                {st.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>
