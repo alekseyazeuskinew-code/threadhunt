@@ -655,17 +655,40 @@ function searchDiag(query: string, collected: number) {
   // HTML-образец реальной вёрстки: контейнер вокруг первой ссылки на пост (или кусок
   // основной области) — по нему пишем точные селекторы, без догадок.
   let htmlSample = '';
+  let buttons: { label: string; text: string; next: string }[] = [];
   try {
     const firstLink = document.querySelector<HTMLAnchorElement>('a[href*="/post/"]');
     let node: HTMLElement | null = firstLink;
     if (node) for (let i = 0; i < 10 && node.parentElement; i++) node = node.parentElement;
     const el = node || document.querySelector('main') || document.body;
     htmlSample = (el?.outerHTML || '').replace(/\s+/g, ' ').slice(0, 12000); // больше — чтобы попала панель действий (лайки/комменты)
+    // Дамп svg-кнопок первого поста: aria-label + текст + сосед — видно, где лежит счётчик.
+    if (node) {
+      buttons = [...node.querySelectorAll<HTMLElement>('[role="button"]')]
+        .filter((b) => b.querySelector('svg'))
+        .slice(0, 10)
+        .map((b) => {
+          const svg = b.querySelector('svg');
+          const label = svg?.getAttribute('aria-label') || b.getAttribute('aria-label') || svg?.querySelector('title')?.textContent || '';
+          return {
+            label: label.slice(0, 40),
+            text: (b.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 30),
+            next: (b.nextElementSibling?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 30),
+          };
+        });
+    }
+  } catch {
+    /* ignore */
+  }
+  let ext = '';
+  try {
+    ext = chrome.runtime.getManifest().version;
   } catch {
     /* ignore */
   }
   return {
     q: query,
+    ext,
     url: location.pathname + location.search,
     postLinks: document.querySelectorAll('a[href*="/post/"]').length,
     userPostLinks: document.querySelectorAll('a[href*="/@"][href*="/post/"]').length,
@@ -674,6 +697,7 @@ function searchDiag(query: string, collected: number) {
     anchors: document.querySelectorAll('a').length,
     bodyLen: (document.body?.innerText || '').length,
     sample,
+    buttons,
     htmlSample,
     collected,
   };

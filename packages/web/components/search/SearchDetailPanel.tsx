@@ -1104,7 +1104,7 @@ function fmtPostDate(iso: string): string {
     return '';
   }
 }
-type ResearchDiag = { q?: string; url?: string; postLinks?: number; userPostLinks?: number; pressable?: number; articles?: number; anchors?: number; bodyLen?: number; sample?: string[]; htmlSample?: string; collected?: number };
+type ResearchDiag = { q?: string; ext?: string; url?: string; postLinks?: number; userPostLinks?: number; pressable?: number; articles?: number; anchors?: number; bodyLen?: number; sample?: string[]; buttons?: { label: string; text: string; next: string }[]; htmlSample?: string; collected?: number };
 type ResearchResp = { posts: ResearchPostRow[]; running: boolean; lastAt: string | null; lastRunAt?: string | null; diag?: ResearchDiag | null };
 function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: string) => void }) {
   const [resp, setResp] = useState<ResearchResp | null>(null);
@@ -1223,10 +1223,22 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
             <details className="mt-3 rounded-xl border border-line bg-bg p-3 text-xs">
               <summary className="cursor-pointer font-medium text-muted">Диагностика сбора (для разработчика)</summary>
               <div className="mt-2 space-y-1 text-muted">
-                <div>Страница: <code className="text-text">{resp.diag.url}</code></div>
+                <div>Версия расширения: <b className="text-text">{resp.diag.ext || '—'}</b> · Страница: <code className="text-text">{resp.diag.url}</code></div>
                 <div>
                   Ссылок на пост: <b className="text-text">{resp.diag.postLinks}</b> · @-пост: <b className="text-text">{resp.diag.userPostLinks}</b> · pressable: <b className="text-text">{resp.diag.pressable}</b> · article: <b className="text-text">{resp.diag.articles}</b> · всего ссылок: <b className="text-text">{resp.diag.anchors}</b> · текст: <b className="text-text">{resp.diag.bodyLen}</b> · собрано: <b className="text-text">{resp.diag.collected}</b>
                 </div>
+                {resp.diag.buttons && resp.diag.buttons.length > 0 && (
+                  <div className="mt-1">
+                    <div className="font-medium text-text">Кнопки первого поста (label → текст → сосед):</div>
+                    <div className="mt-1 space-y-0.5">
+                      {resp.diag.buttons.map((b, i) => (
+                        <div key={i} className="break-all">
+                          <code className="text-accent-ink">{b.label || '∅'}</code> → <code className="text-text">{b.text || '∅'}</code> → <code className="text-muted">{b.next || '∅'}</code>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {resp.diag.sample && resp.diag.sample.length > 0 && (
                   <div className="break-all">Примеры ссылок: <code className="text-text">{resp.diag.sample.join('  ·  ')}</code></div>
                 )}
