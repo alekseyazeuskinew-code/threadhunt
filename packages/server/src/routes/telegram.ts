@@ -81,7 +81,7 @@ export async function telegramRoutes(app: FastifyInstance) {
     if (chatId && text.startsWith('/start')) {
       const token = text.split(/\s+/)[1] || '';
       if (token) {
-        const user = await db.user.findUnique({ where: { telegramLinkToken: token }, select: { id: true } });
+        const user = await db.user.findFirst({ where: { telegramLinkToken: token }, select: { id: true } });
         if (user) {
           await db.user.update({ where: { id: user.id }, data: { telegramChatId: String(chatId), telegramLinkToken: null } });
           await tgSend(String(chatId), '✅ Аккаунт <b>Threadhunt</b> привязан! Буду присылать уведомления о кандидатах и ежедневную сводку.');

@@ -34,7 +34,7 @@ model User {
   lastSeenAnnouncementAt DateTime? // когда пользователь последний раз открывал колокольчик (для непрочитанных)
   // ── Telegram-бот (сводки и уведомления) ──
   telegramChatId   String?  // chatId привязанного телеграм-аккаунта (куда слать)
-  telegramLinkToken String? @unique // одноразовый токен для привязки через /start
+  telegramLinkToken String? // одноразовый токен для привязки через /start (ищем через findFirst)
   tgNotifyLeads    Boolean  @default(true)  // уведомлять о новых кандидатах
   tgNotifyTests    Boolean  @default(true)  // уведомлять о сдаче/просрочке тестового
   tgDailySummary   Boolean  @default(true)  // ежедневная сводка
