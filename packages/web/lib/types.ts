@@ -147,6 +147,8 @@ export interface Lead {
   startedAt?: string | null;
   nextTouchAt?: string | null;
   obStep?: number;
+  obTotal?: number; // всего шагов онбординга у этого поиска (для прогресса на карточке)
+  onboardToken?: string | null;
   candidateName?: string | null;
   candidateContact?: string | null;
   candidatePortfolio?: string | null;

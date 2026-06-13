@@ -11,15 +11,27 @@ const STAGES = ['NEW', 'CONTACTED', 'SCREENING', 'HIRED', 'BENCH', 'REJECTED'] a
 export async function leadRoutes(app: FastifyInstance) {
   const own = (ownerId: string, id: string) => db.lead.findFirst({ where: { id, userId: ownerId } });
 
-  // Все лиды пространства (для пайплайна и списка).
+  // Все лиды пространства (для пайплайна и списка). К каждому добавляем obTotal —
+  // число шагов онбординга его поиска (для прогресс-бейджа «анкета N/total» на карточке).
   app.get('/api/leads', async (req, reply) => {
     const ctx = await resolveCtx(app, req);
     if (!ctx) return reply.code(401).send({ error: 'unauthorized' });
-    return db.lead.findMany({
+    const leads = await db.lead.findMany({
       where: { userId: ctx.ownerId },
-      include: { search: { select: { title: true } }, _count: { select: { comments: true } } },
+      include: { search: { select: { title: true, obFlow: true } }, _count: { select: { comments: true } } },
       orderBy: { createdAt: 'desc' },
       take: 500,
+    });
+    return leads.map((l) => {
+      let obTotal = 0;
+      try {
+        const f = l.search?.obFlow ? JSON.parse(l.search.obFlow) : null;
+        obTotal = Array.isArray(f?.pages) ? f.pages.length : 0;
+      } catch {
+        /* ignore */
+      }
+      const { search, ...rest } = l;
+      return { ...rest, search: search ? { title: search.title } : undefined, obTotal };
     });
   });
 
@@ -125,6 +137,43 @@ export async function leadRoutes(app: FastifyInstance) {
       await db.leadComment.create({ data: { leadId: id, body, author: 'система' } });
     }
     return updated;
+  });
+
+  // Удалить лида.
+  app.delete('/api/leads/:id', async (req, reply) => {
+    const ctx = await resolveCtx(app, req);
+    if (!ctx) return reply.code(401).send({ error: 'unauthorized' });
+    if (!canManageLeads(ctx.role)) return reply.code(403).send({ error: 'нет прав' });
+    const id = (req.params as any).id as string;
+    if (!(await own(ctx.ownerId, id))) return reply.code(404).send({ error: 'not found' });
+    await db.lead.delete({ where: { id } });
+    return { ok: true };
+  });
+
+  // Массовые действия: перенести в стадию / отклонить / удалить пачку лидов.
+  const bulkSchema = z.object({
+    ids: z.array(z.string()).min(1).max(500),
+    action: z.enum(['stage', 'delete']),
+    stage: z.enum(STAGES).optional(),
+  });
+  app.post('/api/leads/bulk', async (req, reply) => {
+    const ctx = await resolveCtx(app, req);
+    if (!ctx) return reply.code(401).send({ error: 'unauthorized' });
+    if (!canManageLeads(ctx.role)) return reply.code(403).send({ error: 'нет прав' });
+    const parsed = bulkSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+    const { ids, action, stage } = parsed.data;
+    // только лиды этого пространства
+    const where = { id: { in: ids }, userId: ctx.ownerId };
+    if (action === 'delete') {
+      const r = await db.lead.deleteMany({ where });
+      return { ok: true, count: r.count };
+    }
+    if (!stage) return reply.code(400).send({ error: 'stage required' });
+    const data: any = { stage };
+    if (stage === 'HIRED') data.startedAt = new Date();
+    const r = await db.lead.updateMany({ where, data });
+    return { ok: true, count: r.count };
   });
 
   // Добавить комментарий.

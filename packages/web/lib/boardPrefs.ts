@@ -4,7 +4,7 @@
 // автоматизация (дедлайны тестов, онбординг) и аналитика, поэтому их не ломаем.
 import type { Stage } from './types';
 
-export type CardField = 'vacancy' | 'rating' | 'testStatus' | 'comments' | 'contact' | 'role' | 'rate' | 'created' | 'keyword' | 'section';
+export type CardField = 'vacancy' | 'rating' | 'testStatus' | 'comments' | 'contact' | 'role' | 'rate' | 'created' | 'keyword' | 'section' | 'onboarding';
 
 export interface BoardPrefs {
   order: Stage[]; // порядок колонок
@@ -19,13 +19,14 @@ export const DEFAULT_PREFS: BoardPrefs = {
   order: [...ALL_STAGES],
   labels: {},
   hidden: [],
-  cardFields: ['vacancy', 'rating', 'testStatus', 'comments'],
+  cardFields: ['vacancy', 'onboarding', 'rating', 'testStatus', 'comments'],
 };
 
 export const CARD_FIELDS: { key: CardField; label: string }[] = [
   { key: 'vacancy', label: 'Вакансия' },
   { key: 'rating', label: 'Рейтинг' },
   { key: 'testStatus', label: 'Статус теста' },
+  { key: 'onboarding', label: 'Прогресс анкеты' },
   { key: 'comments', label: 'Кол-во заметок' },
   { key: 'contact', label: 'Контакт' },
   { key: 'role', label: 'Роль (при найме)' },

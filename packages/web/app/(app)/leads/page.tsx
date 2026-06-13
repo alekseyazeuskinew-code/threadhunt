@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { LayoutGrid, List, Star, MessageSquare, Clock, Sparkles, Download, SlidersHorizontal, GripVertical, Eye, EyeOff, RotateCcw, X } from 'lucide-react';
+import { LayoutGrid, List, Star, MessageSquare, Clock, Sparkles, Download, SlidersHorizontal, GripVertical, Eye, EyeOff, RotateCcw, X, FileText, Check, Link2, Send, CheckSquare, ArrowRightLeft, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Lead, Stage } from '@/lib/types';
 import { STAGES, stageLabel } from '@/lib/stages';
@@ -9,8 +9,20 @@ import { LeadTable } from '@/components/LeadTable';
 import { LeadDrawer } from '@/components/LeadDrawer';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
+import { confirmDialog } from '@/components/ui/confirm';
 import { cn } from '@/lib/cn';
 import { type BoardPrefs, type CardField, DEFAULT_PREFS, CARD_FIELDS, loadPrefs, savePrefs } from '@/lib/boardPrefs';
+
+type TestFilter = 'all' | 'submitted' | 'pending' | 'overdue';
+type SortKey = 'new' | 'old' | 'rating' | 'deadline';
+const tgUrl = (h: string) => {
+  const v = (h || '').trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (v.startsWith('@')) return `https://t.me/${v.slice(1)}`;
+  if (/^[a-zA-Z0-9_]{3,}$/.test(v)) return `https://t.me/${v}`;
+  return null;
+};
 
 const toneOf = (s: Stage) => STAGES.find((x) => x.key === s)?.tone ?? 'text-text';
 
@@ -25,6 +37,15 @@ export default function CandidatesPage() {
   const [prefs, setPrefs] = useState<BoardPrefs>(DEFAULT_PREFS);
   const [customize, setCustomize] = useState(false);
   const [query, setQuery] = useState('');
+  // фильтры + сортировка
+  const [minRating, setMinRating] = useState(0);
+  const [testFilter, setTestFilter] = useState<TestFilter>('all');
+  const [obFilter, setObFilter] = useState<'all' | 'has' | 'started' | 'submitted'>('all');
+  const [sort, setSort] = useState<SortKey>('new');
+  // массовое выделение
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = () => api.get<Lead[]>('/api/leads').then(setLeads).catch(() => setLeads([]));
   useEffect(() => {
@@ -45,6 +66,43 @@ export default function CandidatesPage() {
     await api.patch(`/api/leads/${leadId}`, { stage });
   }
 
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+    setSelectMode(false);
+  }
+  async function bulkStage(stage: Stage) {
+    const ids = [...selected];
+    if (!ids.length) return;
+    setBulkBusy(true);
+    setLeads((prev) => prev!.map((l) => (selected.has(l.id) ? { ...l, stage } : l)));
+    try {
+      await api.post('/api/leads/bulk', { ids, action: 'stage', stage });
+    } finally {
+      setBulkBusy(false);
+      clearSelection();
+    }
+  }
+  async function bulkDelete() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    if (!(await confirmDialog({ title: 'Удалить кандидатов?', message: `Будет удалено: ${ids.length}. Действие необратимо.`, confirmText: 'Удалить', danger: true }))) return;
+    setBulkBusy(true);
+    setLeads((prev) => prev!.filter((l) => !selected.has(l.id)));
+    try {
+      await api.post('/api/leads/bulk', { ids, action: 'delete' });
+    } finally {
+      setBulkBusy(false);
+      clearSelection();
+    }
+  }
+
   // Список вакансий (поисков) для фильтра — из загруженных лидов.
   const vacancies = useMemo(() => {
     const m = new Map<string, string>();
@@ -53,6 +111,7 @@ export default function CandidatesPage() {
   }, [leads]);
 
   const filtered = useMemo(() => {
+    const now = Date.now();
     let arr = leads || [];
     if (vacancy !== 'all') arr = arr.filter((l) => l.searchId === vacancy);
     const q = query.trim().toLowerCase();
@@ -61,8 +120,33 @@ export default function CandidatesPage() {
         [l.fromUsername, l.candidateName, l.matchedKeyword, l.role, l.contact, l.candidateContact]
           .some((f) => (f || '').toLowerCase().includes(q)),
       );
-    return arr;
-  }, [leads, vacancy, query]);
+    if (minRating > 0) arr = arr.filter((l) => l.rating >= minRating);
+    if (testFilter !== 'all')
+      arr = arr.filter((l) => {
+        const over = l.testDeadlineAt && !l.testSubmittedAt && new Date(l.testDeadlineAt).getTime() <= now;
+        if (testFilter === 'submitted') return !!l.testSubmittedAt;
+        if (testFilter === 'overdue') return !!over;
+        if (testFilter === 'pending') return !!l.testDeadlineAt && !l.testSubmittedAt && !over;
+        return true;
+      });
+    if (obFilter !== 'all')
+      arr = arr.filter((l) => {
+        if (obFilter === 'has') return !!l.onboardToken;
+        if (obFilter === 'started') return (l.obStep ?? 0) > 0;
+        if (obFilter === 'submitted') return !!l.testSubmittedAt;
+        return true;
+      });
+    // сортировка (копия, чтобы не мутировать)
+    const sorted = [...arr];
+    if (sort === 'new') sorted.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+    else if (sort === 'old') sorted.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
+    else if (sort === 'rating') sorted.sort((a, b) => b.rating - a.rating);
+    else if (sort === 'deadline')
+      sorted.sort((a, b) => (a.testDeadlineAt ? +new Date(a.testDeadlineAt) : Infinity) - (b.testDeadlineAt ? +new Date(b.testDeadlineAt) : Infinity));
+    return sorted;
+  }, [leads, vacancy, query, minRating, testFilter, obFilter, sort]);
+
+  const activeFilters = (minRating > 0 ? 1 : 0) + (testFilter !== 'all' ? 1 : 0) + (obFilter !== 'all' ? 1 : 0);
 
   // Перестановка колонки перетаскиванием заголовка.
   function reorderColumn(target: Stage) {
@@ -111,6 +195,14 @@ export default function CandidatesPage() {
                 <Download size={15} /> CSV
               </a>
             )}
+            {leads && leads.length > 0 && (
+              <button
+                onClick={() => { setSelectMode((v) => !v); setSelected(new Set()); }}
+                className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm', selectMode ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line hover:bg-panel-2')}
+              >
+                <CheckSquare size={15} /> {selectMode ? 'Отменить' : 'Выделить'}
+              </button>
+            )}
             {view === 'board' && (
               <button
                 onClick={() => setCustomize((v) => !v)}
@@ -129,6 +221,24 @@ export default function CandidatesPage() {
 
       <div className="p-8">
         {customize && view === 'board' && <CustomizePanel prefs={prefs} onChange={updatePrefs} onClose={() => setCustomize(false)} />}
+
+        {/* Фильтры + сортировка */}
+        {leads && leads.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-xs font-medium text-muted">Фильтры:</span>
+            <div className="w-36"><Select size="sm" value={String(minRating)} onChange={(v) => setMinRating(+v)} options={[{ value: '0', label: 'Любой рейтинг' }, { value: '3', label: '★ 3+' }, { value: '4', label: '★ 4+' }, { value: '5', label: '★ 5' }]} /></div>
+            <div className="w-40"><Select size="sm" value={testFilter} onChange={(v) => setTestFilter(v as TestFilter)} options={[{ value: 'all', label: 'Тест: любой' }, { value: 'submitted', label: 'Тест: сдан' }, { value: 'pending', label: 'Тест: ждём' }, { value: 'overdue', label: 'Тест: просрочен' }]} /></div>
+            <div className="w-40"><Select size="sm" value={obFilter} onChange={(v) => setObFilter(v as any)} options={[{ value: 'all', label: 'Анкета: любая' }, { value: 'has', label: 'Ссылка выдана' }, { value: 'started', label: 'Анкета начата' }, { value: 'submitted', label: 'Тест сдан' }]} /></div>
+            <span className="mx-1 hidden h-5 w-px bg-line sm:block" />
+            <div className="w-44"><Select size="sm" value={sort} onChange={(v) => setSort(v as SortKey)} options={[{ value: 'new', label: 'Сначала новые' }, { value: 'old', label: 'Сначала старые' }, { value: 'rating', label: 'По рейтингу' }, { value: 'deadline', label: 'По дедлайну теста' }]} /></div>
+            {activeFilters > 0 && (
+              <button onClick={() => { setMinRating(0); setTestFilter('all'); setObFilter('all'); }} className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-xs text-muted hover:text-text">
+                <X size={12} /> Сбросить ({activeFilters})
+              </button>
+            )}
+            <span className="ml-auto text-xs text-muted">Показано: {filtered.length}</span>
+          </div>
+        )}
 
         {filtered.length > 0 && <FunnelStrip leads={filtered} />}
         {leads === null ? (
@@ -188,20 +298,17 @@ export default function CandidatesPage() {
                   </div>
                   <div className="flex flex-col gap-2">
                     {items.map((l) => (
-                      <div
+                      <LeadCard
                         key={l.id}
-                        draggable
-                        onDragStart={(e) => {
-                          e.stopPropagation();
-                          setDragId(l.id);
-                        }}
-                        onDragEnd={() => setDragId(null)}
-                        onClick={() => setOpenId(l.id)}
-                        className="cursor-pointer rounded-xl border border-line bg-panel p-3 transition-colors hover:border-accent/40"
-                      >
-                        <div className="truncate text-sm font-medium">{l.fromUsername || l.candidateName || '—'}</div>
-                        <CardFields lead={l} fields={prefs.cardFields} />
-                      </div>
+                        lead={l}
+                        fields={prefs.cardFields}
+                        selectMode={selectMode}
+                        selected={selected.has(l.id)}
+                        setDragId={setDragId}
+                        onOpen={setOpenId}
+                        onToggle={toggleSelect}
+                        onMove={move}
+                      />
                     ))}
                     {items.length === 0 && <div className="px-2 py-3 text-xs text-muted">пусто</div>}
                   </div>
@@ -212,9 +319,129 @@ export default function CandidatesPage() {
         )}
       </div>
 
+      {/* Панель массовых действий */}
+      {selectMode && selected.size > 0 && (
+        <div className="fixed inset-x-0 bottom-5 z-40 mx-auto flex w-fit max-w-[95vw] flex-wrap items-center gap-2 rounded-2xl border border-line bg-panel px-4 py-2.5 shadow-2xl">
+          <span className="text-sm font-medium">Выбрано: {selected.size}</span>
+          <span className="mx-1 h-5 w-px bg-line" />
+          <span className="text-xs text-muted">В стадию:</span>
+          {STAGES.map((s) => (
+            <button
+              key={s.key}
+              disabled={bulkBusy}
+              onClick={() => bulkStage(s.key)}
+              className={cn('rounded-full border border-line px-2.5 py-1 text-xs hover:bg-panel-2 disabled:opacity-50', s.tone)}
+            >
+              {stageLabel(s.key)}
+            </button>
+          ))}
+          <span className="mx-1 h-5 w-px bg-line" />
+          <button disabled={bulkBusy} onClick={bulkDelete} className="inline-flex items-center gap-1 rounded-full border border-danger/30 px-2.5 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-50">
+            <Trash2 size={13} /> Удалить
+          </button>
+          <button onClick={clearSelection} className="rounded-full border border-line p-1.5 text-muted hover:bg-panel-2" title="Снять выделение">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <LeadDrawer id={openId} onClose={() => setOpenId(null)} onChanged={load} />
     </>
   );
+}
+
+// Карточка кандидата на доске: выделение, быстрые действия (ссылка/TG/перенос), drag.
+function LeadCard({
+  lead,
+  fields,
+  selectMode,
+  selected,
+  setDragId,
+  onOpen,
+  onToggle,
+  onMove,
+}: {
+  lead: Lead;
+  fields: CardField[];
+  selectMode: boolean;
+  selected: boolean;
+  setDragId: (id: string | null) => void;
+  onOpen: (id: string) => void;
+  onToggle: (id: string) => void;
+  onMove: (id: string, stage: Stage) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const tg = tgUrl(lead.candidateContact || lead.contact || '');
+  async function copyLink(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      const r = await api.post<{ url: string }>(`/api/leads/${lead.id}/onboard-link`, {});
+      const url = r.url.startsWith('http') ? r.url : window.location.origin + r.url;
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
+  return (
+    <div
+      draggable={!selectMode}
+      onDragStart={(e) => {
+        e.stopPropagation();
+        setDragId(lead.id);
+      }}
+      onDragEnd={() => setDragId(null)}
+      onClick={() => (selectMode ? onToggle(lead.id) : onOpen(lead.id))}
+      className={cn(
+        'group/card relative cursor-pointer rounded-xl border bg-panel p-3 transition-colors',
+        selected ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-accent/40',
+      )}
+    >
+      {selectMode && (
+        <span className={cn('absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded border', selected ? 'border-accent bg-accent text-on-accent' : 'border-line bg-bg')}>
+          {selected && <Check size={11} />}
+        </span>
+      )}
+      <div className="truncate pr-5 text-sm font-medium">{lead.fromUsername || lead.candidateName || '—'}</div>
+      <CardFields lead={lead} fields={fields} />
+      {!selectMode && (
+        <div className="mt-2 flex items-center gap-1 opacity-0 transition group-hover/card:opacity-100" onClick={(e) => e.stopPropagation()}>
+          <button onClick={copyLink} title="Скопировать персональную ссылку анкеты" className="rounded-md border border-line p-1 text-muted hover:text-accent-ink">
+            {copied ? <Check size={13} /> : <Link2 size={13} />}
+          </button>
+          {tg && (
+            <a href={tg} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Написать в Telegram" className="rounded-md border border-line p-1 text-muted hover:text-accent-ink">
+              <Send size={13} />
+            </a>
+          )}
+          <div className="relative">
+            <button onClick={() => setMenu((v) => !v)} title="Переместить в стадию" className="rounded-md border border-line p-1 text-muted hover:text-accent-ink">
+              <ArrowRightLeft size={13} />
+            </button>
+            {menu && (
+              <div className="absolute bottom-8 left-0 z-30 w-40 rounded-xl border border-line bg-panel p-1 shadow-2xl">
+                {STAGES.filter((s) => s.key !== lead.stage).map((s) => (
+                  <button key={s.key} onClick={() => { onMove(lead.id, s.key); setMenu(false); }} className={cn('block w-full rounded-lg px-2 py-1.5 text-left text-xs hover:bg-panel-2', s.tone)}>
+                    → {stageLabel(s.key)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Бейдж прогресса анкеты (онбординга) на карточке.
+function OnboardingBadge({ lead }: { lead: Lead }) {
+  if (lead.testSubmittedAt) return <span className="flex items-center gap-1 text-success"><Check size={12} /> сдал тест</span>;
+  if ((lead.obStep ?? 0) > 0) return <span className="flex items-center gap-1 text-accent-ink"><FileText size={12} /> анкета {lead.obStep}{lead.obTotal ? `/${lead.obTotal}` : ''}</span>;
+  if (lead.onboardToken) return <span className="flex items-center gap-1 text-muted"><Link2 size={12} /> ссылка</span>;
+  return null;
 }
 
 // Поля карточки — состав настраивается в «Настроить доску».
@@ -231,18 +458,20 @@ function CardFields({ lead, fields }: { lead: Lead; fields: CardField[] }) {
   }
   const showRating = fields.includes('rating') && lead.rating > 0;
   const showTest = fields.includes('testStatus');
+  const showOb = fields.includes('onboarding');
   const showComments = fields.includes('comments') && !!lead._count?.comments;
   return (
     <>
       {rows.length > 0 && <div className="mt-1 space-y-0.5">{rows}</div>}
-      {(showRating || showTest || showComments) && (
+      {(showRating || showTest || showOb || showComments) && (
         <div className="mt-2 flex items-center justify-between text-xs text-muted">
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {showRating && (
               <span className="flex items-center gap-1">
                 <Star size={12} className="fill-accent text-accent-ink" /> {lead.rating}
               </span>
             )}
+            {showOb && <OnboardingBadge lead={lead} />}
             {showTest && <TestBadge lead={lead} />}
           </span>
           {showComments && (
