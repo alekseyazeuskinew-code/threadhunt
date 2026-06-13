@@ -109,6 +109,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .sort((a, b) => b.hired - a.hired);
     const rolesAtRisk = teamHealth.filter((r) => r.hired > 0 && r.bench === 0).length;
 
+    // Снимок воронки для главной (счётчики по стадиям) + просроченные тесты.
+    const pipeline = { NEW: 0, CONTACTED: 0, SCREENING: 0, HIRED: 0, BENCH: 0, REJECTED: 0 } as Record<string, number>;
+    for (const l of leads) if (l.stage in pipeline) pipeline[l.stage]++;
+
     return {
       kpi: {
         leadsTotal: totalLeads,
@@ -127,6 +131,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       sections: sectionCounts(leads),
       topSearches,
       teamHealth,
+      pipeline,
     };
   });
 

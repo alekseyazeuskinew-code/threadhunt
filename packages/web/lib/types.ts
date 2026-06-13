@@ -201,6 +201,7 @@ export interface Overview {
   sections: { requests: number; hidden: number; main: number; unknown: number };
   topSearches: { id: string; title: string; count: number }[];
   teamHealth: { id: string; title: string; hired: number; bench: number; reserveTarget: number }[];
+  pipeline?: Record<string, number>;
 }
 
 export interface ActivityEvent {

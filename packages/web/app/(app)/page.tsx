@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { TrendBars } from '@/components/charts/TrendBars';
 import { Breakdown } from '@/components/charts/Breakdown';
 import { GettingStarted } from '@/components/GettingStarted';
+import { STAGES } from '@/lib/stages';
 
 // Минималистичная главная: только суть — что требует действия, ключевые цифры,
 // динамика лидов и состояние системы. Остальное (планы, воронки, команда,
@@ -104,6 +105,9 @@ export default function OverviewPage() {
               <Stat label="Опубликовано" value={o.kpi.postsTotal} hint={`+${o.kpi.posts7} за 7 дней`} />
             </div>
 
+            {/* 2.5 Компактный снимок воронки — пайплайн с утра одним взглядом */}
+            {o.kpi.leadsTotal > 0 && o.pipeline && <PipelineStrip pipeline={o.pipeline} />}
+
             {/* 3. Динамика лидов + источники */}
             <div className="grid gap-6 lg:grid-cols-3">
               <Card className="lg:col-span-2">
@@ -155,6 +159,20 @@ export default function OverviewPage() {
         )}
       </div>
     </>
+  );
+}
+
+// Компактная воронка на главной: счётчики по стадиям, кликабельно → Кандидаты.
+function PipelineStrip({ pipeline }: { pipeline: Record<string, number> }) {
+  return (
+    <Link href="/leads" className="flex flex-wrap items-stretch gap-2 rounded-2xl border border-line bg-panel p-2 transition-colors hover:border-accent/40">
+      {STAGES.map((s) => (
+        <div key={s.key} className="flex-1 rounded-xl bg-bg px-3 py-2 text-center">
+          <div className={`font-display text-lg font-semibold tabular-nums ${s.tone}`}>{pipeline[s.key] ?? 0}</div>
+          <div className="mt-0.5 text-[11px] text-muted">{s.label}</div>
+        </div>
+      ))}
+    </Link>
   );
 }
 
