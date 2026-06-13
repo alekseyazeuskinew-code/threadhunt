@@ -78,10 +78,18 @@ export async function leadRoutes(app: FastifyInstance) {
     const id = (req.params as any).id as string;
     const lead = await db.lead.findFirst({
       where: { id, userId: ctx.ownerId },
-      include: { search: { select: { title: true } }, comments: { orderBy: { createdAt: 'asc' } } },
+      include: { search: { select: { title: true, obFlow: true } }, comments: { orderBy: { createdAt: 'asc' } } },
     });
     if (!lead) return reply.code(404).send({ error: 'not found' });
-    return lead;
+    let obTotal = 0;
+    try {
+      const f = lead.search?.obFlow ? JSON.parse(lead.search.obFlow) : null;
+      obTotal = Array.isArray(f?.pages) ? f.pages.length : 0;
+    } catch {
+      /* ignore */
+    }
+    const { search, ...rest } = lead;
+    return { ...rest, search: search ? { title: search.title } : undefined, obTotal };
   });
 
   const STAGE_LABELS: Record<string, string> = {

@@ -72,7 +72,14 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
       <div className="anim-pop relative z-10 flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl">
         <div className="flex items-center justify-between border-b border-line p-5">
           <div className="min-w-0">
-            <div className="truncate text-lg font-semibold">{lead?.fromUsername || '—'}</div>
+            <div className="flex items-center gap-2">
+              <div className="truncate text-lg font-semibold">{lead?.fromUsername || lead?.candidateName || '—'}</div>
+              {lead?.testSubmittedAt ? (
+                <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">сдал тест</span>
+              ) : (lead?.obStep ?? 0) > 0 ? (
+                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-ink">анкета {lead!.obStep}{lead!.obTotal ? `/${lead!.obTotal}` : ''}</span>
+              ) : null}
+            </div>
             {lead && <div className="text-sm text-muted">{lead.search?.title}</div>}
           </div>
           <button onClick={onClose} className="text-muted hover:text-text">
@@ -139,7 +146,7 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
               <CandidateAnswers lead={lead} />
 
               {/* Онбординг-ссылка кандидата */}
-              <OnboardLink leadId={lead.id} obStep={lead.obStep || 0} contact={lead.candidateContact} />
+              <OnboardLink leadId={lead.id} obStep={lead.obStep || 0} obTotal={lead.obTotal || 0} submitted={!!lead.testSubmittedAt} contact={lead.candidateContact} />
             </div>
 
             {/* таймлайн */}
@@ -230,31 +237,49 @@ function AnswerRow({ label, value, highlight }: { label: string; value: string; 
   );
 }
 
-// Уникальная онбординг-ссылка кандидата + прогресс прохождения.
-function OnboardLink({ leadId, obStep, contact }: { leadId: string; obStep: number; contact?: string | null }) {
+// Уникальная онбординг-ссылка кандидата + прогресс прохождения (N/total + полоса).
+function OnboardLink({ leadId, obStep, obTotal, submitted, contact }: { leadId: string; obStep: number; obTotal: number; submitted: boolean; contact?: string | null }) {
   const [url, setUrl] = useState('');
   const [copied, setCopied] = useState(false);
   async function getLink() {
     const r = await api.post<{ url: string }>(`/api/leads/${leadId}/onboard-link`);
-    setUrl(r.url);
+    const full = r.url.startsWith('http') ? r.url : window.location.origin + r.url;
+    setUrl(full);
     try {
-      await navigator.clipboard.writeText(r.url);
+      await navigator.clipboard.writeText(full);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {}
   }
+  const pct = obTotal > 0 ? Math.min(100, Math.round((obStep / obTotal) * 100)) : 0;
   return (
     <div className="rounded-xl border border-line bg-bg p-3">
       <div className="mb-1.5 flex items-center justify-between">
         <span className="text-xs text-muted">Онбординг-ссылка</span>
-        {obStep > 0 && <span className="text-xs text-accent-ink">пройдено шагов: {obStep}</span>}
+        {submitted ? (
+          <span className="inline-flex items-center gap-1 text-xs text-success"><Check size={12} /> сдал тест</span>
+        ) : obStep > 0 ? (
+          <span className="text-xs text-accent-ink">анкета {obStep}{obTotal ? `/${obTotal}` : ''}</span>
+        ) : (
+          <span className="text-xs text-muted">не начата</span>
+        )}
       </div>
+      {/* полоса прогресса анкеты */}
+      {obTotal > 0 && (
+        <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-panel-2">
+          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${submitted ? 100 : pct}%` }} />
+        </div>
+      )}
       {contact && <div className="mb-2 text-xs text-muted">Оставил контакт: {contact}</div>}
       <div className="flex items-center gap-2">
         <Button size="sm" variant="soft" onClick={getLink}>
           {copied ? 'Скопировано ✓' : url ? 'Скопировать ещё раз' : 'Ссылка кандидату'}
         </Button>
-        {url && <span className="flex-1 truncate font-mono text-xs text-muted">{url}</span>}
+        {url && (
+          <a href={url} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent-ink hover:underline">
+            Открыть ↗
+          </a>
+        )}
       </div>
     </div>
   );
