@@ -29,6 +29,7 @@ import { promoRoutes } from './routes/promo.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { telegramRoutes } from './routes/telegram.js';
 import { startScheduler } from './scheduler.js';
+import { tgRegisterWebhook } from './telegram.js';
 
 const app = Fastify({ logger: true });
 
@@ -246,4 +247,5 @@ await app.register(agentRoutes);
 app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   app.log.info(`Threadhunt API на :${env.PORT}`);
   startScheduler(); // автопостинг по расписанию — внутри API, без отдельного воркера
+  void tgRegisterWebhook(); // сам регистрирует Telegram webhook (если заданы токен+секрет)
 });

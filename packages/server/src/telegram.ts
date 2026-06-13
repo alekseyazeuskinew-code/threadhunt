@@ -40,3 +40,22 @@ export async function tgSend(chatId: string, text: string): Promise<boolean> {
 export function esc(s: string): string {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// Авто-регистрация webhook при старте сервера — чтобы клиенту не делать setWebhook вручную.
+// Адрес сервера берём из RAILWAY_PUBLIC_DOMAIN (Railway задаёт сам), иначе прод-fallback.
+export async function tgRegisterWebhook(): Promise<void> {
+  if (!tgEnabled() || !env.TELEGRAM_WEBHOOK_SECRET) return;
+  const domain = process.env.RAILWAY_PUBLIC_DOMAIN;
+  const base = domain ? `https://${domain}` : 'https://threadhuntserver-production.up.railway.app';
+  const url = `${base}/api/telegram/webhook/${env.TELEGRAM_WEBHOOK_SECRET}`;
+  try {
+    const r = await fetch(API('setWebhook'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, allowed_updates: ['message'] }),
+    });
+    console.log(r.ok ? `🤖 Telegram webhook зарегистрирован: ${base}/api/telegram/webhook/***` : '🤖 Telegram webhook: не удалось зарегистрировать');
+  } catch {
+    /* ignore */
+  }
+}
