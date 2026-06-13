@@ -12,6 +12,7 @@ import { generateDoc, generateFlow, generateBlockText, type DocKind, type BrandV
 import { consumeAi } from './limits.js';
 import { resolveCtx, canManageLeads } from './workspace.js';
 import { fireWebhook } from '../webhook.js';
+import { notifyOwner, esc } from './telegram.js';
 
 export async function onboardingRoutes(app: FastifyInstance) {
   // Кабинетные роуты работают в пространстве владельца (ownerId), чтобы ассистент
@@ -295,6 +296,14 @@ export async function onboardingRoutes(app: FastifyInstance) {
     await db.lead.update({ where: { id: lead.id }, data });
     if (b.index === 0 && data.consentAt) await db.leadComment.create({ data: { leadId: lead.id, body: 'Кандидат оставил контакты и согласие (онбординг)', author: 'система' } });
     if (b.last) await db.leadComment.create({ data: { leadId: lead.id, body: 'Кандидат прошёл онбординг до конца', author: 'система' } });
+    // Telegram-уведомление владельцу: кандидат сдал тестовое / завершил анкету.
+    if (data.testSubmittedAt) {
+      const who = data.candidateName ?? lead.candidateName ?? lead.fromUsername ?? 'кандидат';
+      void notifyOwner(lead.userId, 'test', `✅ <b>${esc(who)}</b> сдал тестовое.\nСсылка: ${esc(b.workUrl || '')}`);
+    } else if (b.last) {
+      const who = data.candidateName ?? lead.candidateName ?? lead.fromUsername ?? 'кандидат';
+      void notifyOwner(lead.userId, 'test', `📝 <b>${esc(who)}</b> прошёл анкету до конца.`);
+    }
     // Исходящий вебхук на ответы анкеты (фоном): шлём шаг, на финале — полную анкету.
     void fireWebhook(lead.userId, b.last ? 'candidate.completed' : 'candidate.response', {
       leadId: lead.id,

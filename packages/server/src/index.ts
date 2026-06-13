@@ -27,6 +27,7 @@ import { oauthRoutes } from './routes/oauth.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { promoRoutes } from './routes/promo.js';
 import { integrationRoutes } from './routes/integrations.js';
+import { telegramRoutes } from './routes/telegram.js';
 import { startScheduler } from './scheduler.js';
 
 const app = Fastify({ logger: true });
@@ -73,6 +74,13 @@ async function ensureSchema() {
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetTokenHash" TEXT',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetTokenExpiresAt" TIMESTAMP',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "isDemo" BOOLEAN NOT NULL DEFAULT false',
+    // Telegram-бот.
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "telegramChatId" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "telegramLinkToken" TEXT',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tgNotifyLeads" BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tgNotifyTests" BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tgDailySummary" BOOLEAN NOT NULL DEFAULT true',
+    'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tgSummarySentOn" TEXT',
     // Лист ожидания с лендинга (создаётся на старте — без отдельной миграции).
     `CREATE TABLE IF NOT EXISTS "WaitlistEntry" (
       "id" TEXT PRIMARY KEY,
@@ -229,6 +237,7 @@ await app.register(oauthRoutes);
 await app.register(waitlistRoutes);
 await app.register(promoRoutes);
 await app.register(integrationRoutes);
+await app.register(telegramRoutes);
 await app.register(uploadRoutes);
 await app.register(announcementRoutes);
 // Расширение (device-token).

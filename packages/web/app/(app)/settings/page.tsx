@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2, Sparkles, Link2, Upload } from 'lucide-react';
+import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2, Sparkles, Link2, Upload, Send } from 'lucide-react';
+import { Toggle } from '@/components/ui/Toggle';
 import { api } from '@/lib/api';
 import type { BrandProfile, Me } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -94,6 +95,7 @@ export default function SettingsPage() {
             { id: 'sec-brand', title: 'Голос бренда' },
             { id: 'sec-integrations', title: 'Интеграции' },
             { id: 'sec-limits', title: 'Лимиты' },
+            { id: 'sec-telegram', title: 'Telegram' },
           ]}
         />
 
@@ -199,8 +201,114 @@ export default function SettingsPage() {
         <div id="sec-limits" className="scroll-mt-16">
           <LimitsSettings />
         </div>
+
+        <div id="sec-telegram" className="scroll-mt-16">
+          <TelegramCard />
+        </div>
       </div>
     </>
+  );
+}
+
+// Telegram-бот: привязка аккаунта + настройки уведомлений и сводок.
+interface TgStatus {
+  enabled: boolean;
+  connected: boolean;
+  botUsername: string | null;
+  prefs: { notifyLeads: boolean; notifyTests: boolean; dailySummary: boolean };
+}
+function TelegramCard() {
+  const [st, setSt] = useState<TgStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const load = () => api.get<TgStatus>('/api/telegram/status').then(setSt).catch(() => setSt(null));
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function connect() {
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await api.post<{ url: string }>('/api/telegram/link', {});
+      window.open(r.url, '_blank');
+      setMsg('Открыл бота в новой вкладке — нажми там «Старт». После привязки обнови эту страницу.');
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function unlink() {
+    await api.post('/api/telegram/unlink', {});
+    setMsg('');
+    load();
+  }
+  async function test() {
+    setBusy(true);
+    try {
+      await api.post('/api/telegram/test', {});
+      setMsg('Отправил тестовое сообщение в Telegram.');
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function setPref(k: 'notifyLeads' | 'notifyTests' | 'dailySummary', v: boolean) {
+    setSt((s) => (s ? { ...s, prefs: { ...s.prefs, [k]: v } } : s));
+    await api.patch('/api/telegram/prefs', { [k]: v });
+  }
+
+  if (!st) return null;
+
+  return (
+    <Card>
+      <div className="mb-1 flex items-center gap-2 text-base font-semibold">
+        <Send size={18} className="text-accent-ink" /> Telegram-уведомления
+      </div>
+      <p className="mb-4 text-sm text-muted">Получай сводку по кандидатам и важные уведомления прямо в Telegram.</p>
+
+      {!st.enabled ? (
+        <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm text-warning">Бот пока не настроен на сервере (нет токена). Добавь TELEGRAM_BOT_TOKEN — и подключение появится.</div>
+      ) : !st.connected ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={connect} disabled={busy}>
+            <Send size={15} /> {busy ? 'Открываю…' : 'Подключить Telegram'}
+          </Button>
+          {st.botUsername && <span className="text-xs text-muted">Бот: @{st.botUsername}</span>}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-sm text-success">
+              <CheckCircle2 size={15} /> Подключено
+            </span>
+            <Button variant="ghost" onClick={test} disabled={busy}>Отправить тест</Button>
+            <Button variant="ghost" onClick={unlink}>Отвязать</Button>
+          </div>
+          <div className="mt-4 space-y-3 border-t border-line pt-4">
+            <PrefRow label="Новые кандидаты" hint="Пинг, когда кто-то написал кодовое слово" checked={st.prefs.notifyLeads} onChange={(v) => setPref('notifyLeads', v)} />
+            <PrefRow label="Сдача тестового" hint="Когда кандидат сдал тест / прошёл анкету" checked={st.prefs.notifyTests} onChange={(v) => setPref('notifyTests', v)} />
+            <PrefRow label="Ежедневная сводка" hint="Раз в день: новые лиды, тесты, конверсия" checked={st.prefs.dailySummary} onChange={(v) => setPref('dailySummary', v)} />
+          </div>
+        </>
+      )}
+      {msg && <p className="mt-3 text-xs text-muted">{msg}</p>}
+    </Card>
+  );
+}
+
+function PrefRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="text-sm font-medium">{label}</div>
+        <div className="text-xs text-muted">{hint}</div>
+      </div>
+      <Toggle checked={checked} onChange={onChange} />
+    </div>
   );
 }
 

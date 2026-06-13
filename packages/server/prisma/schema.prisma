@@ -32,6 +32,13 @@ model User {
   resetTokenHash      String?   // сброс пароля: хеш одноразового токена
   resetTokenExpiresAt DateTime? // срок действия токена сброса
   lastSeenAnnouncementAt DateTime? // когда пользователь последний раз открывал колокольчик (для непрочитанных)
+  // ── Telegram-бот (сводки и уведомления) ──
+  telegramChatId   String?  // chatId привязанного телеграм-аккаунта (куда слать)
+  telegramLinkToken String? @unique // одноразовый токен для привязки через /start
+  tgNotifyLeads    Boolean  @default(true)  // уведомлять о новых кандидатах
+  tgNotifyTests    Boolean  @default(true)  // уведомлять о сдаче/просрочке тестового
+  tgDailySummary   Boolean  @default(true)  // ежедневная сводка
+  tgSummarySentOn  String?  // дата последней отправленной сводки (YYYY-MM-DD), анти-дубль
   isDemo       Boolean   @default(false) // демо-аккаунт для тура (можно массово очистить)
   createdAt    DateTime  @default(now())
 

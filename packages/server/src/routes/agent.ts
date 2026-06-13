@@ -10,6 +10,7 @@ import { getUserLimits } from './limits.js';
 import { fireWebhook } from '../webhook.js';
 import { applyDmWatermark } from '../branding.js';
 import { env } from '../env.js';
+import { notifyOwner, esc } from './telegram.js';
 import type { AgentTasksResponse, AgentSearchRule } from '@threadhunt/shared';
 
 const POLL_INTERVAL_SEC = 20;
@@ -249,6 +250,8 @@ export async function agentRoutes(app: FastifyInstance) {
           section: e.section,
           at: e.at,
         });
+        // Telegram-уведомление владельцу о новом кандидате.
+        void notifyOwner(userId, 'lead', `🆕 <b>Новый кандидат</b> @${esc(e.fromUsername || '—')}\nКодовое слово: <b>${esc(e.matchedKeyword)}</b>`);
       }
     }
     return { ok: true };

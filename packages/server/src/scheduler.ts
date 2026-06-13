@@ -14,11 +14,13 @@ import { resolveConnection } from './threads/resolve.js';
 import { sendEmail, renderEmailHtml } from './email.js';
 import { resolveRecipients, parseSegment, personalizeStep, usesPromoVar } from './emailAudience.js';
 import { ensurePromoForEmail } from './promoCodes.js';
+import { tgSend, tgEnabled } from './telegram.js';
 
 let running = false;
 let dripRunning = false;
 let commentsRunning = false;
 let remindersRunning = false;
+let tgSummaryRunning = false;
 
 export function startScheduler() {
   setInterval(tick, 60_000); // автопостинг — каждую минуту
@@ -29,7 +31,49 @@ export function startScheduler() {
   setTimeout(commentTick, 30_000); // и вскоре после старта
   setInterval(onbReminderTick, 15 * 60_000); // напоминания о дедлайне теста — каждые 15 минут
   setTimeout(onbReminderTick, 45_000); // и вскоре после старта
-  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии + напоминания, внутри API)');
+  setInterval(tgSummaryTick, 30 * 60_000); // ежедневная Telegram-сводка — проверка каждые 30 минут
+  setTimeout(tgSummaryTick, 60_000); // и вскоре после старта
+  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии + напоминания + telegram-сводки)');
+}
+
+// Ежедневная Telegram-сводка владельцам: раз в день (после 8:00 UTC), анти-дубль по дате.
+async function tgSummaryTick() {
+  if (tgSummaryRunning || !tgEnabled()) return;
+  tgSummaryRunning = true;
+  try {
+    const now = new Date();
+    if (now.getUTCHours() < 8) return; // не будим ночью
+    const today = now.toISOString().slice(0, 10);
+    const users = await db.user.findMany({
+      where: { telegramChatId: { not: null }, tgDailySummary: true, NOT: { tgSummarySentOn: today } },
+      select: { id: true, telegramChatId: true },
+      take: 500,
+    });
+    const since = new Date(Date.now() - 24 * 3600_000);
+    for (const u of users) {
+      const [newLeads, submitted, overdue, hired, screening] = await Promise.all([
+        db.lead.count({ where: { userId: u.id, createdAt: { gte: since } } }),
+        db.lead.count({ where: { userId: u.id, testSubmittedAt: { gte: since } } }),
+        db.lead.count({ where: { userId: u.id, stage: 'SCREENING', testSubmittedAt: null, testDeadlineAt: { lt: now } } }),
+        db.lead.count({ where: { userId: u.id, stage: 'HIRED' } }),
+        db.lead.count({ where: { userId: u.id, stage: 'SCREENING' } }),
+      ]);
+      const lines = [
+        '📊 <b>Сводка Threadhunt за сутки</b>',
+        `🆕 Новых кандидатов: <b>${newLeads}</b>`,
+        `✅ Сдали тест: <b>${submitted}</b>`,
+        `🧪 На тесте/собесе: <b>${screening}</b>`,
+        overdue > 0 ? `⏰ Просрочено тестов: <b>${overdue}</b>` : '',
+        `👥 В команде всего: <b>${hired}</b>`,
+      ].filter(Boolean);
+      await tgSend(u.telegramChatId!, lines.join('\n'));
+      await db.user.update({ where: { id: u.id }, data: { tgSummarySentOn: today } }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[scheduler] tgSummary error:', (e as Error).message);
+  } finally {
+    tgSummaryRunning = false;
+  }
 }
 
 // Авто-напоминания кандидату на email о дедлайне тестового — поднимают доходимость.
