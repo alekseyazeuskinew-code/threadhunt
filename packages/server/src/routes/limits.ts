@@ -134,7 +134,11 @@ export async function consumeAi(userId: string): Promise<{ ok: boolean; status?:
   if (limit === 0) return { ok: false, status: 403, error: 'ИИ-генерация доступна на тарифах Pro и VIP' };
   const day = today();
   const usage = await db.aiUsage.findUnique({ where: { userId_day: { userId, day } } });
-  if ((usage?.count || 0) >= limit) return { ok: false, status: 429, error: `Дневной лимит ИИ исчерпан (${limit}/день).` };
+  if ((usage?.count || 0) >= limit) {
+    const plan = user?.plan || 'FREE';
+    const upsell = plan === 'FREE' ? ' Перейди на Pro — 100 ИИ-генераций в день.' : plan === 'PRO' ? ' На VIP — 500 в день.' : '';
+    return { ok: false, status: 429, error: `Дневной лимит ИИ исчерпан (${limit}/день).${upsell}` };
+  }
   await db.aiUsage.upsert({ where: { userId_day: { userId, day } }, create: { userId, day, count: 1 }, update: { count: { increment: 1 } } });
   return { ok: true };
 }
