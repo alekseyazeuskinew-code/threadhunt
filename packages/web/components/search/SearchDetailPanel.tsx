@@ -658,7 +658,11 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
   }
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted">
+          {list.filter((t) => t.text.trim()).length > 1 ? 'Несколько шаблонов — бот чередует их случайно (живее и безопаснее).' : 'Можно добавить несколько — бот будет чередовать их.'}
+          {s.obLinkInReply && <span className="text-accent-ink"> К каждому ответу добавится персональная ссылка анкеты.</span>}
+        </p>
         <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
           <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
         </Button>

@@ -24,11 +24,16 @@ const BASE = location.origin; // www.threads.com или www.threads.net
 // templateId (в БД replyTemplateId = null, FK не нарушается).
 function pickReply(
   kw: { searchId: string; replyText?: string },
-  replyBySearch: Record<string, { id: string; text: string } | undefined>,
+  replyBySearch: Record<string, { templates: { id?: string; text: string }[]; rotation?: string } | undefined>,
 ): { id?: string; text: string } | null {
   if (kw.replyText && kw.replyText.trim()) return { text: kw.replyText.trim() };
-  const tpl = replyBySearch[kw.searchId];
-  return tpl ? { id: tpl.id, text: tpl.text } : null;
+  const e = replyBySearch[kw.searchId];
+  const tpls = e?.templates?.filter((t) => t.text && t.text.trim()) || [];
+  if (!tpls.length) return null;
+  // Чередуем шаблоны (случайно) — ответы варьируются, выглядит живее и безопаснее.
+  // При одном шаблоне берём его; при нескольких — случайный из них.
+  const tpl = tpls.length === 1 ? tpls[0] : tpls[Math.floor(Math.random() * tpls.length)];
+  return { id: tpl.id, text: tpl.text };
 }
 
 // Дописать персональную ссылку онбординга в конец ответа (если включено для поиска).
@@ -80,7 +85,7 @@ interface Sweep {
   events: AgentReplyEvent[];
   // правила, снятые на старте прохода (чтобы не зависеть от обновления tasks в середине)
   keywords: (Keyword & { searchId: string })[];
-  replyBySearch: Record<string, { id: string; text: string } | undefined>;
+  replyBySearch: Record<string, { templates: { id?: string; text: string }[]; rotation?: string } | undefined>;
   obLinkBySearch: Record<string, string | undefined>; // база персональной ссылки онбординга на поиск
   repliedKeys: string[];
   minDelayMs: number;
@@ -330,7 +335,7 @@ async function step() {
       processIdx: 0,
       events: [],
       keywords: tasks.searches.flatMap((s) => s.keywords.map((k) => ({ ...k, searchId: s.searchId }))),
-      replyBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.replyTemplates[0]])),
+      replyBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, { templates: s.replyTemplates, rotation: s.rotation }])),
       obLinkBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.obLink])),
       repliedKeys: tasks.searches.flatMap((s) => s.alreadyReplied),
       minDelayMs: lim?.minDelayMs ?? 8000,
@@ -550,7 +555,7 @@ async function startTestSweep(): Promise<{ ok: boolean; reason?: string }> {
     processIdx: 0,
     events: [],
     keywords,
-    replyBySearch: Object.fromEntries(searches.map((s) => [s.searchId, s.replyTemplates[0]])),
+    replyBySearch: Object.fromEntries(searches.map((s) => [s.searchId, { templates: s.replyTemplates, rotation: s.rotation }])),
     obLinkBySearch: Object.fromEntries(searches.map((s) => [s.searchId, s.obLink])),
     repliedKeys: [], // в тесте смотрим всех, даже тех, кому уже отвечали
     minDelayMs: 0,
@@ -592,7 +597,7 @@ async function maybeStartDmTest(tasks: AgentTasksResponse): Promise<boolean> {
     processIdx: 0,
     events: [],
     keywords,
-    replyBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.replyTemplates[0]])),
+    replyBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, { templates: s.replyTemplates, rotation: s.rotation }])),
     obLinkBySearch: Object.fromEntries(tasks.searches.map((s) => [s.searchId, s.obLink])),
     repliedKeys: [],
     minDelayMs: 0,
