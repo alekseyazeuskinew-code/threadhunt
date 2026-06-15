@@ -56,8 +56,12 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
   async function patch(data: Record<string, any>) {
     if (!lead) return;
     setLead({ ...lead, ...data });
-    await api.patch(`/api/leads/${lead.id}`, data);
-    await reload();
+    try {
+      await api.patch(`/api/leads/${lead.id}`, data);
+    } catch {
+      /* не сохранилось — перечитаем актуальное состояние ниже */
+    }
+    await reload(); // ресинк с сервером (подтянет системные события или откатит)
   }
   async function addComment() {
     if (!lead || !body.trim()) return;
@@ -77,7 +81,7 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
               {lead?.testSubmittedAt ? (
                 <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">сдал тест</span>
               ) : (lead?.obStep ?? 0) > 0 ? (
-                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-ink">анкета {lead!.obStep}{lead!.obTotal ? `/${lead!.obTotal}` : ''}</span>
+                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-ink">анкета {Math.min(lead!.obStep!, lead!.obTotal || lead!.obStep!)}{lead!.obTotal ? `/${lead!.obTotal}` : ''}</span>
               ) : null}
             </div>
             {lead && <div className="text-sm text-muted">{lead.search?.title}</div>}
@@ -242,14 +246,18 @@ function OnboardLink({ leadId, obStep, obTotal, submitted, contact }: { leadId: 
   const [url, setUrl] = useState('');
   const [copied, setCopied] = useState(false);
   async function getLink() {
-    const r = await api.post<{ url: string }>(`/api/leads/${leadId}/onboard-link`);
-    const full = r.url.startsWith('http') ? r.url : window.location.origin + r.url;
-    setUrl(full);
     try {
-      await navigator.clipboard.writeText(full);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {}
+      const r = await api.post<{ url: string }>(`/api/leads/${leadId}/onboard-link`);
+      const full = r.url.startsWith('http') ? r.url : window.location.origin + r.url;
+      setUrl(full);
+      try {
+        await navigator.clipboard.writeText(full);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      } catch {}
+    } catch {
+      /* не удалось получить ссылку */
+    }
   }
   const pct = obTotal > 0 ? Math.min(100, Math.round((obStep / obTotal) * 100)) : 0;
   return (
@@ -259,7 +267,7 @@ function OnboardLink({ leadId, obStep, obTotal, submitted, contact }: { leadId: 
         {submitted ? (
           <span className="inline-flex items-center gap-1 text-xs text-success"><Check size={12} /> сдал тест</span>
         ) : obStep > 0 ? (
-          <span className="text-xs text-accent-ink">анкета {obStep}{obTotal ? `/${obTotal}` : ''}</span>
+          <span className="text-xs text-accent-ink">анкета {Math.min(obStep, obTotal || obStep)}{obTotal ? `/${obTotal}` : ''}</span>
         ) : (
           <span className="text-xs text-muted">не начата</span>
         )}

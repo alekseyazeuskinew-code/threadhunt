@@ -74,23 +74,28 @@ export async function telegramRoutes(app: FastifyInstance) {
   app.post('/api/telegram/webhook/:secret', async (req, reply) => {
     const secret = (req.params as any).secret as string;
     if (!env.TELEGRAM_WEBHOOK_SECRET || secret !== env.TELEGRAM_WEBHOOK_SECRET) return reply.code(404).send({ error: 'not found' });
-    const update = req.body as any;
-    const msg = update?.message;
-    const text: string = msg?.text || '';
-    const chatId = msg?.chat?.id;
-    if (chatId && text.startsWith('/start')) {
-      const token = text.split(/\s+/)[1] || '';
-      if (token) {
-        const user = await db.user.findFirst({ where: { telegramLinkToken: token }, select: { id: true } });
-        if (user) {
-          await db.user.update({ where: { id: user.id }, data: { telegramChatId: String(chatId), telegramLinkToken: null } });
-          await tgSend(String(chatId), '✅ Аккаунт <b>Threadhunt</b> привязан! Буду присылать уведомления о кандидатах и ежедневную сводку.');
+    // ВСЕГДА отвечаем 200, даже при ошибке — иначе Telegram будет повторять апдейт в цикле.
+    try {
+      const update = req.body as any;
+      const msg = update?.message;
+      const text: string = msg?.text || '';
+      const chatId = msg?.chat?.id;
+      if (chatId && text.startsWith('/start')) {
+        const token = text.split(/\s+/)[1] || '';
+        if (token) {
+          const user = await db.user.findFirst({ where: { telegramLinkToken: token }, select: { id: true } });
+          if (user) {
+            await db.user.update({ where: { id: user.id }, data: { telegramChatId: String(chatId), telegramLinkToken: null } });
+            await tgSend(String(chatId), '✅ Аккаунт <b>Threadhunt</b> привязан! Буду присылать уведомления о кандидатах и ежедневную сводку.');
+          } else {
+            await tgSend(String(chatId), 'Ссылка устарела. Сгенерируй новую в дашборде Threadhunt → Настройки → Telegram.');
+          }
         } else {
-          await tgSend(String(chatId), 'Ссылка устарела. Сгенерируй новую в дашборде Threadhunt → Настройки → Telegram.');
+          await tgSend(String(chatId), 'Привет! Чтобы привязать аккаунт, открой Threadhunt → Настройки → Telegram → «Подключить».');
         }
-      } else {
-        await tgSend(String(chatId), 'Привет! Чтобы привязать аккаунт, открой Threadhunt → Настройки → Telegram → «Подключить».');
       }
+    } catch (e) {
+      app.log.error({ err: e }, 'telegram webhook');
     }
     return reply.send({ ok: true });
   });

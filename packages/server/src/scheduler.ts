@@ -51,6 +51,7 @@ async function tgSummaryTick() {
     });
     const since = new Date(Date.now() - 24 * 3600_000);
     for (const u of users) {
+     try {
       const [newLeads, submitted, overdue, hired, screening] = await Promise.all([
         db.lead.count({ where: { userId: u.id, createdAt: { gte: since } } }),
         db.lead.count({ where: { userId: u.id, testSubmittedAt: { gte: since } } }),
@@ -68,6 +69,9 @@ async function tgSummaryTick() {
       ].filter(Boolean);
       await tgSend(u.telegramChatId!, lines.join('\n'));
       await db.user.update({ where: { id: u.id }, data: { tgSummarySentOn: today } }).catch(() => {});
+     } catch (e) {
+       console.error('[scheduler] tgSummary user error:', (e as Error).message);
+     }
     }
   } catch (e) {
     console.error('[scheduler] tgSummary error:', (e as Error).message);

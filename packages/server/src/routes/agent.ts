@@ -250,8 +250,8 @@ export async function agentRoutes(app: FastifyInstance) {
           section: e.section,
           at: e.at,
         });
-        // Telegram-уведомление владельцу о новом кандидате.
-        void notifyOwner(userId, 'lead', `🆕 <b>Новый кандидат</b> @${esc(e.fromUsername || '—')}\nКодовое слово: <b>${esc(e.matchedKeyword)}</b>`);
+        // Telegram-уведомление владельцу — только если ответ реально отправлен (не FAILED).
+        if (e.sent) void notifyOwner(userId, 'lead', `🆕 <b>Новый кандидат</b> @${esc(e.fromUsername || '—')}\nКодовое слово: <b>${esc(e.matchedKeyword)}</b>`);
       }
     }
     return { ok: true };

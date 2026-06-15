@@ -63,8 +63,14 @@ export default function CandidatesPage() {
   }
 
   async function move(leadId: string, stage: Stage) {
+    const prevStage = leads?.find((l) => l.id === leadId)?.stage;
     setLeads((prev) => prev!.map((l) => (l.id === leadId ? { ...l, stage } : l)));
-    await api.patch(`/api/leads/${leadId}`, { stage });
+    try {
+      await api.patch(`/api/leads/${leadId}`, { stage });
+    } catch {
+      // откат: вернуть прежнюю стадию, если сервер не принял
+      if (prevStage) setLeads((prev) => prev!.map((l) => (l.id === leadId ? { ...l, stage: prevStage } : l)));
+    }
   }
 
   function toggleSelect(id: string) {
@@ -85,6 +91,8 @@ export default function CandidatesPage() {
     setLeads((prev) => prev!.map((l) => (selected.has(l.id) ? { ...l, stage } : l)));
     try {
       await api.post('/api/leads/bulk', { ids, action: 'stage', stage });
+    } catch {
+      await load(); // не приняли — пересинхронизируемся с сервером
     } finally {
       setBulkBusy(false);
       clearSelection();
@@ -98,6 +106,8 @@ export default function CandidatesPage() {
     setLeads((prev) => prev!.filter((l) => !selected.has(l.id)));
     try {
       await api.post('/api/leads/bulk', { ids, action: 'delete' });
+    } catch {
+      await load(); // не удалилось — вернём как было
     } finally {
       setBulkBusy(false);
       clearSelection();
@@ -448,7 +458,7 @@ function LeadCard({
 // Бейдж прогресса анкеты (онбординга) на карточке.
 function OnboardingBadge({ lead }: { lead: Lead }) {
   if (lead.testSubmittedAt) return <span className="flex items-center gap-1 text-success"><Check size={12} /> сдал тест</span>;
-  if ((lead.obStep ?? 0) > 0) return <span className="flex items-center gap-1 text-accent-ink"><FileText size={12} /> анкета {lead.obStep}{lead.obTotal ? `/${lead.obTotal}` : ''}</span>;
+  if ((lead.obStep ?? 0) > 0) return <span className="flex items-center gap-1 text-accent-ink"><FileText size={12} /> анкета {Math.min(lead.obStep!, lead.obTotal || lead.obStep!)}{lead.obTotal ? `/${lead.obTotal}` : ''}</span>;
   if (lead.onboardToken) return <span className="flex items-center gap-1 text-muted"><Link2 size={12} /> ссылка</span>;
   return null;
 }
