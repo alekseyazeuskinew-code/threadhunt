@@ -636,11 +636,28 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
   const [genMsg, setGenMsg] = useState('');
   const [contacts, setContacts] = useState<TeamContact[]>([]);
   const [focusedIdx, setFocusedIdx] = useState(0);
+  const [adding, setAdding] = useState(false);
+  const [nName, setNName] = useState('');
+  const [nTg, setNTg] = useState('');
+  const [brief, setBrief] = useState(''); // контекст для ИИ (наговорить/ввести → сгенерировать)
   const set = (i: number, patch: Partial<ReplyTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
 
   useEffect(() => {
     api.get<BrandProfile>('/api/brand-profile').then((b) => setContacts(parseContacts(b.teamContacts))).catch(() => {});
   }, []);
+
+  // Контакты живут в профиле бренда, но управляются прямо здесь (PATCH только этого поля).
+  async function saveContacts(next: TeamContact[]) {
+    setContacts(next);
+    await api.put('/api/brand-profile', { teamContacts: JSON.stringify(next) }).catch(() => {});
+  }
+  function addContact() {
+    if (!nName.trim() && !nTg.trim()) return;
+    void saveContacts([...contacts, { name: nName.trim(), telegram: nTg.trim() }]);
+    setNName('');
+    setNTg('');
+    setAdding(false);
+  }
 
   const persist = async () =>
     void (await api.put(`/api/searches/${s.id}/reply-templates`, {
@@ -655,12 +672,13 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
     reload();
   }
   // seed — сгенерировать ВАРИАНТЫ в духе заданного текста (кнопка «ещё варианты»).
+  // brief — наговоренный/введённый контекст; если пусто, ИИ берёт контекст вакансии.
   async function generate(seed?: string) {
     const setLoad = seed ? setVaryBusy : setBusy;
     setLoad(true);
     setGenMsg('');
     try {
-      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 4, seed });
+      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 4, seed, brief: brief.trim() || undefined });
       setList((l) => [...l, ...(result || []).map((text) => ({ text, redirectTarget: '' }))]);
       if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
     } catch (e: any) {
@@ -696,23 +714,47 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
         </div>
       </div>
 
-      {/* Контакты команды — клик вставляет в активный шаблон */}
-      {contacts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-muted">Вставить контакт:</span>
-          {contacts.map((c, i) => (
-            <button
-              key={i}
-              onClick={() => insertContact(c)}
-              className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-accent-ink hover:bg-accent-soft"
-              title={tgDisplay(c.telegram)}
-            >
-              {c.name || tgDisplay(c.telegram)}
-            </button>
-          ))}
-          <a href="/settings#sec-brand" className="text-muted hover:text-text">+ управлять</a>
+      {/* Контекст для ИИ — наговори или впиши, и сгенерируй ответы (пусто = ИИ берёт контекст вакансии) */}
+      <div className="flex items-center gap-2">
+        <Input
+          className="flex-1"
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          placeholder="Контекст для ИИ (необязательно): тон, что просить, куда вести… или наговори 🎤"
+        />
+        <MicButton onText={(t) => setBrief((v) => appendDictation(v, t))} />
+      </div>
+
+      {/* Контакты команды — управляются прямо здесь; клик по чипу вставляет в активный шаблон */}
+      <div className="rounded-xl border border-line bg-bg p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-muted">Контакты команды — клик вставит «Имя @ник» в выбранный ответ</span>
+          <button onClick={() => setAdding((v) => !v)} className="inline-flex items-center gap-1 text-xs font-medium text-accent-ink hover:underline">
+            <Plus size={12} /> контакт
+          </button>
         </div>
-      )}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {contacts.map((c, i) => (
+            <span key={i} className="group/ct inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2.5 py-1 text-xs">
+              <button onClick={() => insertContact(c)} className="font-medium text-accent-ink" title={`Вставить ${tgDisplay(c.telegram)}`}>
+                {c.name || tgDisplay(c.telegram)}
+              </button>
+              <button onClick={() => saveContacts(contacts.filter((_, j) => j !== i))} className="text-muted opacity-0 transition group-hover/ct:opacity-100 hover:text-danger" title="Удалить контакт">
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+          {contacts.length === 0 && !adding && <span className="text-xs text-muted">пока нет — добавь сотрудника, чтобы вставлять одним кликом</span>}
+        </div>
+        {adding && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Input className="w-40" value={nName} onChange={(e) => setNName(e.target.value)} placeholder="Имя (Валерия)" />
+            <Input className="w-52" value={nTg} onChange={(e) => setNTg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addContact()} placeholder="@valeriyatargetpoint" />
+            <Button size="sm" onClick={addContact}>Добавить</Button>
+            <button onClick={() => setAdding(false)} className="text-xs text-muted hover:text-text">отмена</button>
+          </div>
+        )}
+      </div>
 
       {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
       {list.map((t, i) => (
@@ -766,7 +808,10 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
       </div>
 
       <div className="mt-3">
-        <Textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Напр.: Привет! Спасибо за интерес 🙌 Напиши кодовое слово в директ — пришлю детали." />
+        <div className="mb-1.5 flex items-center justify-end">
+          <MicButton onText={(t) => setReplyText((v) => appendDictation(v, t))} />
+        </div>
+        <Textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Напр.: Привет! Спасибо за интерес 🙌 Напиши кодовое слово в директ — пришлю детали. (или наговори 🎤)" />
       </div>
 
       <div className="mt-3 flex items-center gap-3">
