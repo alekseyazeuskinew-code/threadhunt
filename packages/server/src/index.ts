@@ -76,6 +76,7 @@ async function ensureSchema() {
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetTokenExpiresAt" TIMESTAMP',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "isDemo" BOOLEAN NOT NULL DEFAULT false',
     // Telegram-бот.
+    'ALTER TABLE "BrandProfile" ADD COLUMN IF NOT EXISTS "teamContacts" TEXT NOT NULL DEFAULT \'\'',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "telegramChatId" TEXT',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "telegramLinkToken" TEXT',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tgNotifyLeads" BOOLEAN NOT NULL DEFAULT true',

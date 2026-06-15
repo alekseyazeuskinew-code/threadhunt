@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2, Sparkles, Link2, Upload, Send } from 'lucide-react';
+import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2, Sparkles, Link2, Upload, Send, Plus, Trash2 } from 'lucide-react';
 import { Toggle } from '@/components/ui/Toggle';
 import { MicButton, appendDictation } from '@/components/ui/Dictation';
+import { parseContacts, type TeamContact } from '@/lib/teamContacts';
 import { api } from '@/lib/api';
 import type { BrandProfile, Me } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -13,7 +14,7 @@ import { LimitsSettings } from '@/components/LimitsSettings';
 import { SectionAnchors } from '@/components/SectionNav';
 import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 
-const EMPTY: BrandProfile = { companyName: '', niche: '', social: '', about: '', tone: '', audience: '', perks: '', signature: '', sample: '', avoid: '' };
+const EMPTY: BrandProfile = { companyName: '', niche: '', social: '', about: '', tone: '', audience: '', perks: '', signature: '', sample: '', avoid: '', teamContacts: '' };
 
 // «Голос бренда» — персонализация ИИ под клиента (его критерии и стиль).
 export default function SettingsPage() {
@@ -190,6 +191,9 @@ export default function SettingsPage() {
             </Field>
             <Field label="Не использовать" hint="стоп-слова и клише">
               <Input value={p.avoid} onChange={(e) => set('avoid', e.target.value)} placeholder="«срочно требуется», канцелярит, капс" />
+            </Field>
+            <Field label="Контакты команды" hint="вставляются одним кликом в ответы директа (куда вести кандидата)">
+              <TeamContactsEditor value={p.teamContacts || ''} onChange={(v) => set('teamContacts', v)} />
             </Field>
           </div>
 
@@ -391,6 +395,29 @@ function AccountCard() {
         </div>
       </div>
     </Card>
+  );
+}
+
+// Редактор контактов команды: список имя + Telegram, сериализуется в JSON-строку.
+function TeamContactsEditor({ value, onChange }: { value: string; onChange: (json: string) => void }) {
+  const list = parseContacts(value);
+  const save = (next: TeamContact[]) => onChange(JSON.stringify(next.filter((c) => c.name.trim() || c.telegram.trim())));
+  const setItem = (i: number, patch: Partial<TeamContact>) => save(list.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  return (
+    <div className="space-y-2">
+      {list.map((c, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input className="flex-1" value={c.name} onChange={(e) => setItem(i, { name: e.target.value })} placeholder="Имя (напр. Валерия)" />
+          <Input className="flex-1" value={c.telegram} onChange={(e) => setItem(i, { telegram: e.target.value })} placeholder="@valeriyatargetpoint" />
+          <button onClick={() => save(list.filter((_, j) => j !== i))} className="text-muted hover:text-danger" title="Удалить">
+            <Trash2 size={16} />
+          </button>
+        </div>
+      ))}
+      <button onClick={() => save([...list, { name: '', telegram: '' }])} className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-3 py-1.5 text-sm text-muted hover:border-accent/50 hover:text-accent-ink">
+        <Plus size={14} /> Добавить контакт
+      </button>
+    </div>
   );
 }
 

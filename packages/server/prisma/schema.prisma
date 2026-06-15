@@ -190,6 +190,7 @@ model BrandProfile {
   signature String @default("") // как заканчивать / куда вести
   sample    String @default("") // пример удачного поста — референс стиля
   avoid     String @default("") // что НЕ использовать (стоп-слова/клише)
+  teamContacts String @default("") // JSON [{name, telegram}] — контакты команды для вставки в ответы директа
 }
 
 // Подключённый Threads-аккаунт клиента.

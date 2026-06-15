@@ -20,6 +20,8 @@ import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 import { confirmDialog } from '@/components/ui/confirm';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { MicButton, appendDictation } from '@/components/ui/Dictation';
+import { parseContacts, tgDisplay, type TeamContact } from '@/lib/teamContacts';
+import { cn } from '@/lib/cn';
 
 // Четыре раздела вместо прежних восьми: обзор (пульт + хронология + цель),
 // отбивка (директ + комменты), приманки (посты + реклама), лиды (+ онбординг).
@@ -576,18 +578,18 @@ function Check2({ label, checked, onChange }: { label: string; checked: boolean;
   );
 }
 
-type KwRow = { text: string; mode: string; replyText: string };
+type KwRow = { text: string; mode: string };
 
 function KeywordsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [list, setList] = useState<KwRow[]>(
-    s.keywords.length ? s.keywords.map((k) => ({ text: k.text, mode: k.mode || 'root', replyText: k.replyText || '' })) : [{ text: '', mode: 'root', replyText: '' }],
+    s.keywords.length ? s.keywords.map((k) => ({ text: k.text, mode: k.mode || 'root' })) : [{ text: '', mode: 'root' }],
   );
   const [saved, setSaved] = useState(false);
   const set = (i: number, patch: Partial<KwRow>) => setList((l) => l.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   const persist = async () =>
     void (await api.put(`/api/searches/${s.id}/keywords`, {
-      keywords: list.filter((r) => r.text.trim()).map((r) => ({ text: r.text.trim(), mode: r.mode || 'root', replyText: r.replyText.trim() || undefined })),
+      keywords: list.filter((r) => r.text.trim()).map((r) => ({ text: r.text.trim(), mode: r.mode || 'root' })),
     }));
   const autosave = useAutosave(list, persist);
 
@@ -599,27 +601,19 @@ function KeywordsSection({ s, reload }: { s: SearchDetail; reload: () => void })
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <p className="text-sm text-muted">
         Сообщения с этими словами ловятся автоматически. Режим «по корню» поймает забытое окончание («монтаж» → «монтажёр»);
-        «слово целиком» — только отдельное слово; «всё сообщение» — если текст равен слову. Можно задать свой ответ под каждое слово.
+        «слово целиком» — только отдельное слово; «всё сообщение» — если текст равен слову. Сам ответ настраивается ниже в «Шаблонах ответов».
       </p>
 
       {list.map((r, i) => (
-        <div key={i} className="rounded-2xl border border-line bg-panel p-3">
-          <div className="flex items-center gap-2">
-            <Input className="flex-1" value={r.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="монтаж" />
-            <Select className="w-56" size="sm" value={r.mode} onChange={(v) => set(i, { mode: v })} options={MATCH_MODE_OPTIONS} />
-            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
-              <Trash2 size={18} />
-            </button>
-          </div>
-          <Textarea
-            className="mt-2"
-            value={r.replyText}
-            onChange={(e) => set(i, { replyText: e.target.value })}
-            placeholder="Свой ответ под это слово (необязательно). Пусто → общий шаблон."
-          />
+        <div key={i} className="flex items-center gap-2 rounded-2xl border border-line bg-panel p-3">
+          <Input className="flex-1" value={r.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="монтаж" />
+          <Select className="w-56" size="sm" value={r.mode} onChange={(v) => set(i, { mode: v })} options={MATCH_MODE_OPTIONS} />
+          <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
+            <Trash2 size={18} />
+          </button>
         </div>
       ))}
 
@@ -637,9 +631,16 @@ function KeywordsSection({ s, reload }: { s: SearchDetail; reload: () => void })
 function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [list, setList] = useState<ReplyTemplate[]>(s.replyTemplates.length ? s.replyTemplates : [{ text: '', redirectTarget: '' }]);
   const [busy, setBusy] = useState(false);
+  const [varyBusy, setVaryBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [genMsg, setGenMsg] = useState('');
+  const [contacts, setContacts] = useState<TeamContact[]>([]);
+  const [focusedIdx, setFocusedIdx] = useState(0);
   const set = (i: number, patch: Partial<ReplyTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+
+  useEffect(() => {
+    api.get<BrandProfile>('/api/brand-profile').then((b) => setContacts(parseContacts(b.teamContacts))).catch(() => {});
+  }, []);
 
   const persist = async () =>
     void (await api.put(`/api/searches/${s.id}/reply-templates`, {
@@ -653,19 +654,29 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
     setTimeout(() => setSaved(false), 1500);
     reload();
   }
-  async function generate() {
-    setBusy(true);
+  // seed — сгенерировать ВАРИАНТЫ в духе заданного текста (кнопка «ещё варианты»).
+  async function generate(seed?: string) {
+    const setLoad = seed ? setVaryBusy : setBusy;
+    setLoad(true);
     setGenMsg('');
     try {
-      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 4 });
+      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 4, seed });
       setList((l) => [...l, ...(result || []).map((text) => ({ text, redirectTarget: '' }))]);
       if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
     } catch (e: any) {
       setGenMsg(e.message);
     } finally {
-      setBusy(false);
+      setLoad(false);
     }
   }
+  // Вставить контакт в текст активного шаблона (имя + @ник).
+  function insertContact(c: TeamContact) {
+    const tg = tgDisplay(c.telegram);
+    const chunk = (c.name ? `${c.name} ${tg}` : tg).trim();
+    setList((l) => l.map((t, j) => (j === focusedIdx ? { ...t, text: t.text.trim() ? t.text.replace(/\s*$/, '') + ' ' + chunk : chunk } : t)));
+  }
+  const firstText = list.find((t) => t.text.trim())?.text;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -673,16 +684,42 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
           {list.filter((t) => t.text.trim()).length > 1 ? 'Несколько шаблонов — бот чередует их случайно (живее и безопаснее).' : 'Можно добавить несколько — бот будет чередовать их.'}
           {s.obLinkInReply && <span className="text-accent-ink"> К каждому ответу добавится персональная ссылка анкеты.</span>}
         </p>
-        <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
-          <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {firstText && (
+            <Button variant="ghost" size="sm" onClick={() => generate(firstText)} disabled={varyBusy}>
+              <Sparkles size={14} /> {varyBusy ? '…' : 'Ещё варианты'}
+            </Button>
+          )}
+          <Button variant="soft" size="sm" onClick={() => generate()} disabled={busy}>
+            <Sparkles size={14} /> {busy ? 'Генерирую…' : 'Сгенерировать ИИ'}
+          </Button>
+        </div>
       </div>
+
+      {/* Контакты команды — клик вставляет в активный шаблон */}
+      {contacts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-muted">Вставить контакт:</span>
+          {contacts.map((c, i) => (
+            <button
+              key={i}
+              onClick={() => insertContact(c)}
+              className="inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-accent-ink hover:bg-accent-soft"
+              title={tgDisplay(c.telegram)}
+            >
+              {c.name || tgDisplay(c.telegram)}
+            </button>
+          ))}
+          <a href="/settings#sec-brand" className="text-muted hover:text-text">+ управлять</a>
+        </div>
+      )}
+
       {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
       {list.map((t, i) => (
-        <div key={i} className="rounded-2xl border border-line bg-panel p-4">
-          <Textarea value={t.text} onChange={(e) => set(i, { text: e.target.value })} placeholder="Привет! Спасибо за отклик…" />
+        <div key={i} className={cn('rounded-2xl border bg-panel p-4', i === focusedIdx ? 'border-accent/40' : 'border-line')}>
+          <Textarea value={t.text} onFocus={() => setFocusedIdx(i)} onChange={(e) => set(i, { text: e.target.value })} placeholder="Привет! Спасибо за отклик…" />
           <div className="mt-2 flex items-center gap-2">
-            <Input className="flex-1" value={t.redirectTarget} onChange={(e) => set(i, { redirectTarget: e.target.value })} placeholder="Куда направить: @telegram или ссылка" />
+            <Input className="flex-1" value={t.redirectTarget} onFocus={() => setFocusedIdx(i)} onChange={(e) => set(i, { redirectTarget: e.target.value })} placeholder="Куда направить: @telegram или ссылка" />
             <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
               <Trash2 size={18} />
             </button>

@@ -467,6 +467,7 @@ export interface BrandProfile {
   signature: string;
   sample: string;
   avoid: string;
+  teamContacts?: string; // JSON [{name, telegram}] — контакты команды для вставки в ответы
 }
 
 export interface WaitlistEntry {

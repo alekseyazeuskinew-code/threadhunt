@@ -18,6 +18,7 @@ const schema = z.object({
   signature: z.string().max(300).optional(),
   sample: z.string().max(1000).optional(),
   avoid: z.string().max(300).optional(),
+  teamContacts: z.string().max(4000).optional(), // JSON [{name, telegram}] — контакты для отбивки
 });
 
 export async function brandRoutes(app: FastifyInstance) {

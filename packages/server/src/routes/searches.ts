@@ -409,6 +409,7 @@ export async function searchRoutes(app: FastifyInstance) {
     brief: z.string().max(2000).optional(),
     formats: z.array(z.string().max(40)).max(12).optional(),
     segments: z.number().min(2).max(3).optional(), // для kind=chain: длина цепочки
+    seed: z.string().max(2000).optional(), // базовый текст: сделать варианты «в духе этого»
   });
   // Генерация выполняется СРАЗУ (inline). Защита бюджета: дневной лимит по тарифу +
   // учёт расхода. Персонализация: подставляем «Голос бренда». Graceful: при сбое ИИ
@@ -434,7 +435,7 @@ export async function searchRoutes(app: FastifyInstance) {
       return reply.code(429).send({ error: `Дневной лимит ИИ исчерпан (${limit}/день). Обнови тариф или вернись завтра.` });
     }
 
-    const { kind, count, brief, formats, segments } = genSchema.parse(req.body ?? {});
+    const { kind, count, brief, formats, segments, seed } = genSchema.parse(req.body ?? {});
     const voice: BrandVoice | undefined = brand
       ? {
           companyName: brand.companyName,
@@ -451,7 +452,7 @@ export async function searchRoutes(app: FastifyInstance) {
     const keyword = search.keywords[0]?.text || search.title;
     const out =
       kind === 'replies'
-        ? await generateReplies({ title: search.title, description: search.description, redirectTarget: '', count, brand: voice })
+        ? await generateReplies({ title: search.title, description: search.description, redirectTarget: brand?.signature || '', count, brand: voice, brief, seed })
         : kind === 'chain'
           ? await generateChain({ title: search.title, description: search.description, keyword, count, brand: voice, brief, formats, segments })
           : await generatePosts({
