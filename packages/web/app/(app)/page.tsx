@@ -13,6 +13,7 @@ import { TrendBars } from '@/components/charts/TrendBars';
 import { Breakdown } from '@/components/charts/Breakdown';
 import { GettingStarted } from '@/components/GettingStarted';
 import { STAGES } from '@/lib/stages';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 // Минималистичная главная: только суть — что требует действия, ключевые цифры,
 // динамика лидов и состояние системы. Остальное (планы, воронки, команда,
@@ -57,7 +58,14 @@ export default function OverviewPage() {
 
       <div className="p-8">
         {!o ? (
-          <div className="text-muted">Загрузка…</div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20" />)}</div>
+            <Skeleton className="h-12 w-full" />
+            <div className="grid gap-6 lg:grid-cols-3">
+              <Skeleton className="h-64 lg:col-span-2" />
+              <Skeleton className="h-64" />
+            </div>
+          </div>
         ) : (
           <div className="space-y-6">
             {/* Пошаговый гайд — только пока настройка не завершена (компонент сам решает). */}

@@ -18,6 +18,7 @@ import { FlowPreview } from '@/components/onboarding/FlowRenderer';
 import { TIMEZONES, zonedToUtc, utcToZonedLocal } from '@/lib/timezones';
 import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 import { confirmDialog } from '@/components/ui/confirm';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 // Четыре раздела вместо прежних восьми: обзор (пульт + хронология + цель),
 // отбивка (директ + комменты), приманки (посты + реклама), лиды (+ онбординг).
@@ -83,7 +84,15 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  if (!s) return <div className="p-8 text-muted">Загрузка…</div>;
+  if (!s)
+    return (
+      <div className="space-y-4 p-8">
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
 
   async function toggle() {
     setS({ ...s!, status: s!.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' });

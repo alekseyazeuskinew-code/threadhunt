@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import type { PublishedPostRow } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
 import { Card } from '@/components/ui/Card';
+import { CardsSkeleton } from '@/components/ui/Skeleton';
 
 // История публикаций: что и когда вышло, со ссылкой на пост и превью медиа —
 // чтобы видеть прошлые тексты и не повторяться.
@@ -20,7 +21,7 @@ export default function PostsPage() {
       <PageHeader title="Публикации" subtitle="Хронология вышедших постов-приманок: тексты, медиа и ссылки на Threads." />
       <div className="space-y-3 p-8">
         {!posts ? (
-          <div className="text-muted">Загрузка…</div>
+          <CardsSkeleton rows={4} />
         ) : posts.length === 0 ? (
           <Card className="text-sm text-muted">Постов пока не было. Включи автопостинг в поиске — и здесь появится история.</Card>
         ) : (

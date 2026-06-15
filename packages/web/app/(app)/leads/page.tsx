@@ -10,6 +10,7 @@ import { LeadDrawer } from '@/components/LeadDrawer';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { confirmDialog } from '@/components/ui/confirm';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { type BoardPrefs, type CardField, DEFAULT_PREFS, CARD_FIELDS, loadPrefs, savePrefs } from '@/lib/boardPrefs';
 
@@ -242,7 +243,15 @@ export default function CandidatesPage() {
 
         {filtered.length > 0 && <FunnelStrip leads={filtered} />}
         {leads === null ? (
-          <div className="text-muted">Загрузка…</div>
+          <div className="flex gap-3 overflow-hidden">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="w-64 shrink-0 space-y-2">
+                <Skeleton className="h-7 w-32" />
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
+              </div>
+            ))}
+          </div>
         ) : leads.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-line p-12 text-center">
             <div className="text-lg font-medium">Кандидатов пока нет</div>
