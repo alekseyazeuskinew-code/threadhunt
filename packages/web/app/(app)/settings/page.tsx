@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Wand2, User as UserIcon, KeyRound, Building2, Webhook, CheckCircle2, Sparkles, Link2, Upload, Send } from 'lucide-react';
 import { Toggle } from '@/components/ui/Toggle';
+import { MicButton, appendDictation } from '@/components/ui/Dictation';
 import { api } from '@/lib/api';
 import type { BrandProfile, Me } from '@/lib/types';
 import { PageHeader } from '@/components/PageHeader';
@@ -123,7 +124,7 @@ export default function SettingsPage() {
             <Field label="Соцсеть / профиль">
               <Input value={p.social} onChange={(e) => set('social', e.target.value)} placeholder="@account или ссылка" />
             </Field>
-            <Field label="О команде" hint="пара слов о вас">
+            <Field label="О команде" hint="пара слов о вас" action={<MicButton onText={(t) => set('about', appendDictation(p.about, t))} />}>
               <Textarea value={p.about} onChange={(e) => set('about', e.target.value)} placeholder="Небольшая команда, делаем контент для брендов…" />
             </Field>
           </div>
@@ -173,13 +174,13 @@ export default function SettingsPage() {
             <Field label="Кого ищешь / аудитория" hint="кому адресованы посты">
               <Input value={p.audience} onChange={(e) => set('audience', e.target.value)} placeholder="фрилансеры-новички и средний уровень, удалёнка" />
             </Field>
-            <Field label="Чем привлекаешь" hint="плюсы работы с тобой — ИИ вплетёт в посты">
+            <Field label="Чем привлекаешь" hint="плюсы работы с тобой — ИИ вплетёт в посты" action={<MicButton onText={(t) => set('perks', appendDictation(p.perks, t))} />}>
               <Textarea value={p.perks} onChange={(e) => set('perks', e.target.value)} placeholder="быстрые выплаты, чёткое ТЗ, рост, дружная команда…" />
             </Field>
             <Field label="Куда вести / подпись" hint="чем заканчивать ответы">
               <Input value={p.signature} onChange={(e) => set('signature', e.target.value)} placeholder="пиши в Telegram @hr_team" />
             </Field>
-            <Field label="Примеры постов (эталон тона)" hint="вставь 2–4 своих лучших поста через пустую строку — ИИ обучится твоему стилю и будет писать так же">
+            <Field label="Примеры постов (эталон тона)" hint="вставь 2–4 своих лучших поста через пустую строку — ИИ обучится твоему стилю и будет писать так же" action={<MicButton onText={(t) => set('sample', appendDictation(p.sample, t))} />}>
               <Textarea
                 value={p.sample}
                 onChange={(e) => set('sample', e.target.value)}
@@ -393,13 +394,16 @@ function AccountCard() {
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ label, hint, children, action }: { label: string; hint?: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1.5 block text-sm">
-        {label}
-        {hint && <span className="ml-2 text-xs text-muted">{hint}</span>}
-      </label>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <label className="block text-sm">
+          {label}
+          {hint && <span className="ml-2 text-xs text-muted">{hint}</span>}
+        </label>
+        {action}
+      </div>
       {children}
     </div>
   );

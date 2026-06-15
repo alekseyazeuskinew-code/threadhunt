@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { ROLE_TEMPLATES } from '@/lib/roleTemplates';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
+import { MicButton, appendDictation } from '@/components/ui/Dictation';
 
 // Форма создания поиска — встроена в рабочую область (не попап).
 // onCreated получает id нового поиска, чтобы сразу его выбрать.
@@ -60,10 +61,11 @@ export function CreateSearchForm({ onCreated, onCancel }: { onCreated: (id: stri
           <Input placeholder="монтаж, монтажёр" value={keywords} onChange={(e) => setKeywords(e.target.value)} />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm text-muted">
-            Описание — добавь свои детали (условия, тон, фишки): по ним ИИ соберёт уникальные тексты
-          </label>
-          <Textarea placeholder="Удалёнка, монтаж Reels/Shorts, опыт от года, оплата сдельно…" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <label className="text-sm text-muted">Описание — добавь свои детали (условия, тон, фишки): по ним ИИ соберёт уникальные тексты</label>
+            <MicButton onText={(t) => setDescription((v) => appendDictation(v, t))} />
+          </div>
+          <Textarea placeholder="Удалёнка, монтаж Reels/Shorts, опыт от года, оплата сдельно… (или наговори голосом 🎤)" value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
       </div>
 

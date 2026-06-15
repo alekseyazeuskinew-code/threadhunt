@@ -19,6 +19,7 @@ import { TIMEZONES, zonedToUtc, utcToZonedLocal } from '@/lib/timezones';
 import { useAutosave, AutosaveBadge } from '@/components/ui/Autosave';
 import { confirmDialog } from '@/components/ui/confirm';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { MicButton, appendDictation } from '@/components/ui/Dictation';
 
 // Четыре раздела вместо прежних восьми: обзор (пульт + хронология + цель),
 // отбивка (директ + комменты), приманки (посты + реклама), лиды (+ онбординг).
@@ -993,12 +994,15 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
 
       {/* Бриф + ИИ */}
       <div className="rounded-2xl border border-line bg-panel p-4">
-        <div className="mb-1 text-sm font-medium">Бриф для ИИ (необязательно)</div>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="text-sm font-medium">Бриф для ИИ (необязательно)</div>
+          <MicButton onText={(t) => setBrief((v) => appendDictation(v, t))} />
+        </div>
         <p className="mb-2 text-xs text-muted">Опиши условия: оплата/цена, формат и занятость, куда писать, дедлайн. ИИ впишет это в посты.</p>
         <Textarea
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
-          placeholder="Напр.: монтажёр Reels, 15–20 роликов/нед, 500₽ за ролик, удалёнка, кодовое слово «монтаж», дедлайн пятница"
+          placeholder="Напр.: монтажёр Reels, 15–20 роликов/нед, 500₽ за ролик, удалёнка, кодовое слово «монтаж», дедлайн пятница (или наговори 🎤)"
         />
         <div className="mt-3">
           <div className="mb-1.5 text-xs font-medium text-muted">Тон и ходы (можно несколько)</div>
@@ -1618,6 +1622,7 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
         <p className="mt-0.5 text-xs text-muted">ИИ соберёт страницы и тексты под роль (знакомство → условия+тест → сдача). Останется только поправить.</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Input className="min-w-[12rem] flex-1" value={aiBrief} onChange={(e) => setAiBrief(e.target.value)} placeholder="Бриф (необязательно): условия, оплата, что в тесте…" />
+          <MicButton onText={(t) => setAiBrief((v) => appendDictation(v, t))} />
           <Button variant="accent" size="sm" onClick={generateOnboarding} disabled={aiBusy}>
             <Sparkles size={14} /> {aiBusy ? 'Собираю…' : 'Собрать ИИ'}
           </Button>
