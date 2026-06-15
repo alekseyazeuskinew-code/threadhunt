@@ -68,8 +68,10 @@ export async function searchRoutes(app: FastifyInstance) {
     const parsed = createInput.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     const { title, description, connectionId, keywords } = parsed.data;
+    // Новый поиск создаётся ЧЕРНОВИКОМ (PAUSED): клиент сначала всё настраивает,
+    // потом сам жмёт «Запустить сбор». Так отбивка не уходит на неполной настройке.
     return db.search.create({
-      data: { userId, title, description, connectionId, keywords: { create: keywords }, publishConfig: { create: {} } },
+      data: { userId, title, description, connectionId, status: 'PAUSED', keywords: { create: keywords }, publishConfig: { create: {} } },
       include: { keywords: true, publishConfig: true },
     });
   });

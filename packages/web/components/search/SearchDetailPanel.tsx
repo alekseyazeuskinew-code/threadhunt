@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2, Rocket } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow, CompanyProfile, BrandProfile, SearchSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -77,6 +77,7 @@ function relTime(iso: string): string {
 export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: () => void }) {
   const [s, setS] = useState<SearchDetail | null>(null);
   const [tab, setTab] = useState<TabKey>('overview');
+  const [celebrate, setCelebrate] = useState(false); // анимация запуска сбора
 
   async function load() {
     setS(await api.get<SearchDetail>(`/api/searches/${id}`));
@@ -98,8 +99,10 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
     );
 
   async function toggle() {
-    setS({ ...s!, status: s!.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' });
+    const next = s!.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    setS({ ...s!, status: next });
     await api.post(`/api/searches/${id}/toggle`);
+    if (next === 'ACTIVE') setCelebrate(true); // 🚀 запуск сбора — праздничная анимация
     onChanged?.();
   }
   const reload = () => {
@@ -114,13 +117,21 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <h1 className="truncate text-xl font-semibold">{s.title}</h1>
-              <Badge tone={s.status === 'ACTIVE' ? 'accent' : 'neutral'}>{s.status === 'ACTIVE' ? '● активен' : '○ пауза'}</Badge>
+              <Badge tone={s.status === 'ACTIVE' ? 'accent' : 'neutral'}>{s.status === 'ACTIVE' ? '● активен' : '○ черновик'}</Badge>
             </div>
             {s.connection?.username && <p className="mt-1 text-sm text-muted">Аккаунт @{s.connection.username}</p>}
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <span className="text-sm text-muted">{s.status === 'ACTIVE' ? 'Включён' : 'На паузе'}</span>
-            <Toggle checked={s.status === 'ACTIVE'} onChange={toggle} />
+            {s.status === 'ACTIVE' ? (
+              <>
+                <span className="text-sm text-muted">Сбор идёт</span>
+                <Toggle checked onChange={toggle} />
+              </>
+            ) : (
+              <Button onClick={toggle}>
+                <Rocket size={15} /> Запустить сбор
+              </Button>
+            )}
           </div>
         </div>
         <StatsStrip id={id} />
@@ -130,8 +141,8 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
             onChange={(k) => setTab(k as TabKey)}
             tabs={[
               { key: 'overview', label: 'Обзор' },
-              { key: 'otbivka', label: 'Отбивка', count: s.keywords.length },
               { key: 'baits', label: 'Посты', count: s.postTemplates.length },
+              { key: 'otbivka', label: 'Отбивка', count: s.keywords.length },
               { key: 'leads', label: 'Лиды', count: s._count?.leads ?? 0 },
             ]}
           />
@@ -144,6 +155,37 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
         {tab === 'otbivka' && <OtbivkaTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} />}
         {tab === 'baits' && <BaitsTab s={s} reload={reload} />}
         {tab === 'leads' && <LeadsAndOnboardingTab s={s} reload={reload} id={id} />}
+      </div>
+      {celebrate && <LaunchCelebration title={s.title} onDone={() => setCelebrate(false)} />}
+    </div>
+  );
+}
+
+// Праздничная анимация запуска сбора — минималистично, с поп-эффектом и конфетти.
+function LaunchCelebration({ title, onDone }: { title: string; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3200);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  const confetti = ['🎉', '✨', '🚀', '🎊', '⭐', '💫', '🟣', '🎈'];
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" onClick={onDone}>
+      <div className="anim-fade absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      {/* конфетти */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {confetti.map((c, i) => (
+          <span key={i} className="th-confetti absolute text-2xl" style={{ left: `${8 + i * 11}%`, animationDelay: `${i * 0.12}s` }}>
+            {c}
+          </span>
+        ))}
+      </div>
+      <div className="anim-pop relative z-10 w-full max-w-sm rounded-3xl border border-line bg-panel p-7 text-center shadow-2xl">
+        <div className="th-rocket mx-auto text-5xl">🚀</div>
+        <div className="mt-3 text-xl font-semibold">Сбор кандидатов запущен!</div>
+        <p className="mt-1.5 text-sm text-muted">«{title}» в работе. Бот начнёт ловить отклики — кандидаты появятся в «Лидах». Удачи! 🍀</p>
+        <button onClick={onDone} className="mt-5 rounded-full bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-press">
+          Отлично
+        </button>
       </div>
     </div>
   );
