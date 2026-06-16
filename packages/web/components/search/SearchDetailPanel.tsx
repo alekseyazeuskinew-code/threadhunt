@@ -21,6 +21,7 @@ import { confirmDialog } from '@/components/ui/confirm';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { MicButton, appendDictation } from '@/components/ui/Dictation';
 import { parseContacts, tgDisplay, type TeamContact } from '@/lib/teamContacts';
+import { ADS_ENABLED } from '@/lib/flags';
 import { cn } from '@/lib/cn';
 
 // Четыре раздела вместо прежних восьми: обзор (пульт + хронология + цель),
@@ -868,15 +869,18 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
 }
 
 // ───────────────────────────── ПРИМАНКИ ─────────────────────────────
-// Посты с медиа/каруселью/цепочками + расписание + тест/публикация + реклама.
+// Посты с медиа/каруселью/цепочками + расписание + тест/публикация.
+// (Реклама Meta скрыта до запуска — см. ADS_ENABLED.)
 function BaitsTab({ s, reload }: { s: SearchDetail; reload: () => void }) {
   return (
     <div className="space-y-8">
       <PostsSection s={s} reload={reload} />
-      <div>
-        <SectionTitle icon={<Layers size={16} />} title="Реклама" hint="Платное продвижение приманок через Meta." />
-        <CampaignsManager fixedSearchId={s.id} searches={[{ id: s.id, title: s.title } as any]} />
-      </div>
+      {ADS_ENABLED && (
+        <div>
+          <SectionTitle icon={<Layers size={16} />} title="Реклама" hint="Платное продвижение приманок через Meta." />
+          <CampaignsManager fixedSearchId={s.id} searches={[{ id: s.id, title: s.title } as any]} />
+        </div>
+      )}
     </div>
   );
 }
@@ -995,9 +999,9 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
     }
   }
 
-  return (
-    <div className="space-y-5">
-      {/* Автопубликация */}
+  // Карточка автопубликации (расписание + тест/публикация). Выделена в переменную,
+  // чтобы держать её внизу вкладки — после того, как посты написаны.
+  const autoPublishCard = (
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -1112,17 +1116,18 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
           )}
         </div>
       </div>
+  );
 
-      {/* Research: топовые вакансии-ветки за 30 дней */}
-      <ResearchPanel searchId={s.id} onUse={(t) => setBrief('Сделай в духе этой залетевшей ветки (не копируй дословно, возьми приём/тон):\n' + t)} />
-
-      {/* Бриф + ИИ */}
+  return (
+    <div className="space-y-5">
+      {/* ── 1. Генерация постов с ИИ ── */}
       <div className="rounded-2xl border border-line bg-panel p-4">
+        <SectionTitle icon={<Sparkles size={16} />} title="Генерация постов с ИИ" hint="Опиши условия вакансии — ИИ напишет несколько вариантов. Они добавятся в список «Посты» ниже." />
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="text-sm font-medium">Бриф для ИИ (необязательно)</div>
+          <div className="text-sm font-medium">Бриф (необязательно)</div>
           <MicButton onText={(t) => setBrief((v) => appendDictation(v, t))} />
         </div>
-        <p className="mb-2 text-xs text-muted">Опиши условия: оплата/цена, формат и занятость, куда писать, дедлайн. ИИ впишет это в посты.</p>
+        <p className="mb-2 text-xs text-muted">Оплата/цена, формат и занятость, куда писать, дедлайн, кодовое слово. ИИ впишет это в посты.</p>
         <Textarea
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
@@ -1147,17 +1152,21 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
             })}
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={chainMode} onChange={(e) => setChainMode(e.target.checked)} />
-            <span className="inline-flex items-center gap-1"><GitBranch size={14} /> Цепочки веток (пост + ответвления)</span>
-          </label>
-          <Button variant="soft" size="sm" onClick={generate} disabled={busy}>
-            <Sparkles size={14} /> {busy ? 'Генерирую…' : chainMode ? 'Сгенерировать цепочки' : 'Сгенерировать ИИ'}
-          </Button>
-        </div>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={chainMode} onChange={(e) => setChainMode(e.target.checked)} />
+          <span className="inline-flex items-center gap-1"><GitBranch size={14} /> Цепочки веток (пост + ответвления)</span>
+        </label>
+        <Button variant="primary" className="mt-4 w-full" onClick={generate} disabled={busy}>
+          <Sparkles size={15} /> {busy ? 'Генерирую…' : chainMode ? 'Сгенерировать цепочки веток' : 'Сгенерировать посты'}
+        </Button>
+        {genMsg && <p className="mt-2 text-xs text-warning">{genMsg}</p>}
       </div>
-      {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
+
+      {/* Вдохновение: топ-ветки. Кнопка «в ИИ-бриф» подставит приём в бриф выше. */}
+      <ResearchPanel searchId={s.id} onUse={(t) => setBrief('Сделай в духе этой залетевшей ветки (не копируй дословно, возьми приём/тон):\n' + t)} />
+
+      {/* ── 2. Посты ── */}
+      <SectionTitle icon={<FileText size={16} />} title="Посты" hint="Тексты приманок. Несколько медиа в посте = карусель, ветка под веткой = цепочка." />
 
       {/* Шаблоны постов */}
       {list.map((t, ti) => (
@@ -1219,6 +1228,12 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
         </Button>
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
         <AutosaveBadge status={autosave} />
+      </div>
+
+      {/* ── 3. Автопубликация — внизу: настраивается, когда посты уже написаны ── */}
+      <div className="pt-3">
+        <SectionTitle icon={<Send size={16} />} title="Публикация" hint="Когда посты готовы — настрой авто-постинг или опубликуй вручную." />
+        {autoPublishCard}
       </div>
     </div>
   );

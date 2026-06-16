@@ -9,15 +9,17 @@ import { AnnouncementsBell } from './AnnouncementsBell';
 import { api } from '@/lib/api';
 import type { Me, Workspace } from '@/lib/types';
 import { cn } from '@/lib/cn';
+import { ADS_ENABLED } from '@/lib/flags';
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
 // Повседневная навигация владельца — то, чем пользуются каждый день.
+// Реклама («Кампании») показывается только при включённом флаге ADS_ENABLED.
 const OWNER_NAV: NavItem[] = [
   { href: '/', label: 'Обзор', icon: LayoutDashboard },
   { href: '/searches', label: 'Поиски', icon: Search },
   { href: '/posts', label: 'Публикации', icon: Send },
-  { href: '/campaigns', label: 'Кампании', icon: Megaphone },
+  ...(ADS_ENABLED ? [{ href: '/campaigns', label: 'Кампании', icon: Megaphone }] : []),
   { href: '/leads', label: 'Кандидаты', icon: KanbanSquare },
 ];
 // Редкие разделы — отдельной приглушённой группой, чтобы не мозолили глаз.

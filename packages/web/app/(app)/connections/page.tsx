@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { SafetyNotice } from '@/components/SafetyNotice';
 import { SectionAnchors } from '@/components/SectionNav';
+import { ADS_ENABLED } from '@/lib/flags';
 import { cn } from '@/lib/cn';
 
 // Адрес бэкенда, КУДА расширение шлёт heartbeat/задачи (НЕ через прокси веба — напрямую).
@@ -204,7 +205,7 @@ export default function ConnectionsPage() {
           items={[
             { id: 'sec-ext', title: 'Расширение' },
             { id: 'sec-api', title: 'Threads API' },
-            { id: 'sec-meta', title: 'Meta Ads' },
+            ...(ADS_ENABLED ? [{ id: 'sec-meta', title: 'Meta Ads' }] : []),
           ]}
         />
 
@@ -455,7 +456,8 @@ export default function ConnectionsPage() {
           )}
         </Card>
 
-        {/* ── Секция 3: Meta Ads (реклама, опционально) ── */}
+        {/* ── Секция 3: Meta Ads (реклама, опционально) — скрыта до запуска рекламы (ADS_ENABLED) ── */}
+        {ADS_ENABLED && (
         <Card id="sec-meta" className="scroll-mt-16">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -512,6 +514,7 @@ export default function ConnectionsPage() {
             )}
           </div>
         </Card>
+        )}
       </div>
     </>
   );
