@@ -4,17 +4,20 @@
 //
 // Публикация в 2 шага (требование API): создать контейнер → опубликовать.
 
+import { publicApiBase } from '../uploadTicket.js';
+
 const API = 'https://graph.threads.net/v1.0';
 
 // Публичный адрес API — чтобы достроить относительные ссылки на загруженное медиа
 // (/api/media/...) в абсолютные: Threads (серверы Meta) скачивают файл по URL.
-const PUBLIC_BASE = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+// Берём PUBLIC_BASE_URL, иначе авто-домен Railway (publicApiBase).
 function toPublicUrl(url: string): string {
   if (/^https?:\/\//i.test(url)) return url; // уже абсолютный (S3/R2 или внешняя ссылка)
   if (url.startsWith('/')) {
-    if (!PUBLIC_BASE)
+    const base = publicApiBase();
+    if (!base)
       throw new Error('Загруженный файл не доступен публично: задай PUBLIC_BASE_URL (адрес API) или подключи R2/S3 — иначе Threads не сможет его скачать.');
-    return PUBLIC_BASE + url;
+    return base + url;
   }
   return url;
 }

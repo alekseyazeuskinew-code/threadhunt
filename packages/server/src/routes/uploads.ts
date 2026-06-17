@@ -2,10 +2,15 @@
 // Multipart: одно поле `file`. Возвращаем { url, type } — то, что нужно Threads API
 // (image_url/video_url) и для превью в дашборде. Лимит размера задаётся при
 // регистрации @fastify/multipart в index.ts.
+//
+// ВАЖНО (Netlify): фронт проксирует /api/* через функцию с лимитом тела ~6 МБ, из-за
+// чего файлы падали с 500. Поэтому файл грузится ПРЯМО на бэкенд: фронт сначала берёт
+// upload-ticket (мелкий JSON через прокси), затем шлёт файл напрямую с тикетом.
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getUserId } from '../auth/session.js';
 import { saveUpload, isAllowedMime, storageBackend } from '../storage.js';
+import { makeUploadTicket, verifyUploadTicket, publicApiBase } from '../uploadTicket.js';
 
 export async function uploadRoutes(app: FastifyInstance) {
   const requireUser = (req: FastifyRequest, reply: FastifyReply): string | null => {
@@ -17,9 +22,33 @@ export async function uploadRoutes(app: FastifyInstance) {
     return userId;
   };
 
-  app.post('/api/uploads', async (req, reply) => {
+  // Выдать тикет на прямую загрузку + абсолютный адрес, куда слать файл.
+  app.post('/api/uploads/ticket', async (req, reply) => {
     const userId = requireUser(req, reply);
     if (!userId) return;
+    const base = publicApiBase();
+    return {
+      ticket: makeUploadTicket(userId),
+      // Пусто base (dev/локально) → относительный путь через прокси (там лимита нет).
+      uploadUrl: base ? `${base}/api/uploads` : '/api/uploads',
+    };
+  });
+
+  app.post('/api/uploads', async (req, reply) => {
+    // Прямая загрузка идёт кросс-доменно (фронт → бэкенд). multipart/form-data —
+    // CORS-safelisted (без preflight), нужен лишь ACAO в ответе. Ставим его явно,
+    // чтобы не зависеть от точного WEB_ORIGIN: авторизация тут по подписанному тикету.
+    const origin = req.headers.origin as string | undefined;
+    if (origin) {
+      reply.header('Access-Control-Allow-Origin', origin);
+      reply.header('Vary', 'Origin');
+    }
+
+    // Аутентификация: либо сессия (cookie, тот же домен), либо подписанный тикет
+    // (прямая кросс-доменная загрузка с фронта на Netlify).
+    const ticket = (req.query as any)?.ticket as string | undefined;
+    const userId = ticket ? verifyUploadTicket(ticket) : getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: ticket ? 'Тикет загрузки истёк — обновите страницу' : 'unauthorized' });
 
     let data;
     try {

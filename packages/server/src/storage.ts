@@ -18,6 +18,7 @@ import { AwsClient } from 'aws4fetch';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { publicApiBase } from './uploadTicket.js';
 
 // Каталог для локального бэкенда (раздаётся в index.ts как /uploads).
 export const LOCAL_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
@@ -94,15 +95,17 @@ export async function saveUpload(userId: string, buf: Buffer, mime: string): Pro
     return { url: `${S3_PUBLIC_BASE_URL}/${key}`, key, type, mime, size: buf.length };
   }
 
-  // Локальный бэкенд: пишем на диск, отдаём по ОТНОСИТЕЛЬНОМУ /api/media/...
-  // Относительный путь грузится с того же домена, что и дашборд (Next проксирует
-  // /api/* на бэкенд), поэтому ПРЕВЬЮ работает без всякой настройки доменов.
-  // Для публикации в Threads абсолютный URL достраивает publisher (PUBLIC_BASE_URL).
+  // Локальный бэкенд: пишем на диск, отдаём по /api/media/...
+  // URL делаем АБСОЛЮТНЫМ (прямо на бэкенд), если известен публичный адрес — тогда и
+  // превью, и серверы Meta грузят медиа напрямую, минуя прокси фронта (у Netlify-функции
+  // лимит тела ~6 МБ — большие фото/видео иначе не отдаются). Без публичного адреса
+  // (локальная разработка) отдаём относительный путь — фронт проксирует на бэкенд.
   const rel = key.replace(/^uploads\//, '');
   const abs = path.join(LOCAL_UPLOAD_DIR, rel);
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, buf);
-  return { url: `/api/media/${rel}`, key, type, mime, size: buf.length };
+  const base = publicApiBase();
+  return { url: base ? `${base}/api/media/${rel}` : `/api/media/${rel}`, key, type, mime, size: buf.length };
 }
 
 /** Удалить файл по ключу (best-effort, не критично при сбое). */

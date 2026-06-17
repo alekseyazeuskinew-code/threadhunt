@@ -27,9 +27,18 @@ async function req<T>(path: string, opts: { method?: string; body?: unknown } = 
 // Загрузка файла (multipart). Content-Type НЕ ставим — браузер сам проставит
 // boundary. Возвращает публичный URL и тип медиа для постов.
 async function upload(file: File): Promise<{ url: string; type: 'image' | 'video'; size: number }> {
+  // 1) тикет + адрес прямой загрузки (через прокси — тело крошечное, лимит не мешает)
+  const t = await req<{ ticket: string; uploadUrl: string }>('/api/uploads/ticket', { method: 'POST' });
+
+  // 2) сам файл — напрямую на бэкенд (минуя прокси фронта с лимитом тела ~6 МБ).
+  // Для относительного uploadUrl (dev/same-origin) шлём куку; для прямого кросс-доменного
+  // запроса кука не нужна — аутентифицируемся тикетом.
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch('/api/uploads', { method: 'POST', credentials: 'include', body: fd });
+  const sep = t.uploadUrl.includes('?') ? '&' : '?';
+  const direct = `${t.uploadUrl}${sep}ticket=${encodeURIComponent(t.ticket)}`;
+  const sameOrigin = t.uploadUrl.startsWith('/');
+  const res = await fetch(direct, { method: 'POST', body: fd, ...(sameOrigin ? { credentials: 'include' as const } : {}) });
   if (!res.ok) {
     let msg = `Ошибка ${res.status}`;
     try {
