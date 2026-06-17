@@ -199,8 +199,9 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
         </div>
       </header>
 
-      {/* Вкладка «Лиды/онбординг» шире — там split-view конструктор + живое превью. */}
-      <div className={tab === 'leads' ? 'max-w-6xl p-6' : 'max-w-3xl p-6'}>
+      {/* Ширина контента: на десктопе узкая колонка выглядела зажато — даём простор.
+          Лиды ещё шире (split-view конструктор + превью). */}
+      <div className={tab === 'leads' ? 'max-w-6xl p-6' : 'max-w-5xl p-6'}>
         {tab === 'overview' && <OverviewTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} goTo={setTab} />}
         {tab === 'otbivka' && <OtbivkaTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} />}
         {tab === 'baits' && <BaitsTab s={s} reload={reload} />}
@@ -1309,10 +1310,19 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
         {genMsg && <p className="mt-2 text-xs text-warning">{genMsg}</p>}
       </CollapsibleCard>
 
-      {/* Вдохновение: топ-ветки. Кнопка «в ИИ-бриф» подставит приём в бриф выше. */}
+      {/* ── 2. Публикация — расписание/сроки. Свёрнута; в шапке краткий статус. ── */}
+      <CollapsibleCard
+        icon={<Send size={16} />}
+        title="Публикация"
+        summary={cfg.enabled ? `вкл · раз в ${parseInt(hStr || '0', 10)}ч${mStr && mStr !== '0' ? ' ' + mStr + 'м' : ''} · до ${parseInt(perDayStr || '0', 10)}/день` : 'выключена'}
+      >
+        {autoPublishCard}
+      </CollapsibleCard>
+
+      {/* ── 3. Вдохновение: топ-ветки. Кнопка «в ИИ-бриф» подставит приём в бриф выше. ── */}
       <ResearchPanel searchId={s.id} onUse={(t) => setBrief('Сделай в духе этой залетевшей ветки (не копируй дословно, возьми приём/тон):\n' + t)} />
 
-      {/* ── 2. Посты ── */}
+      {/* ── 4. Посты ── */}
       <SectionTitle icon={<FileText size={16} />} title="Посты" hint="Тексты приманок. Несколько медиа в посте = карусель, ветка под веткой = цепочка." />
 
       {/* Шаблоны постов. Опубликованные подсвечиваем серым + бейдж — видно, что уже вышло. */}
@@ -1387,18 +1397,6 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
         </Button>
         <Button onClick={save}>{saved ? 'Сохранено ✓' : 'Сохранить'}</Button>
         <AutosaveBadge status={autosave} />
-      </div>
-
-      {/* ── 3. Публикация — внизу: настраивается, когда посты уже написаны. Свёрнута,
-          чтобы не перегружать; в шапке — краткий статус. ── */}
-      <div className="pt-3">
-        <CollapsibleCard
-          icon={<Send size={16} />}
-          title="Публикация"
-          summary={cfg.enabled ? `вкл · раз в ${parseInt(hStr || '0', 10)}ч${mStr && mStr !== '0' ? ' ' + mStr + 'м' : ''} · до ${parseInt(perDayStr || '0', 10)}/день` : 'выключена'}
-        >
-          {autoPublishCard}
-        </CollapsibleCard>
       </div>
     </div>
   );
