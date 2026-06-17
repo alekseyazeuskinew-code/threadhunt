@@ -52,7 +52,7 @@ function xhrSend(method: string, url: string, body: XMLHttpRequestBodyInit, opts
         reject(new Error(msg));
       }
     };
-    xhr.onerror = () => reject(new Error('Сеть недоступна или загрузка заблокирована (проверь CORS хранилища)'));
+    xhr.onerror = () => reject(new Error(`Запрос заблокирован браузером/сетью (xhr.status=${xhr.status})`));
     xhr.send(body);
   });
 }
@@ -68,11 +68,18 @@ async function upload(
   let presign: { putUrl: string; publicUrl: string } | null = null;
   try {
     presign = await req<{ putUrl: string; publicUrl: string }>('/api/uploads/presign', { method: 'POST', body: { mime: file.type } });
-  } catch {
+  } catch (e: any) {
+    console.warn('[upload] presign недоступен, откат на бэкенд:', e?.message);
     presign = null; // нет R2 либо неподдерживаемый тип — попробуем через бэкенд
   }
   if (presign?.putUrl) {
-    await xhrSend('PUT', presign.putUrl, file, { contentType: file.type || undefined, onProgress });
+    try {
+      console.info('[upload] PUT в R2:', new URL(presign.putUrl).host, file.name, `${(file.size / 1024 / 1024).toFixed(1)}МБ`, file.type);
+      await xhrSend('PUT', presign.putUrl, file, { contentType: file.type || undefined, onProgress });
+    } catch (e: any) {
+      console.error('[upload] R2 PUT упал:', e?.message, presign.putUrl);
+      throw new Error(`Не удалось загрузить в облако R2: ${e?.message || 'ошибка'}. Проверь CORS бакета (Methods: PUT, Origins: *) и что Public Development URL включён.`);
+    }
     return { url: presign.publicUrl, type, size: file.size };
   }
 
