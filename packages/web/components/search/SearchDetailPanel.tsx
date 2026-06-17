@@ -1294,15 +1294,24 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
       {/* ── 2. Посты ── */}
       <SectionTitle icon={<FileText size={16} />} title="Посты" hint="Тексты приманок. Несколько медиа в посте = карусель, ветка под веткой = цепочка." />
 
-      {/* Шаблоны постов */}
-      {list.map((t, ti) => (
-        <div key={ti} className="rounded-2xl border border-line bg-panel p-4">
+      {/* Шаблоны постов. Опубликованные подсвечиваем серым + бейдж — видно, что уже вышло. */}
+      {list.map((t, ti) => {
+        const publishedAt = s.postTemplates[ti]?.lastPublishedAt;
+        return (
+        <div key={ti} className={cn('rounded-2xl border border-line p-4', publishedAt ? 'bg-panel-2/60' : 'bg-panel')}>
           <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
-              {t.segments.length > 1 ? (
-                <><GitBranch size={13} /> Цепочка из {t.segments.length}</>
-              ) : (
-                <>Пост</>
+            <div className="flex items-center gap-2 text-xs font-medium text-muted">
+              <span className="inline-flex items-center gap-1.5">
+                {t.segments.length > 1 ? (
+                  <><GitBranch size={13} /> Цепочка из {t.segments.length}</>
+                ) : (
+                  <>Пост</>
+                )}
+              </span>
+              {publishedAt && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success">
+                  <Check size={11} /> опубликован {relTime(publishedAt)}
+                </span>
               )}
             </div>
             <button onClick={() => setList((l) => l.filter((_, j) => j !== ti))} className="text-muted hover:text-danger" title="Удалить шаблон">
@@ -1344,7 +1353,8 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
             <GitBranch size={14} /> Добавить ветку под этот пост
           </button>
         </div>
-      ))}
+        );
+      })}
 
       <p className="text-xs text-muted">
         Загружай фото/видео прямо сюда — файл уйдёт в публикацию (Threads скачает его по нашей ссылке). Несколько медиа в одном

@@ -213,6 +213,10 @@ export async function searchRoutes(app: FastifyInstance) {
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
     const parsed = postInput.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    // Сохраняем шаблоны через пересоздание — но переносим отметку публикации по позиции
+    // (иначе lastPublishedAt терялся бы при каждом автосейве).
+    const prev = await db.postTemplate.findMany({ where: { searchId: id }, orderBy: { order: 'asc' }, select: { order: true, lastPublishedAt: true } });
+    const pubByOrder = new Map(prev.map((p) => [p.order, p.lastPublishedAt]));
     await db.postTemplate.deleteMany({ where: { searchId: id } });
     await db.postTemplate.createMany({
       data: parsed.data.templates.map((t, i) => {
@@ -231,6 +235,7 @@ export async function searchRoutes(app: FastifyInstance) {
           // segmentsJson храним только если есть что хранить сверх одного простого медиа.
           segmentsJson: hasChain ? JSON.stringify(segs) : null,
           order: i,
+          lastPublishedAt: pubByOrder.get(i) ?? null,
         };
       }),
     });

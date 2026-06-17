@@ -375,6 +375,8 @@ export async function publishForSearch(searchId: string): Promise<PublishResult>
       where: { id: cfg.id },
       data: { nextIndex: (idx + 1) % search.postTemplates.length },
     });
+    // Помечаем шаблон как опубликованный — для серой пометки в UI «какие посты вышли».
+    await db.postTemplate.update({ where: { id: tpl.id }, data: { lastPublishedAt: new Date() } }).catch(() => {});
     return { ok: true, permalink: res.permalink };
   } catch (err: any) {
     const error = String(err?.message || err);

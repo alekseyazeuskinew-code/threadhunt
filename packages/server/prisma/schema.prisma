@@ -374,6 +374,7 @@ model PostTemplate {
   segmentsJson String?
   source    String  @default("manual") // manual | ai
   order     Int     @default(0)
+  lastPublishedAt DateTime? // когда этот шаблон последний раз успешно опубликовали
 
   @@index([searchId])
 }

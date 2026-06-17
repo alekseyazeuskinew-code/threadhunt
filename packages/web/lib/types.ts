@@ -31,6 +31,7 @@ export interface PostTemplate {
   mediaUrl?: string | null;
   mediaType?: 'image' | 'video' | null;
   segmentsJson?: string | null; // JSON массива сегментов (карусель + цепочка)
+  lastPublishedAt?: string | null; // когда шаблон последний раз публиковали
 }
 
 export interface DmStats {

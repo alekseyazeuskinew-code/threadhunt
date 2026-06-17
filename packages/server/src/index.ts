@@ -69,6 +69,7 @@ app.get('/health', async () => ({ ok: true, storage: storageBackend, s3: s3Diag 
 async function ensureSchema() {
   const stmts = [
     'ALTER TABLE "Keyword" ADD COLUMN IF NOT EXISTS "replyText" TEXT',
+    'ALTER TABLE "PostTemplate" ADD COLUMN IF NOT EXISTS "lastPublishedAt" TIMESTAMP',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "acceptedDataUseAt" TIMESTAMP',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "extraSeats" INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "webhookUrl" TEXT',
