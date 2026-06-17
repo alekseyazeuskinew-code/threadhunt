@@ -12,6 +12,9 @@ export function useAutosave<T>(value: T, persist: (v: T) => Promise<void>, opts?
   const first = useRef(true);
   const valueRef = useRef(value);
   valueRef.current = value;
+  const pending = useRef(false); // есть несохранённое изменение
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
   const key = JSON.stringify(value);
   useEffect(() => {
     if (!enabled) {
@@ -23,9 +26,11 @@ export function useAutosave<T>(value: T, persist: (v: T) => Promise<void>, opts?
       return;
     }
     setStatus('saving');
+    pending.current = true;
     const t = setTimeout(async () => {
       try {
-        await persist(valueRef.current);
+        await persistRef.current(valueRef.current);
+        pending.current = false;
         setStatus('saved');
       } catch {
         setStatus('idle');
@@ -34,6 +39,17 @@ export function useAutosave<T>(value: T, persist: (v: T) => Promise<void>, opts?
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
+  // Размонтирование (напр. переключение вкладки) НЕ должно терять отложенное
+  // сохранение: если есть несохранённое — досохраняем немедленно (fire-and-forget).
+  useEffect(
+    () => () => {
+      if (pending.current) {
+        pending.current = false;
+        persistRef.current(valueRef.current).catch(() => {});
+      }
+    },
+    [],
+  );
   return status;
 }
 

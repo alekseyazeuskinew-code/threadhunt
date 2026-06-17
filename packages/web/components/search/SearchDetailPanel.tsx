@@ -630,17 +630,18 @@ function KeywordsSection({ s, reload }: { s: SearchDetail; reload: () => void })
   const [saved, setSaved] = useState(false);
   const set = (i: number, patch: Partial<KwRow>) => setList((l) => l.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
-  const persist = async () =>
-    void (await api.put(`/api/searches/${s.id}/keywords`, {
+  const persist = async () => {
+    await api.put(`/api/searches/${s.id}/keywords`, {
       keywords: list.filter((r) => r.text.trim()).map((r) => ({ text: r.text.trim(), mode: r.mode || 'root' })),
-    }));
+    });
+    reload(); // держим `s` свежим — иначе перемонтирование вкладки покажет старое
+  };
   const autosave = useAutosave(list, persist);
 
   async function save() {
     await persist();
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
-    reload();
   }
 
   return (
@@ -702,17 +703,18 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
     setAdding(false);
   }
 
-  const persist = async () =>
-    void (await api.put(`/api/searches/${s.id}/reply-templates`, {
+  const persist = async () => {
+    await api.put(`/api/searches/${s.id}/reply-templates`, {
       templates: list.filter((t) => t.text.trim()).map((t) => ({ text: t.text, redirectTarget: t.redirectTarget })),
-    }));
+    });
+    reload(); // держим `s` свежим — иначе перемонтирование вкладки покажет старое
+  };
   const autosave = useAutosave(list, persist);
 
   async function save() {
     await persist();
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
-    reload();
   }
   // seed — сгенерировать ВАРИАНТЫ в духе заданного текста (кнопка «ещё варианты»).
   // brief — наговоренный/введённый контекст; если пусто, ИИ берёт контекст вакансии.
@@ -832,6 +834,7 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
   // Автосохранение всех полей правила (включая текст и режим, а не только тумблер).
   const autosave = useAutosave({ enabled, mode, replyText }, async (v) => {
     await api.put(`/api/searches/${s.id}/comment-rule`, v);
+    reload(); // держим `s` свежим — иначе перемонтирование вкладки покажет старое
   });
 
   return (
@@ -963,7 +966,10 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
     }
   }
 
-  // Сохраняем как цепочки сегментов (карусель + ветки).
+  // Сохраняем как цепочки сегментов (карусель + ветки). После сохранения обновляем `s`
+  // в родителе — иначе при переключении вкладок секция перемонтируется и возьмёт
+  // устаревшие шаблоны (без только что добавленного медиа), а следующий автосейв затрёт
+  // медиа пустым списком. reload держит источник правды свежим.
   const persist = async () => {
     await api.put(`/api/searches/${s.id}/post-templates`, {
       templates: list
@@ -972,6 +978,7 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
         .map((t) => ({ segments: t.segments })),
     });
     await api.patch(`/api/searches/${s.id}/publish-config`, cfg);
+    reload();
   };
   const autosave = useAutosave({ list, cfg }, persist);
 
@@ -979,7 +986,6 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
     await persist();
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
-    reload();
   }
   async function generate() {
     setBusy(true);
