@@ -58,7 +58,8 @@ app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string
   }
 });
 
-app.get('/health', async () => ({ ok: true }));
+// storage: 's3' = R2 подключён (большие файлы идут напрямую в облако), 'local' = на диск.
+app.get('/health', async () => ({ ok: true, storage: storageBackend }));
 
 // Лёгкие идемпотентные миграции схемы на старте (Postgres, ADD COLUMN IF NOT
 // EXISTS). Так аддитивные колонки появляются при деплое сами — без ручного
