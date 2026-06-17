@@ -35,6 +35,22 @@ const useS3 = !!(S3_ENDPOINT && S3_BUCKET && S3_ACCESS_KEY_ID && S3_SECRET_ACCES
 
 export const storageBackend = useS3 ? 's3' : 'local';
 
+// Безопасная диагностика конфигурации R2 (БЕЗ самих секретов — только длины/флаги).
+// Эталон для R2: keyIdLen=32, secretLen=64, region='auto'. endpointHasBucket должно
+// быть false (имя бакета в S3_ENDPOINT — частая ошибка).
+export const s3Diag = {
+  backend: storageBackend,
+  region: S3_REGION,
+  keyIdLen: S3_ACCESS_KEY_ID.length,
+  secretLen: S3_SECRET_ACCESS_KEY.length,
+  endpointHost: (() => { try { return new URL(S3_ENDPOINT).host; } catch { return ''; } })(),
+  endpointHasBucket: !!S3_BUCKET && S3_ENDPOINT.includes('/' + S3_BUCKET),
+  bucket: S3_BUCKET,
+  publicHost: (() => { try { return new URL(S3_PUBLIC_BASE_URL).host; } catch { return ''; } })(),
+  keyIdTrimMismatch: S3_ACCESS_KEY_ID !== S3_ACCESS_KEY_ID.trim(),
+  secretTrimMismatch: S3_SECRET_ACCESS_KEY !== S3_SECRET_ACCESS_KEY.trim(),
+};
+
 const aws = useS3
   ? new AwsClient({ accessKeyId: S3_ACCESS_KEY_ID, secretAccessKey: S3_SECRET_ACCESS_KEY, region: S3_REGION, service: 's3' })
   : null;

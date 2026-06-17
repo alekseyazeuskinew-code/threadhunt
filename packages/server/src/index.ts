@@ -7,7 +7,7 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { env } from './env.js';
 import { db } from './db.js';
-import { LOCAL_UPLOAD_DIR, storageBackend } from './storage.js';
+import { LOCAL_UPLOAD_DIR, storageBackend, s3Diag } from './storage.js';
 import { uploadRoutes } from './routes/uploads.js';
 import { announcementRoutes } from './routes/announcements.js';
 import { agentRoutes } from './routes/agent.js';
@@ -59,7 +59,8 @@ app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string
 });
 
 // storage: 's3' = R2 подключён (большие файлы идут напрямую в облако), 'local' = на диск.
-app.get('/health', async () => ({ ok: true, storage: storageBackend }));
+// s3 — безопасная диагностика конфигурации (длины ключей/регион, без секретов).
+app.get('/health', async () => ({ ok: true, storage: storageBackend, s3: s3Diag }));
 
 // Лёгкие идемпотентные миграции схемы на старте (Postgres, ADD COLUMN IF NOT
 // EXISTS). Так аддитивные колонки появляются при деплое сами — без ручного
