@@ -15,12 +15,14 @@ import { sendEmail, renderEmailHtml } from './email.js';
 import { resolveRecipients, parseSegment, personalizeStep, usesPromoVar } from './emailAudience.js';
 import { ensurePromoForEmail } from './promoCodes.js';
 import { tgSend, tgEnabled } from './telegram.js';
+import { cleanupOrphanMedia } from './mediaCleanup.js';
 
 let running = false;
 let dripRunning = false;
 let commentsRunning = false;
 let remindersRunning = false;
 let tgSummaryRunning = false;
+let mediaCleanupRunning = false;
 
 export function startScheduler() {
   setInterval(tick, 60_000); // автопостинг — каждую минуту
@@ -33,7 +35,23 @@ export function startScheduler() {
   setTimeout(onbReminderTick, 45_000); // и вскоре после старта
   setInterval(tgSummaryTick, 30 * 60_000); // ежедневная Telegram-сводка — проверка каждые 30 минут
   setTimeout(tgSummaryTick, 60_000); // и вскоре после старта
-  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии + напоминания + telegram-сводки)');
+  setInterval(mediaCleanupTick, 24 * 60 * 60_000); // чистка осиротевшего медиа — раз в сутки
+  setTimeout(mediaCleanupTick, 10 * 60_000); // и через 10 мин после старта
+  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии + напоминания + telegram-сводки + чистка медиа)');
+}
+
+// Чистка осиротевшего медиа в R2: удаляем объекты без ссылок в БД старше 14 дней.
+async function mediaCleanupTick() {
+  if (mediaCleanupRunning) return;
+  mediaCleanupRunning = true;
+  try {
+    const deleted = await cleanupOrphanMedia(14);
+    if (deleted) console.log(`🧹 Медиа-очистка: удалено осиротевших объектов — ${deleted}`);
+  } catch (e) {
+    console.error('[scheduler] mediaCleanup error:', (e as Error).message);
+  } finally {
+    mediaCleanupRunning = false;
+  }
 }
 
 // Ежедневная Telegram-сводка владельцам: раз в день (после 8:00 UTC), анти-дубль по дате.

@@ -110,6 +110,41 @@ export async function saveUpload(userId: string, buf: Buffer, mime: string): Pro
 
 /** Доступен ли прямой (browser → R2) аплоад: только при настроенном S3/R2. */
 export const canPresign = useS3;
+/** Можно ли листать/чистить хранилище (только R2/S3). */
+export const canList = useS3;
+
+/** Список всех объектов бакета (ListObjectsV2, с пагинацией). Только для R2/S3. */
+export async function listAllObjects(): Promise<{ key: string; lastModified: number }[]> {
+  if (!useS3 || !aws) return [];
+  const out: { key: string; lastModified: number }[] = [];
+  let token: string | undefined;
+  const base = `${S3_ENDPOINT.replace(/\/$/, '')}/${S3_BUCKET}`;
+  // Защита от бесконечного цикла: не больше 100 страниц (×1000 = 100k объектов).
+  for (let page = 0; page < 100; page++) {
+    const u = new URL(base);
+    u.searchParams.set('list-type', '2');
+    u.searchParams.set('max-keys', '1000');
+    if (token) u.searchParams.set('continuation-token', token);
+    const res = await aws.fetch(u.toString(), { method: 'GET' });
+    if (!res.ok) throw new Error(`S3 LIST ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+    const xml = await res.text();
+    // Простой разбор без XML-библиотеки: вытаскиваем пары Key + LastModified.
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const block = m[1];
+      const key = block.match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
+      const lm = block.match(/<LastModified>([\s\S]*?)<\/LastModified>/)?.[1];
+      if (key) out.push({ key: decodeXml(key), lastModified: lm ? Date.parse(lm) : 0 });
+    }
+    const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/.test(xml);
+    token = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/)?.[1];
+    if (!truncated || !token) break;
+  }
+  return out;
+}
+
+function decodeXml(s: string): string {
+  return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
 
 /**
  * Пресайн PUT для ПРЯМОЙ загрузки файла из браузера в R2 (минуя наш сервер).
