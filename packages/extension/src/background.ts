@@ -8,7 +8,7 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.22';
+const VERSION = '0.1.23';
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -56,6 +56,43 @@ async function tick() {
   await chrome.storage.local.set({ tasks });
   await maybeRunTestInBackground(tasks);
   await maybeRunResearchInBackground(tasks);
+  await maybeRunSweepInBackground(tasks);
+}
+
+// «Прогон сейчас»: если дашборд запросил немедленный обход (limits.runNowAt), сами
+// открываем ФОНОВУЮ вкладку Threads/Сообщения — content-script там сделает проход и
+// отчитается (сервер сбросит runNowAt), после чего вкладку закрываем. Клиенту не нужно
+// держать Threads открытым.
+async function maybeRunSweepInBackground(tasks: AgentTasksResponse) {
+  const runNowAt = tasks.limits?.runNowAt;
+  if (!runNowAt) {
+    await closeSweepTab(); // запроса нет — подчистим вкладку, если осталась
+    return;
+  }
+  const { sweepHandledAt, sweepTabOpenedAt } = await chrome.storage.local.get(['sweepHandledAt', 'sweepTabOpenedAt']);
+  if (sweepHandledAt === runNowAt) {
+    if (sweepTabOpenedAt && Date.now() - sweepTabOpenedAt > 4 * 60_000) await closeSweepTab(); // таймаут
+    return;
+  }
+  await closeSweepTab();
+  try {
+    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: false });
+    await chrome.storage.local.set({ sweepHandledAt: runNowAt, sweepTabId: tab.id ?? null, sweepTabOpenedAt: Date.now() });
+  } catch {
+    /* не удалось открыть вкладку */
+  }
+}
+
+async function closeSweepTab() {
+  const { sweepTabId } = await chrome.storage.local.get('sweepTabId');
+  if (sweepTabId != null) {
+    try {
+      await chrome.tabs.remove(sweepTabId);
+    } catch {
+      /* уже закрыта */
+    }
+  }
+  await chrome.storage.local.remove(['sweepTabId', 'sweepTabOpenedAt']);
 }
 
 // «Собрать топ-ветки сейчас»: если дашборд запросил research-проход (research.runAt),

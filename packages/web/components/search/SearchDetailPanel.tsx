@@ -491,18 +491,38 @@ function DmPassCard({ searchId }: { searchId: string }) {
 
   const set = (patch: Partial<Limits>) => setLim({ ...lim, ...patch });
   const intervalMin = lim.caps?.intervalMin ?? 30;
+  // Запуск обхода с ЖИВОЙ обратной связью: поллим статистику, пока не появится новый
+  // проход, и показываем результат — чтобы было понятно, работает система или нет.
   async function runNow() {
     setRunning(true);
-    setMsg('');
+    setMsg('⏳ Запускаю обход директа…');
+    const before = stats?.lastPass?.at ?? null;
     try {
       await api.post('/api/dm/run-now');
-      setMsg('Запущено — расширение начнёт обход в открытой вкладке Threads (до минуты).');
-      setTimeout(loadAll, 2000);
     } catch (e: any) {
-      setMsg(e.message);
-    } finally {
+      setMsg('Не удалось запустить: ' + (e?.message || 'ошибка'));
       setRunning(false);
+      return;
     }
+    setMsg('⏳ Иду по директу в фоне… (5–60 сек)');
+    const t0 = Date.now();
+    const poll = async () => {
+      const st = await api.get<DmStats>(`/api/searches/${searchId}/dm-stats`).catch(() => null);
+      if (st) setStats(st);
+      const at = st?.lastPass?.at ?? null;
+      if (at && at !== before) {
+        setMsg(`✓ Готово: проверено ${st!.lastPass!.scanned} чатов, совпадений по словам — ${st!.lastPass!.matched}.`);
+        setRunning(false);
+        return;
+      }
+      if (Date.now() - t0 > 90_000) {
+        setMsg('Расширение пока не ответило. Проверь, что оно онлайн (статус выше) и что ты залогинен в Threads в этом браузере. Обход идёт в фоне — можно обновить через минуту.');
+        setRunning(false);
+        return;
+      }
+      setTimeout(poll, 3500);
+    };
+    setTimeout(poll, 3500);
   }
   const lp = stats?.lastPass;
   const noSections = !lim.sweepMain && !lim.sweepRequests && !lim.sweepHidden;
