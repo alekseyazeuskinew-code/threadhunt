@@ -1425,10 +1425,10 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
   );
 }
 
-// Максимум на файл (совпадает с лимитом @fastify/multipart на сервере). Больше —
-// просим сжать: грузить сотни МБ ненадёжно (память/таймаут) и Threads всё равно
-// перекодирует видео.
-const MAX_UPLOAD_MB = 100;
+// Здравый предел на файл (защита от случайного выбора гигантского файла). При R2 большие
+// видео грузятся напрямую в облако; если R2 нет — api.upload сам отклонит файлы >100 МБ
+// с понятной подсказкой. 1.5 ГБ — потолок видео в Threads.
+const MAX_UPLOAD_MB = 1500;
 
 function MediaEditor({
   media,
@@ -1457,7 +1457,7 @@ function MediaEditor({
     // Заранее отсекаем слишком тяжёлые файлы — с понятным сообщением, не доводя до 500.
     const tooBig = arr.find((f) => f.size > MAX_UPLOAD_MB * 1024 * 1024);
     if (tooBig) {
-      setErr(`«${tooBig.name}» — ${(tooBig.size / 1024 / 1024).toFixed(0)} МБ, лимит ${MAX_UPLOAD_MB} МБ. Сожми видео (HandBrake/CapCut, 1080p, H.264) и загрузи снова.`);
+      setErr(`«${tooBig.name}» — ${(tooBig.size / 1024 / 1024).toFixed(0)} МБ. Слишком большой файл — сожми видео (HandBrake/CapCut, 1080p, H.264) и загрузи снова.`);
       if (fileRef.current) fileRef.current.value = '';
       return;
     }

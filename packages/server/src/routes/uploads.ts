@@ -9,7 +9,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getUserId } from '../auth/session.js';
-import { saveUpload, isAllowedMime, storageBackend } from '../storage.js';
+import { saveUpload, isAllowedMime, storageBackend, presignPut, canPresign } from '../storage.js';
 import { makeUploadTicket, verifyUploadTicket, publicApiBase } from '../uploadTicket.js';
 
 export async function uploadRoutes(app: FastifyInstance) {
@@ -21,6 +21,19 @@ export async function uploadRoutes(app: FastifyInstance) {
     }
     return userId;
   };
+
+  // Пресайн для ПРЯМОЙ загрузки браузер → R2 (без лимита размера, мимо сервера).
+  // Если R2 не настроен — отдаём 409 'no-r2', клиент откатывается на загрузку через бэкенд.
+  app.post('/api/uploads/presign', async (req, reply) => {
+    const userId = requireUser(req, reply);
+    if (!userId) return;
+    if (!canPresign) return reply.code(409).send({ error: 'no-r2' });
+    const mime = (req.body as any)?.mime as string | undefined;
+    if (!mime || !isAllowedMime(mime)) return reply.code(415).send({ error: 'Поддерживаются JPG, PNG, WEBP, GIF, MP4, MOV' });
+    const p = await presignPut(userId, mime);
+    if (!p) return reply.code(409).send({ error: 'no-r2' });
+    return { putUrl: p.putUrl, publicUrl: p.publicUrl, key: p.key, backend: 's3' };
+  });
 
   // Выдать тикет на прямую загрузку + абсолютный адрес, куда слать файл.
   app.post('/api/uploads/ticket', async (req, reply) => {

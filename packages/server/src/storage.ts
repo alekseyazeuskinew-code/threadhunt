@@ -108,6 +108,27 @@ export async function saveUpload(userId: string, buf: Buffer, mime: string): Pro
   return { url: base ? `${base}/api/media/${rel}` : `/api/media/${rel}`, key, type, mime, size: buf.length };
 }
 
+/** Доступен ли прямой (browser → R2) аплоад: только при настроенном S3/R2. */
+export const canPresign = useS3;
+
+/**
+ * Пресайн PUT для ПРЯМОЙ загрузки файла из браузера в R2 (минуя наш сервер).
+ * Так файлы любого размера (200–400 МБ видео) идут напрямую в облако — без лимита
+ * прокси фронта и без нагрузки на память сервера. Возвращает временный PUT-URL и
+ * итоговый публичный URL. null — если R2 не настроен (тогда грузим через бэкенд).
+ */
+export async function presignPut(userId: string, mime: string): Promise<{ key: string; putUrl: string; publicUrl: string } | null> {
+  if (!useS3 || !aws) return null;
+  if (!isAllowedMime(mime)) return null;
+  const key = makeKey(userId, mime);
+  const objUrl = new URL(`${S3_ENDPOINT.replace(/\/$/, '')}/${S3_BUCKET}/${key}`);
+  objUrl.searchParams.set('X-Amz-Expires', '3600'); // ссылка живёт 1 час
+  // signQuery: подпись уходит в query — браузеру не нужны заголовки авторизации.
+  // Content-Type НЕ подписываем: браузер проставит его сам из File.type, R2 сохранит.
+  const signed = await aws.sign(objUrl.toString(), { method: 'PUT', aws: { signQuery: true } });
+  return { key, putUrl: signed.url, publicUrl: `${S3_PUBLIC_BASE_URL}/${key}` };
+}
+
 /** Удалить файл по ключу (best-effort, не критично при сбое). */
 export async function deleteUpload(key: string): Promise<void> {
   try {

@@ -26,39 +26,23 @@ async function req<T>(path: string, opts: { method?: string; body?: unknown } = 
 
 // Загрузка файла (multipart). Content-Type НЕ ставим — браузер сам проставит
 // boundary. Возвращает публичный URL и тип медиа для постов.
-async function upload(
-  file: File,
-  onProgress?: (percent: number) => void,
-): Promise<{ url: string; type: 'image' | 'video'; size: number }> {
-  // 1) тикет + адрес прямой загрузки (через прокси — тело крошечное, лимит не мешает)
-  const t = await req<{ ticket: string; uploadUrl: string }>('/api/uploads/ticket', { method: 'POST' });
-
-  // 2) сам файл — напрямую на бэкенд (минуя прокси фронта с лимитом тела ~6 МБ).
-  // XHR (а не fetch) — чтобы отдавать реальный прогресс загрузки через upload.onprogress.
-  // Для относительного uploadUrl (dev/same-origin) шлём куку; для прямого кросс-доменного
-  // запроса кука не нужна — аутентифицируемся тикетом.
-  const sep = t.uploadUrl.includes('?') ? '&' : '?';
-  const direct = `${t.uploadUrl}${sep}ticket=${encodeURIComponent(t.ticket)}`;
-  const sameOrigin = t.uploadUrl.startsWith('/');
-
+// PUT файла напрямую по URL (R2 presigned) с прогрессом. Тело — сам File.
+function xhrSend(method: string, url: string, body: XMLHttpRequestBodyInit, opts: { withCredentials?: boolean; contentType?: string; onProgress?: (p: number) => void }): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', direct);
-    if (sameOrigin) xhr.withCredentials = true;
-    if (onProgress) {
-      onProgress(0);
+    xhr.open(method, url);
+    if (opts.withCredentials) xhr.withCredentials = true;
+    if (opts.contentType) xhr.setRequestHeader('Content-Type', opts.contentType);
+    if (opts.onProgress) {
+      opts.onProgress(0);
       xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+        if (e.lengthComputable) opts.onProgress!(Math.min(99, Math.round((e.loaded / e.total) * 100)));
       };
     }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          onProgress?.(100);
-          resolve(JSON.parse(xhr.responseText));
-        } catch {
-          reject(new Error('Некорректный ответ сервера'));
-        }
+        opts.onProgress?.(100);
+        resolve(xhr.responseText);
       } else {
         let msg = `Ошибка ${xhr.status}`;
         try {
@@ -68,11 +52,42 @@ async function upload(
         reject(new Error(msg));
       }
     };
-    xhr.onerror = () => reject(new Error('Сеть недоступна или загрузка заблокирована'));
-    const fd = new FormData();
-    fd.append('file', file);
-    xhr.send(fd);
+    xhr.onerror = () => reject(new Error('Сеть недоступна или загрузка заблокирована (проверь CORS хранилища)'));
+    xhr.send(body);
   });
+}
+
+async function upload(
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<{ url: string; type: 'image' | 'video'; size: number }> {
+  const type: 'image' | 'video' = file.type.startsWith('video') ? 'video' : 'image';
+
+  // 1) Пытаемся получить presigned PUT в R2 → грузим файл НАПРЯМУЮ в облако, без лимита
+  // размера и не нагружая сервер. Если R2 не настроен (409 'no-r2') — откат на бэкенд.
+  let presign: { putUrl: string; publicUrl: string } | null = null;
+  try {
+    presign = await req<{ putUrl: string; publicUrl: string }>('/api/uploads/presign', { method: 'POST', body: { mime: file.type } });
+  } catch {
+    presign = null; // нет R2 либо неподдерживаемый тип — попробуем через бэкенд
+  }
+  if (presign?.putUrl) {
+    await xhrSend('PUT', presign.putUrl, file, { contentType: file.type || undefined, onProgress });
+    return { url: presign.publicUrl, type, size: file.size };
+  }
+
+  // 2) Фоллбэк (R2 не настроен): грузим через бэкенд по тикету, минуя прокси фронта.
+  // Тут файл проходит через память сервера — поэтому ограничиваем 100 МБ.
+  if (file.size > 100 * 1024 * 1024) {
+    throw new Error(`Файл ${(file.size / 1024 / 1024).toFixed(0)} МБ — без облачного хранилища лимит 100 МБ. Сожми видео или подключи R2.`);
+  }
+  const t = await req<{ ticket: string; uploadUrl: string }>('/api/uploads/ticket', { method: 'POST' });
+  const sep = t.uploadUrl.includes('?') ? '&' : '?';
+  const direct = `${t.uploadUrl}${sep}ticket=${encodeURIComponent(t.ticket)}`;
+  const fd = new FormData();
+  fd.append('file', file);
+  const text = await xhrSend('POST', direct, fd, { withCredentials: t.uploadUrl.startsWith('/'), onProgress });
+  return JSON.parse(text);
 }
 
 export const api = {
