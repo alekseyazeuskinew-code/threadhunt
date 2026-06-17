@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2, Rocket, Copy } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2, Rocket, Copy, Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow, CompanyProfile, BrandProfile, SearchSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -623,12 +623,40 @@ function Check2({ label, checked, onChange }: { label: string; checked: boolean;
 
 type KwRow = { text: string; mode: string };
 
+// Кандидаты в кодовые слова из текстов постов: слова в кавычках («Франтик», "монтаж") —
+// обычно это и есть призыв «напиши X в директ». Берём одиночные слова с буквой.
+function detectCodeWords(s: SearchDetail): string[] {
+  const texts: string[] = [];
+  for (const t of s.postTemplates || []) {
+    if (t.segmentsJson) {
+      try {
+        const arr = JSON.parse(t.segmentsJson);
+        if (Array.isArray(arr)) for (const seg of arr) if (typeof seg?.text === 'string') texts.push(seg.text);
+      } catch { /* ignore */ }
+    }
+    if (t.text) texts.push(t.text);
+  }
+  const found = new Set<string>();
+  const rx = /[«"„“']([^«»"„“'\n]{2,30})[»"”']/g;
+  for (const txt of texts) {
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(txt))) {
+      const w = m[1].trim().replace(/[.,!?;:]+$/, '');
+      if (w && !/\s/.test(w) && /[a-zA-Zа-яА-ЯёЁ]/.test(w)) found.add(w);
+    }
+  }
+  return [...found].slice(0, 8);
+}
+
 function KeywordsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const [list, setList] = useState<KwRow[]>(
     s.keywords.length ? s.keywords.map((k) => ({ text: k.text, mode: k.mode || 'root' })) : [{ text: '', mode: 'root' }],
   );
   const [saved, setSaved] = useState(false);
   const set = (i: number, patch: Partial<KwRow>) => setList((l) => l.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  // Подсказки из постов — те, которых ещё нет в списке.
+  const suggestions = detectCodeWords(s).filter((w) => !list.some((r) => r.text.trim().toLowerCase() === w.toLowerCase()));
+  const addWord = (w: string) => setList((l) => [...l.filter((r) => r.text.trim()), { text: w, mode: 'root' }]);
 
   const persist = async () => {
     await api.put(`/api/searches/${s.id}/keywords`, {
@@ -650,6 +678,22 @@ function KeywordsSection({ s, reload }: { s: SearchDetail; reload: () => void })
         Сообщения с этими словами ловятся автоматически. Режим «по корню» поймает забытое окончание («монтаж» → «монтажёр»);
         «слово целиком» — только отдельное слово; «всё сообщение» — если текст равен слову. Сам ответ настраивается ниже в «Шаблонах ответов».
       </p>
+
+      {suggestions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-dashed border-accent/40 bg-accent-soft/40 p-2.5">
+          <span className="text-xs text-muted">Нашли в постах:</span>
+          {suggestions.map((w) => (
+            <button
+              key={w}
+              onClick={() => addWord(w)}
+              className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-panel px-2.5 py-1 text-xs font-medium text-accent-ink hover:bg-accent-soft"
+              title="Добавить в кодовые слова"
+            >
+              <Plus size={11} /> {w}
+            </button>
+          ))}
+        </div>
+      )}
 
       {list.map((r, i) => (
         <div key={i} className="flex items-center gap-2 rounded-2xl border border-line bg-panel p-3">
@@ -681,8 +725,12 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
   const [contacts, setContacts] = useState<TeamContact[]>([]);
   const [focusedIdx, setFocusedIdx] = useState(0);
   const [adding, setAdding] = useState(false);
+  const [editIdx, setEditIdx] = useState<number | null>(null); // редактируемый контакт
   const [nName, setNName] = useState('');
   const [nTg, setNTg] = useState('');
+  const cursor = useRef<{ idx: number; start: number; end: number }>({ idx: 0, start: 0, end: 0 });
+  const rememberCaret = (i: number, el: HTMLTextAreaElement) =>
+    (cursor.current = { idx: i, start: el.selectionStart ?? el.value.length, end: el.selectionEnd ?? el.value.length });
   const [brief, setBrief] = useState(''); // контекст для ИИ (наговорить/ввести → сгенерировать)
   const set = (i: number, patch: Partial<ReplyTemplate>) => setList((l) => l.map((t, j) => (j === i ? { ...t, ...patch } : t)));
 
@@ -695,12 +743,28 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
     setContacts(next);
     await api.put('/api/brand-profile', { teamContacts: JSON.stringify(next) }).catch(() => {});
   }
-  function addContact() {
+  // Добавление ИЛИ сохранение редактируемого контакта.
+  function submitContact() {
     if (!nName.trim() && !nTg.trim()) return;
-    void saveContacts([...contacts, { name: nName.trim(), telegram: nTg.trim() }]);
+    const entry = { name: nName.trim(), telegram: nTg.trim() };
+    const next = editIdx != null ? contacts.map((c, j) => (j === editIdx ? entry : c)) : [...contacts, entry];
+    void saveContacts(next);
     setNName('');
     setNTg('');
     setAdding(false);
+    setEditIdx(null);
+  }
+  function startEditContact(i: number) {
+    setEditIdx(i);
+    setNName(contacts[i].name);
+    setNTg(contacts[i].telegram);
+    setAdding(true);
+  }
+  function openAddContact() {
+    setEditIdx(null);
+    setNName('');
+    setNTg('');
+    setAdding((v) => !v);
   }
 
   const persist = async () => {
@@ -732,11 +796,24 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
       setLoad(false);
     }
   }
-  // Вставить контакт в текст активного шаблона (имя + @ник).
+  // Вставить контакт (имя + @ник) В ПОЗИЦИЮ КУРСОРА активного шаблона.
   function insertContact(c: TeamContact) {
     const tg = tgDisplay(c.telegram);
     const chunk = (c.name ? `${c.name} ${tg}` : tg).trim();
-    setList((l) => l.map((t, j) => (j === focusedIdx ? { ...t, text: t.text.trim() ? t.text.replace(/\s*$/, '') + ' ' + chunk : chunk } : t)));
+    const idx = focusedIdx;
+    setList((l) =>
+      l.map((t, j) => {
+        if (j !== idx) return t;
+        const useCaret = cursor.current.idx === idx;
+        const start = useCaret ? cursor.current.start : t.text.length;
+        const end = useCaret ? cursor.current.end : t.text.length;
+        const before = t.text.slice(0, start);
+        const after = t.text.slice(end);
+        const pre = before && !/\s$/.test(before) ? ' ' : '';
+        const post = after && !/^\s/.test(after) ? ' ' : '';
+        return { ...t, text: before + pre + chunk + post + after };
+      }),
+    );
   }
   const firstText = list.find((t) => t.text.trim())?.text;
 
@@ -773,8 +850,8 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
       {/* Контакты команды — управляются прямо здесь; клик по чипу вставляет в активный шаблон */}
       <div className="rounded-xl border border-line bg-bg p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-muted">Контакты команды — клик вставит «Имя @ник» в выбранный ответ</span>
-          <button onClick={() => setAdding((v) => !v)} className="inline-flex items-center gap-1 text-xs font-medium text-accent-ink hover:underline">
+          <span className="text-xs font-medium text-muted">Контакты команды — клик вставит «Имя @ник» в позицию курсора</span>
+          <button onClick={openAddContact} className="inline-flex items-center gap-1 text-xs font-medium text-accent-ink hover:underline">
             <Plus size={12} /> контакт
           </button>
         </div>
@@ -783,6 +860,9 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
             <span key={i} className="group/ct inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2.5 py-1 text-xs">
               <button onClick={() => insertContact(c)} className="font-medium text-accent-ink" title={`Вставить ${tgDisplay(c.telegram)}`}>
                 {c.name || tgDisplay(c.telegram)}
+              </button>
+              <button onClick={() => startEditContact(i)} className="text-muted opacity-0 transition group-hover/ct:opacity-100 hover:text-accent-ink" title="Редактировать">
+                <Pencil size={11} />
               </button>
               <button onClick={() => saveContacts(contacts.filter((_, j) => j !== i))} className="text-muted opacity-0 transition group-hover/ct:opacity-100 hover:text-danger" title="Удалить контакт">
                 <X size={11} />
@@ -794,9 +874,9 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
         {adding && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Input className="w-40" value={nName} onChange={(e) => setNName(e.target.value)} placeholder="Имя (Валерия)" />
-            <Input className="w-52" value={nTg} onChange={(e) => setNTg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addContact()} placeholder="@valeriyatargetpoint" />
-            <Button size="sm" onClick={addContact}>Добавить</Button>
-            <button onClick={() => setAdding(false)} className="text-xs text-muted hover:text-text">отмена</button>
+            <Input className="w-52" value={nTg} onChange={(e) => setNTg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submitContact()} placeholder="@valeriyatargetpoint" />
+            <Button size="sm" onClick={submitContact}>{editIdx != null ? 'Сохранить' : 'Добавить'}</Button>
+            <button onClick={() => { setAdding(false); setEditIdx(null); }} className="text-xs text-muted hover:text-text">отмена</button>
           </div>
         )}
       </div>
@@ -805,7 +885,14 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
       {list.map((t, i) => (
         <div key={i} className={cn('rounded-2xl border bg-panel p-4', i === focusedIdx ? 'border-accent/40' : 'border-line')}>
           <div className="flex items-start gap-2">
-            <Textarea className="flex-1" value={t.text} onFocus={() => setFocusedIdx(i)} onChange={(e) => set(i, { text: e.target.value })} placeholder="Привет! Спасибо за отклик…" />
+            <Textarea
+              className="flex-1"
+              value={t.text}
+              onFocus={(e) => { setFocusedIdx(i); rememberCaret(i, e.currentTarget); }}
+              onSelect={(e) => rememberCaret(i, e.currentTarget)}
+              onChange={(e) => { set(i, { text: e.target.value }); rememberCaret(i, e.currentTarget); }}
+              placeholder="Привет! Спасибо за отклик…"
+            />
             <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="mt-1 text-muted hover:text-danger" title="Удалить шаблон">
               <Trash2 size={18} />
             </button>
