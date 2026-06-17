@@ -597,9 +597,14 @@ export async function searchRoutes(app: FastifyInstance) {
     const id = (req.params as any).id as string;
     const search = await db.search.findFirst({ where: { id, userId }, select: { id: true } });
     if (!search) return reply.code(404).send({ error: 'not found' });
-    const result = await publishForSearch(id);
-    if (!result.ok) return reply.code(400).send({ error: result.error || 'Не удалось опубликовать' });
-    return result; // { ok: true, permalink }
+    try {
+      const result = await publishForSearch(id);
+      if (!result.ok) return reply.code(400).send({ error: result.error || 'Не удалось опубликовать' });
+      return result; // { ok: true, permalink }
+    } catch (e: any) {
+      app.log.error({ err: e }, 'publish-now failed');
+      return reply.code(400).send({ error: 'Сбой публикации: ' + (e?.message || 'неизвестная ошибка') });
+    }
   });
 
   // ── Автопланировщик целей найма ──

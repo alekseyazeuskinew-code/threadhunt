@@ -366,7 +366,7 @@ export async function publishForSearch(searchId: string): Promise<PublishResult>
     const res = await publishChain(token, conn.threadsUserId, segments);
     const rootMedia = segments[0]?.media?.[0]?.url ?? tpl.mediaUrl ?? null;
     await db.publishedPost.create({
-      data: { searchId, threadsPostId: res.id, permalink: res.permalink, text: (segments[0]?.text || tpl.text).slice(0, 500), mediaType: res.mediaType, mediaUrl: rootMedia, ok: true },
+      data: { searchId, threadsPostId: res.id, permalink: res.permalink, text: (segments[0]?.text || tpl.text || '').slice(0, 500), mediaType: res.mediaType, mediaUrl: rootMedia, ok: true },
     });
     await db.publishConfig.update({
       where: { id: cfg.id },
@@ -375,8 +375,10 @@ export async function publishForSearch(searchId: string): Promise<PublishResult>
     return { ok: true, permalink: res.permalink };
   } catch (err: any) {
     const error = String(err?.message || err);
+    // text может быть null (карусель/цепочка хранится в segmentsJson) — иначе сам catch
+    // упадёт на .slice и наружу улетит 500, скрыв реальную ошибку Threads.
     await db.publishedPost.create({
-      data: { searchId, text: tpl.text.slice(0, 500), ok: false, error },
+      data: { searchId, text: (tpl.text || '').slice(0, 500), ok: false, error },
     });
     return { ok: false, error };
   }
