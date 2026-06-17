@@ -483,8 +483,6 @@ function DmPassCard({ searchId }: { searchId: string }) {
       sweepMain: v.sweepMain,
       sweepRequests: v.sweepRequests,
       sweepHidden: v.sweepHidden,
-      researchEnabled: v.researchEnabled,
-      researchByKeywords: v.researchByKeywords,
     });
   };
   const autosave = useAutosave(lim, persistLimits, { enabled: ready });
@@ -562,27 +560,7 @@ function DmPassCard({ searchId }: { searchId: string }) {
         <span>Безопасный режим — проходить и считать совпадения, но <b>не отправлять</b> ответы</span>
       </label>
 
-      <label className="mt-2 flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={lim.researchEnabled} onChange={(e) => set({ researchEnabled: e.target.checked })} />
-        <span>Research — раз в ~12 ч собирать <b>топовые вакансии-ветки</b> в Threads по твоим ролям (для вдохновения постов)</span>
-      </label>
-      {lim.researchEnabled && (
-        <label className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-sm text-muted">
-          Искать ветки по:
-          <Select
-            className="w-52"
-            value={lim.researchByKeywords ? 'keywords' : 'role'}
-            onChange={(v) => set({ researchByKeywords: v === 'keywords' })}
-            options={[
-              { value: 'role', label: 'названию роли' },
-              { value: 'keywords', label: 'кодовым словам' },
-            ]}
-          />
-        </label>
-      )}
-      {lim.researchEnabled && (
-        <p className="mt-1 pl-6 text-xs text-muted">Запустить сбор вручную можно во вкладке «Посты» → блок «Топ веток».</p>
-      )}
+      {/* Research (топ-ветки) полностью переехал во вкладку «Посты» → блок «Топ веток». */}
 
       {lim.sweepIntervalMinutes <= intervalMin && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-warning">
@@ -1431,6 +1409,13 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
   const [win, setWin] = useState<'week' | 'month' | 'all'>('month');
   const [collectBusy, setCollectBusy] = useState(false);
   const [collectMsg, setCollectMsg] = useState('');
+  // Настройки авто-сбора (перенесены сюда из «Отбивки» — чтобы вся research-логика была вместе).
+  const [rEnabled, setREnabled] = useState<boolean | null>(null);
+  const [rByKw, setRByKw] = useState(false);
+  useEffect(() => {
+    api.get<Limits>('/api/limits').then((l) => { setREnabled(!!l.researchEnabled); setRByKw(!!l.researchByKeywords); }).catch(() => setREnabled(false));
+  }, []);
+  const saveResearch = (patch: { researchEnabled?: boolean; researchByKeywords?: boolean }) => api.put('/api/limits', patch).catch(() => {});
   // Запустить сбор топ-веток прямо отсюда (рядом с результатом) — расширение откроет
   // вкладку Threads в фоне и соберёт ветки.
   async function collectNow() {
@@ -1507,6 +1492,26 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
         </Button>
       </div>
       {collectMsg && <p className="mt-2 text-xs text-muted">{collectMsg}</p>}
+
+      {/* Авто-сбор раз в ~12ч (перенесено из «Отбивки»). */}
+      {rEnabled !== null && (
+        <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+          <input type="checkbox" checked={rEnabled} onChange={(e) => { setREnabled(e.target.checked); void saveResearch({ researchEnabled: e.target.checked }); }} />
+          Авто-сбор раз в ~12 ч
+          {rEnabled && (
+            <>
+              <span>· искать по</span>
+              <Select
+                size="sm"
+                className="w-44"
+                value={rByKw ? 'keywords' : 'role'}
+                onChange={(v) => { const kw = v === 'keywords'; setRByKw(kw); void saveResearch({ researchByKeywords: kw }); }}
+                options={[{ value: 'role', label: 'названию роли' }, { value: 'keywords', label: 'кодовым словам' }]}
+              />
+            </>
+          )}
+        </label>
+      )}
       {resp !== null && open && (
         <div className="mt-3">
           {/* Живой индикатор сбора + полоса прогресса */}
