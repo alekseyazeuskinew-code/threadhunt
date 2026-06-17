@@ -412,8 +412,6 @@ function DmPassCard({ searchId }: { searchId: string }) {
   const [ready, setReady] = useState(false);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState('');
-  const [researchBusy, setResearchBusy] = useState(false);
-  const [researchMsg, setResearchMsg] = useState('');
 
   async function loadAll() {
     const [l, st] = await Promise.all([api.get<Limits>('/api/limits'), api.get<DmStats>(`/api/searches/${searchId}/dm-stats`).catch(() => null)]);
@@ -458,22 +456,6 @@ function DmPassCard({ searchId }: { searchId: string }) {
       setRunning(false);
     }
   }
-  async function researchNow() {
-    setResearchBusy(true);
-    setResearchMsg('');
-    try {
-      await api.post('/api/research/run-now');
-      setLim((p) => (p ? { ...p, researchEnabled: true } : p));
-      // Будим расширение сразу (иначе ждать минутного будильника воркера).
-      try { window.postMessage({ source: 'threadhunt-cmd', cmd: 'research-now' }, window.location.origin); } catch {}
-      setResearchMsg('Запущено — расширение откроет вкладку Threads и соберёт топ-ветки (1–3 мин).');
-    } catch (e: any) {
-      setResearchMsg(e.message);
-    } finally {
-      setResearchBusy(false);
-    }
-  }
-
   const lp = stats?.lastPass;
   const noSections = !lim.sweepMain && !lim.sweepRequests && !lim.sweepHidden;
 
@@ -547,12 +529,9 @@ function DmPassCard({ searchId }: { searchId: string }) {
           />
         </label>
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="ghost" onClick={researchNow} disabled={researchBusy}>
-          <TrendingUp size={14} /> {researchBusy ? 'Запускаю…' : 'Собрать топ-ветки сейчас'}
-        </Button>
-        {researchMsg && <span className="text-xs text-muted">{researchMsg}</span>}
-      </div>
+      {lim.researchEnabled && (
+        <p className="mt-1 pl-6 text-xs text-muted">Запустить сбор вручную можно во вкладке «Посты» → блок «Топ веток».</p>
+      )}
 
       {lim.sweepIntervalMinutes <= intervalMin && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-warning">
@@ -1389,6 +1368,25 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
   const [resp, setResp] = useState<ResearchResp | null>(null);
   const [open, setOpen] = useState(false);
   const [win, setWin] = useState<'week' | 'month' | 'all'>('month');
+  const [collectBusy, setCollectBusy] = useState(false);
+  const [collectMsg, setCollectMsg] = useState('');
+  // Запустить сбор топ-веток прямо отсюда (рядом с результатом) — расширение откроет
+  // вкладку Threads в фоне и соберёт ветки.
+  async function collectNow() {
+    setCollectBusy(true);
+    setCollectMsg('');
+    try {
+      await api.post('/api/research/run-now');
+      try { window.postMessage({ source: 'threadhunt-cmd', cmd: 'research-now' }, window.location.origin); } catch {}
+      setCollectMsg('Запущено — расширение соберёт топ-ветки в фоне (1–3 мин). Нужен залогиненный Threads в этом браузере.');
+      setOpen(true);
+      setTimeout(() => load(true), 2500);
+    } catch (e: any) {
+      setCollectMsg(e.message);
+    } finally {
+      setCollectBusy(false);
+    }
+  }
   useEffect(() => {
     try {
       const w = localStorage.getItem('th_research_window');
@@ -1415,7 +1413,7 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
   const winLabel = RESEARCH_WINDOWS.find((w) => w.value === win)?.label.toLowerCase();
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => setOpen((v) => !v)} className="flex flex-1 items-center gap-2 text-left">
           <span className="text-accent-ink">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
           <TrendingUp size={16} className="shrink-0 text-accent-ink" />
@@ -1443,7 +1441,11 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
             </button>
           ))}
         </div>
+        <Button size="sm" variant="ghost" onClick={collectNow} disabled={collectBusy || resp?.running} className="shrink-0">
+          <TrendingUp size={14} /> {collectBusy || resp?.running ? 'Собираю…' : 'Собрать сейчас'}
+        </Button>
       </div>
+      {collectMsg && <p className="mt-2 text-xs text-muted">{collectMsg}</p>}
       {resp !== null && open && (
         <div className="mt-3">
           {/* Живой индикатор сбора + полоса прогресса */}
