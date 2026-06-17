@@ -167,7 +167,9 @@ export async function publishSegment(
       ...(opts.replyToId ? { reply_to_id: opts.replyToId } : {}),
     });
     creationId = parent.id;
-    await settleContainer(creationId, accessToken, false);
+    // Если в карусели есть видео — родительский контейнер тоже обрабатывается асинхронно,
+    // ждём его готовности (иначе threads_publish падает с «Media Not Found»).
+    await settleContainer(creationId, accessToken, media.some((m) => m.type === 'video'));
     mediaType = 'carousel';
   } else if (media.length === 1) {
     // ── Одно медиа ──

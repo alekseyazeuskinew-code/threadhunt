@@ -804,10 +804,9 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
       {genMsg && <p className="text-xs text-warning">{genMsg}</p>}
       {list.map((t, i) => (
         <div key={i} className={cn('rounded-2xl border bg-panel p-4', i === focusedIdx ? 'border-accent/40' : 'border-line')}>
-          <Textarea value={t.text} onFocus={() => setFocusedIdx(i)} onChange={(e) => set(i, { text: e.target.value })} placeholder="Привет! Спасибо за отклик…" />
-          <div className="mt-2 flex items-center gap-2">
-            <Input className="flex-1" value={t.redirectTarget} onFocus={() => setFocusedIdx(i)} onChange={(e) => set(i, { redirectTarget: e.target.value })} placeholder="Куда направить: @telegram или ссылка" />
-            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="text-muted hover:text-danger">
+          <div className="flex items-start gap-2">
+            <Textarea className="flex-1" value={t.text} onFocus={() => setFocusedIdx(i)} onChange={(e) => set(i, { text: e.target.value })} placeholder="Привет! Спасибо за отклик…" />
+            <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} className="mt-1 text-muted hover:text-danger" title="Удалить шаблон">
               <Trash2 size={18} />
             </button>
           </div>
@@ -1018,6 +1017,17 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
     }
   }
 
+  // Поля времени/количества держим как СТРОКИ — иначе значение пересчитывается из
+  // intervalMinutes на каждый ввод, и нельзя стереть/заменить первые цифры.
+  const [hStr, setHStr] = useState(() => String(Math.floor(((s.publishConfig?.intervalMinutes) ?? 240) / 60)));
+  const [mStr, setMStr] = useState(() => String(((s.publishConfig?.intervalMinutes) ?? 240) % 60));
+  const [perDayStr, setPerDayStr] = useState(() => String(s.publishConfig?.maxPerDay ?? 5));
+  const applyInterval = (h: string, m: string) => {
+    const hh = Math.max(0, parseInt(h || '0', 10) || 0);
+    const mm = Math.min(59, Math.max(0, parseInt(m || '0', 10) || 0));
+    setCfg((c) => ({ ...c, intervalMinutes: hh * 60 + mm }));
+  };
+
   // Карточка автопубликации (расписание + тест/публикация). Выделена в переменную,
   // чтобы держать её внизу вкладки — после того, как посты написаны.
   const autoPublishCard = (
@@ -1036,26 +1046,31 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
           <label className="flex items-center gap-2">
             раз в
             <Input
-              type="number"
-              min={0}
+              type="text"
+              inputMode="numeric"
               className="w-16"
-              value={Math.floor((cfg.intervalMinutes || 0) / 60)}
-              onChange={(e) => setCfg({ ...cfg, intervalMinutes: Math.max(0, +e.target.value) * 60 + ((cfg.intervalMinutes || 0) % 60) })}
+              value={hStr}
+              onChange={(e) => { const v = e.target.value.replace(/\D/g, ''); setHStr(v); applyInterval(v, mStr); }}
             />
             ч
             <Input
-              type="number"
-              min={0}
-              max={59}
+              type="text"
+              inputMode="numeric"
               className="w-16"
-              value={(cfg.intervalMinutes || 0) % 60}
-              onChange={(e) => setCfg({ ...cfg, intervalMinutes: Math.floor((cfg.intervalMinutes || 0) / 60) * 60 + Math.max(0, Math.min(59, +e.target.value)) })}
+              value={mStr}
+              onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 2); setMStr(v); applyInterval(hStr, v); }}
             />
             мин
           </label>
           <label className="flex items-center gap-2">
             не больше
-            <Input type="number" className="w-20" value={cfg.maxPerDay} onChange={(e) => setCfg({ ...cfg, maxPerDay: +e.target.value })} />
+            <Input
+              type="text"
+              inputMode="numeric"
+              className="w-20"
+              value={perDayStr}
+              onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 3); setPerDayStr(v); setCfg((c) => ({ ...c, maxPerDay: parseInt(v || '0', 10) || 0 })); }}
+            />
             в день
           </label>
           <label className="flex items-center gap-2">
