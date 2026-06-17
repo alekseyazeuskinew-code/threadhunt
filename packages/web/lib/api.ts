@@ -26,28 +26,53 @@ async function req<T>(path: string, opts: { method?: string; body?: unknown } = 
 
 // Загрузка файла (multipart). Content-Type НЕ ставим — браузер сам проставит
 // boundary. Возвращает публичный URL и тип медиа для постов.
-async function upload(file: File): Promise<{ url: string; type: 'image' | 'video'; size: number }> {
+async function upload(
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<{ url: string; type: 'image' | 'video'; size: number }> {
   // 1) тикет + адрес прямой загрузки (через прокси — тело крошечное, лимит не мешает)
   const t = await req<{ ticket: string; uploadUrl: string }>('/api/uploads/ticket', { method: 'POST' });
 
   // 2) сам файл — напрямую на бэкенд (минуя прокси фронта с лимитом тела ~6 МБ).
+  // XHR (а не fetch) — чтобы отдавать реальный прогресс загрузки через upload.onprogress.
   // Для относительного uploadUrl (dev/same-origin) шлём куку; для прямого кросс-доменного
   // запроса кука не нужна — аутентифицируемся тикетом.
-  const fd = new FormData();
-  fd.append('file', file);
   const sep = t.uploadUrl.includes('?') ? '&' : '?';
   const direct = `${t.uploadUrl}${sep}ticket=${encodeURIComponent(t.ticket)}`;
   const sameOrigin = t.uploadUrl.startsWith('/');
-  const res = await fetch(direct, { method: 'POST', body: fd, ...(sameOrigin ? { credentials: 'include' as const } : {}) });
-  if (!res.ok) {
-    let msg = `Ошибка ${res.status}`;
-    try {
-      const j = await res.json();
-      if (j?.error) msg = typeof j.error === 'string' ? j.error : 'Не удалось загрузить файл';
-    } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', direct);
+    if (sameOrigin) xhr.withCredentials = true;
+    if (onProgress) {
+      onProgress(0);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          onProgress?.(100);
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('Некорректный ответ сервера'));
+        }
+      } else {
+        let msg = `Ошибка ${xhr.status}`;
+        try {
+          const j = JSON.parse(xhr.responseText);
+          if (j?.error) msg = typeof j.error === 'string' ? j.error : 'Не удалось загрузить файл';
+        } catch {}
+        reject(new Error(msg));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Сеть недоступна или загрузка заблокирована'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
 }
 
 export const api = {

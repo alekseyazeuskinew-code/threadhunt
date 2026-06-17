@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2, Rocket } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2, Rocket, Copy } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow, CompanyProfile, BrandProfile, SearchSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -924,6 +924,19 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
   const setSeg = (ti: number, si: number, patch: Partial<PostSegment>) =>
     setList((l) => l.map((t, j) => (j === ti ? { ...t, segments: t.segments.map((sg, k) => (k === si ? { ...sg, ...patch } : sg)) } : t)));
 
+  // Продублировать медиа в корневой пост КАЖDOГО шаблона — чтобы не грузить одни и те
+  // же фото/видео под каждым из 5 сгенерированных постов вручную.
+  async function applyMediaToAll(mediaToCopy: MediaItem[]) {
+    if (!mediaToCopy.length || list.length < 2) return;
+    const ok = await confirmDialog({
+      title: 'Применить медиа ко всем постам?',
+      message: `Это же медиа (${mediaToCopy.length} файл(а/ов)) встанет в корневой пост каждого из ${list.length} постов. Медиа, добавленное в других постах, будет заменено.`,
+      confirmText: 'Применить ко всем',
+    });
+    if (!ok) return;
+    setList((l) => l.map((t) => ({ ...t, segments: t.segments.map((sg, k) => (k === 0 ? { ...sg, media: mediaToCopy.map((m) => ({ ...m })) } : sg)) })));
+  }
+
   async function runTest() {
     setTesting(true);
     setTest(null);
@@ -1204,6 +1217,8 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
                 <MediaEditor
                   media={seg.media}
                   onChange={(media) => setSeg(ti, si, { media })}
+                  onApplyAll={si === 0 && list.length > 1 ? applyMediaToAll : undefined}
+                  applyAllCount={list.length}
                 />
               </div>
             ))}
@@ -1410,8 +1425,25 @@ function ResearchPanel({ searchId, onUse }: { searchId: string; onUse: (text: st
   );
 }
 
-function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: MediaItem[]) => void }) {
+// Максимум на файл (совпадает с лимитом @fastify/multipart на сервере). Больше —
+// просим сжать: грузить сотни МБ ненадёжно (память/таймаут) и Threads всё равно
+// перекодирует видео.
+const MAX_UPLOAD_MB = 100;
+
+function MediaEditor({
+  media,
+  onChange,
+  onApplyAll,
+  applyAllCount,
+}: {
+  media: MediaItem[];
+  onChange: (m: MediaItem[]) => void;
+  onApplyAll?: (m: MediaItem[]) => void; // «применить это медиа ко всем постам»
+  applyAllCount?: number; // сколько постов всего (для подписи кнопки)
+}) {
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progLabel, setProgLabel] = useState('');
   const [err, setErr] = useState('');
   const [showUrl, setShowUrl] = useState(false);
   const [url, setUrl] = useState('');
@@ -1421,12 +1453,22 @@ function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: Me
 
   async function onFile(files: FileList | null) {
     if (!files || !files.length) return;
+    const arr = Array.from(files);
+    // Заранее отсекаем слишком тяжёлые файлы — с понятным сообщением, не доводя до 500.
+    const tooBig = arr.find((f) => f.size > MAX_UPLOAD_MB * 1024 * 1024);
+    if (tooBig) {
+      setErr(`«${tooBig.name}» — ${(tooBig.size / 1024 / 1024).toFixed(0)} МБ, лимит ${MAX_UPLOAD_MB} МБ. Сожми видео (HandBrake/CapCut, 1080p, H.264) и загрузи снова.`);
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
     setUploading(true);
     setErr('');
     try {
       const added: MediaItem[] = [];
-      for (const f of Array.from(files)) {
-        const r = await api.upload(f);
+      for (let i = 0; i < arr.length; i++) {
+        setProgLabel(arr.length > 1 ? `Файл ${i + 1} из ${arr.length}` : '');
+        setProgress(0);
+        const r = await api.upload(arr[i], setProgress);
         added.push({ url: r.url, type: r.type });
       }
       onChange([...media, ...added]);
@@ -1434,6 +1476,8 @@ function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: Me
       setErr(e.message || 'Не удалось загрузить');
     } finally {
       setUploading(false);
+      setProgress(0);
+      setProgLabel('');
       if (fileRef.current) fileRef.current.value = '';
     }
   }
@@ -1487,7 +1531,31 @@ function MediaEditor({ media, onChange }: { media: MediaItem[]; onChange: (m: Me
         <button onClick={() => setShowUrl((v) => !v)} className="text-xs text-muted hover:text-text">
           или по ссылке
         </button>
+        {/* Продублировать это медиа во все посты — чтобы не грузить одно и то же под каждым. */}
+        {onApplyAll && media.length > 0 && !uploading && (
+          <button
+            type="button"
+            onClick={() => onApplyAll(media)}
+            title="Поставить это же фото/видео во все посты этого поиска"
+            className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-accent-ink hover:underline"
+          >
+            <Copy size={13} /> Применить ко всем постам{applyAllCount && applyAllCount > 1 ? ` (${applyAllCount})` : ''}
+          </button>
+        )}
       </div>
+
+      {/* Реальный прогресс загрузки (XHR upload.onprogress). */}
+      {uploading && (
+        <div className="mt-2">
+          <div className="mb-1 flex items-center justify-between text-xs text-muted">
+            <span>{progLabel || 'Загрузка…'}</span>
+            <span className="tabular-nums">{progress}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-panel-2">
+            <div className="h-full rounded-full bg-accent transition-all duration-150" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      )}
 
       {showUrl && (
         <div className="mt-2 flex items-center gap-2">
