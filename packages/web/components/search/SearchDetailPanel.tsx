@@ -91,6 +91,26 @@ function CollapsibleCard({
   );
 }
 
+// Человекочитаемая ошибка вместо сырого JSON от Threads API в ленте активности.
+function prettyError(raw: string): string {
+  if (!raw) return '';
+  let obj: any = null;
+  const a = raw.indexOf('{');
+  const b = raw.lastIndexOf('}');
+  if (a >= 0 && b > a) {
+    try { obj = JSON.parse(raw.slice(a, b + 1)); } catch { /* ignore */ }
+  }
+  const low = `${obj?.error_user_title || ''} ${obj?.message || ''} ${raw}`.toLowerCase();
+  if (/media not found|cannot be found|media with id|requested resource does not exist/.test(low))
+    return 'Медиа недоступно — перезалейте фото/видео в пост и опубликуйте снова';
+  if (/(expired|invalid).*(token|session)|session has expired|access token/.test(low) && !/media/.test(low))
+    return 'Доступ к Threads истёк — переподключите аккаунт в «Подключениях»';
+  if (/rate limit|too many|limit reached|temporarily blocked/.test(low))
+    return 'Threads временно ограничил публикацию — попробуйте позже';
+  const msg = obj?.error_user_msg || obj?.error_user_title || obj?.message || raw;
+  return String(msg).slice(0, 160);
+}
+
 function relTime(iso: string): string {
   const d = new Date(iso).getTime();
   const diff = Date.now() - d;
@@ -372,7 +392,7 @@ function ActivityTimeline({ id }: { id: string }) {
                     <span className={`mt-0.5 shrink-0 ${it.ok ? 'text-muted' : 'text-danger'}`}>{icon(it.kind)}</span>
                     <div className="min-w-0 flex-1">
                       <span className="font-medium">{it.title}</span>
-                      {it.detail && <span className="text-muted"> · {it.detail}</span>}
+                      {it.detail && <span className="text-muted"> · {it.ok ? it.detail : prettyError(it.detail)}</span>}
                       {it.permalink && (
                         <a href={it.permalink} target="_blank" rel="noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 text-accent-ink hover:underline">
                           открыть <ExternalLink size={11} />
