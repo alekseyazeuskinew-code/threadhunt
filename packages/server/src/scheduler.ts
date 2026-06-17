@@ -313,8 +313,11 @@ async function tick() {
     since.setHours(0, 0, 0, 0);
 
     for (const cfg of configs) {
+      // Интервал считаем по последней ПОПЫТКЕ (ok ИЛИ ошибка) — иначе при постоянных
+      // сбоях (напр. недоступное медиа) не было бы «последнего успешного», и планировщик
+      // долбил бы Threads каждую минуту. Так неудача тоже выдерживает паузу.
       const last = await db.publishedPost.findFirst({
-        where: { searchId: cfg.searchId, ok: true },
+        where: { searchId: cfg.searchId },
         orderBy: { createdAt: 'desc' },
       });
       if (last && now - last.createdAt.getTime() < cfg.intervalMinutes * 60_000) continue; // ещё не пора
