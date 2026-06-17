@@ -76,17 +76,19 @@ async function upload(
     try {
       console.info('[upload] PUT в R2:', new URL(presign.putUrl).host, file.name, `${(file.size / 1024 / 1024).toFixed(1)}МБ`, file.type);
       await xhrSend('PUT', presign.putUrl, file, { contentType: file.type || undefined, onProgress });
+      return { url: presign.publicUrl, type, size: file.size };
     } catch (e: any) {
-      console.error('[upload] R2 PUT упал:', e?.message, presign.putUrl);
-      throw new Error(`Не удалось загрузить в облако R2: ${e?.message || 'ошибка'}. Проверь CORS бакета (Methods: PUT, Origins: *) и что Public Development URL включён.`);
+      // status=0 = браузер/сеть/расширение режут прямой запрос к R2. Не сдаёмся —
+      // грузим через сервер (browser → Railway → R2 на стороне сервера). Это надёжный
+      // путь, но файл проходит через память сервера, поэтому ограничен ~100 МБ.
+      console.warn('[upload] прямой R2 PUT не прошёл, пробую через сервер:', e?.message);
     }
-    return { url: presign.publicUrl, type, size: file.size };
   }
 
-  // 2) Фоллбэк (R2 не настроен): грузим через бэкенд по тикету, минуя прокси фронта.
-  // Тут файл проходит через память сервера — поэтому ограничиваем 100 МБ.
+  // 2) Загрузка через бэкенд (фоллбэк или когда R2 не настроен): по тикету, минуя
+  // прокси фронта. Файл проходит через память сервера — поэтому ограничиваем 100 МБ.
   if (file.size > 100 * 1024 * 1024) {
-    throw new Error(`Файл ${(file.size / 1024 / 1024).toFixed(0)} МБ — без облачного хранилища лимит 100 МБ. Сожми видео или подключи R2.`);
+    throw new Error(`Файл ${(file.size / 1024 / 1024).toFixed(0)} МБ — прямая загрузка в облако не прошла, а через сервер лимит 100 МБ. Сожми видео или разреши R2 в браузере (отключи блокировщик).`);
   }
   const t = await req<{ ticket: string; uploadUrl: string }>('/api/uploads/ticket', { method: 'POST' });
   const sep = t.uploadUrl.includes('?') ? '&' : '?';
