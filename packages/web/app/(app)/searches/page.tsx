@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Search as SearchIcon } from 'lucide-react';
+import { Plus, Search as SearchIcon, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchSummary } from '@/lib/types';
 import { SearchDetailPanel } from '@/components/search/SearchDetailPanel';
 import { CreateSearchForm } from '@/components/search/CreateSearchForm';
 import { Select } from '@/components/ui/Select';
+import { confirmDialog } from '@/components/ui/confirm';
 import { cn } from '@/lib/cn';
 
 // Рабочий стол поисков (split-view): слева список вакансий, справа — деталь
@@ -52,6 +53,19 @@ export default function SearchesWorkspace() {
     window.history.replaceState(null, '', `/searches?id=${id}`); // без перезагрузки
   }
 
+  async function remove(id: string, title: string) {
+    const ok = await confirmDialog({
+      title: 'Удалить поиск?',
+      message: `«${title}» и все его данные (кодовые слова, ответы, посты, лиды, анкеты) будут удалены безвозвратно.`,
+      confirmText: 'Удалить',
+      danger: true,
+    });
+    if (!ok) return;
+    await api.del(`/api/searches/${id}`).catch(() => {});
+    if (selected === id) setSelected(null);
+    await load();
+  }
+
   return (
     <div className="flex h-screen">
       {/* Левый список вакансий */}
@@ -93,29 +107,38 @@ export default function SearchesWorkspace() {
           ) : (
             <div className="space-y-1">
               {sorted.map((s) => (
-                <button
+                <div
                   key={s.id}
-                  onClick={() => select(s.id)}
                   className={cn(
-                    'w-full rounded-xl px-3 py-2.5 text-left transition-colors',
+                    'group relative rounded-xl transition-colors',
                     selected === s.id && !creating ? 'bg-accent-soft' : 'hover:bg-panel-2',
                   )}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={cn('truncate text-sm font-medium', selected === s.id && !creating && 'text-accent-ink')}>
-                      {s.title}
-                    </span>
-                    <span
-                      className={cn(
-                        'h-2 w-2 shrink-0 rounded-full',
-                        s.status === 'ACTIVE' ? 'bg-accent' : 'bg-line',
-                      )}
-                    />
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted">
-                    {s._count.leads} лидов · {s._count.publishedPosts} постов
-                  </div>
-                </button>
+                  <button onClick={() => select(s.id)} className="w-full px-3 py-2.5 text-left">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={cn('truncate text-sm font-medium', selected === s.id && !creating && 'text-accent-ink')}>
+                        {s.title}
+                      </span>
+                      {/* точка-статус прячется при наведении, уступая место кнопке удаления */}
+                      <span
+                        className={cn(
+                          'h-2 w-2 shrink-0 rounded-full transition-opacity group-hover:opacity-0',
+                          s.status === 'ACTIVE' ? 'bg-accent' : 'bg-line',
+                        )}
+                      />
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted">
+                      {s._count.leads} лидов · {s._count.publishedPosts} постов
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => remove(s.id, s.title)}
+                    className="absolute right-2 top-2 rounded-md p-1 text-muted opacity-0 transition hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
+                    title="Удалить поиск"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               ))}
             </div>
           )}

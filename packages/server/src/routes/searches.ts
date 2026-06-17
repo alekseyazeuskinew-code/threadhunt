@@ -76,6 +76,16 @@ export async function searchRoutes(app: FastifyInstance) {
     });
   });
 
+  // ── Удалить поиск ── (каскадом унесёт слова/ответы/посты/лиды/онбординг через onDelete: Cascade)
+  app.delete('/api/searches/:id', async (req, reply) => {
+    const userId = await requireUser(req, reply);
+    if (!userId) return;
+    const id = (req.params as any).id as string;
+    if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
+    await db.search.delete({ where: { id } });
+    return { ok: true };
+  });
+
   // ── Деталь поиска ──
   app.get('/api/searches/:id', async (req, reply) => {
     const userId = await requireUser(req, reply);
