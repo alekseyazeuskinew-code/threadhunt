@@ -8,7 +8,23 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.23';
+const VERSION = '0.1.24';
+
+// Фоновую работу (обход директа / research / тест) делаем в ОТДЕЛЬНОМ СВЁРНУТОМ окне —
+// чтобы не лезть в рабочие вкладки пользователя и не перехватывать фокус.
+async function openWorkWindow(url: string): Promise<{ windowId: number | null; tabId: number | null }> {
+  const win = await chrome.windows.create({ url, focused: false, state: 'minimized' });
+  const tab = win.tabs?.[0];
+  return { windowId: win.id ?? null, tabId: tab?.id ?? null };
+}
+async function closeWorkWindow(windowId: number | null | undefined, tabId: number | null | undefined) {
+  if (windowId != null) {
+    try { await chrome.windows.remove(windowId); return; } catch { /* уже закрыто */ }
+  }
+  if (tabId != null) {
+    try { await chrome.tabs.remove(tabId); } catch { /* уже закрыта */ }
+  }
+}
 
 // Content-script (untrusted context) по умолчанию НЕ видит chrome.storage.session.
 // Открываем ему доступ — там живёт состояние возобновляемого обхода директа.
@@ -76,23 +92,17 @@ async function maybeRunSweepInBackground(tasks: AgentTasksResponse) {
   }
   await closeSweepTab();
   try {
-    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: false });
-    await chrome.storage.local.set({ sweepHandledAt: runNowAt, sweepTabId: tab.id ?? null, sweepTabOpenedAt: Date.now() });
+    const { windowId, tabId } = await openWorkWindow('https://www.threads.com/messages/');
+    await chrome.storage.local.set({ sweepHandledAt: runNowAt, sweepWindowId: windowId, sweepTabId: tabId, sweepTabOpenedAt: Date.now() });
   } catch {
-    /* не удалось открыть вкладку */
+    /* не удалось открыть окно */
   }
 }
 
 async function closeSweepTab() {
-  const { sweepTabId } = await chrome.storage.local.get('sweepTabId');
-  if (sweepTabId != null) {
-    try {
-      await chrome.tabs.remove(sweepTabId);
-    } catch {
-      /* уже закрыта */
-    }
-  }
-  await chrome.storage.local.remove(['sweepTabId', 'sweepTabOpenedAt']);
+  const { sweepWindowId, sweepTabId } = await chrome.storage.local.get(['sweepWindowId', 'sweepTabId']);
+  await closeWorkWindow(sweepWindowId, sweepTabId);
+  await chrome.storage.local.remove(['sweepWindowId', 'sweepTabId', 'sweepTabOpenedAt']);
 }
 
 // «Собрать топ-ветки сейчас»: если дашборд запросил research-проход (research.runAt),
@@ -127,8 +137,8 @@ async function maybeRunResearchInBackground(tasks: AgentTasksResponse) {
     const queue = r.queries.slice(0, 12);
     await chrome.storage.session.set({ research: { queue, idx: 0, maxPerQuery: r.maxPerQuery || 15, collected: 0 }, lastResearchRunNow: Date.parse(runAt) });
     const url = 'https://www.threads.com/search?q=' + encodeURIComponent(queue[0].query) + '&serp_type=default';
-    const tab = await chrome.tabs.create({ url, active: false });
-    await chrome.storage.local.set({ researchHandledAt: runAt, researchTabId: tab.id ?? null, researchTabOpenedAt: Date.now() });
+    const { windowId, tabId } = await openWorkWindow(url);
+    await chrome.storage.local.set({ researchHandledAt: runAt, researchWindowId: windowId, researchTabId: tabId, researchTabOpenedAt: Date.now() });
   } catch {
     /* не удалось открыть вкладку */
   }
@@ -168,23 +178,17 @@ async function maybeRunTestInBackground(tasks: AgentTasksResponse) {
   }
   await closeTestTab();
   try {
-    const tab = await chrome.tabs.create({ url: 'https://www.threads.com/messages/', active: false });
-    await chrome.storage.local.set({ testHandledAt: dmTestAt, testTabId: tab.id ?? null, testTabOpenedAt: Date.now() });
+    const { windowId, tabId } = await openWorkWindow('https://www.threads.com/messages/');
+    await chrome.storage.local.set({ testHandledAt: dmTestAt, testWindowId: windowId, testTabId: tabId, testTabOpenedAt: Date.now() });
   } catch {
-    /* не удалось открыть вкладку */
+    /* не удалось открыть окно */
   }
 }
 
 async function closeTestTab() {
-  const { testTabId } = await chrome.storage.local.get('testTabId');
-  if (testTabId != null) {
-    try {
-      await chrome.tabs.remove(testTabId);
-    } catch {
-      /* уже закрыта */
-    }
-    await chrome.storage.local.remove(['testTabId', 'testTabOpenedAt']);
-  }
+  const { testWindowId, testTabId } = await chrome.storage.local.get(['testWindowId', 'testTabId']);
+  await closeWorkWindow(testWindowId, testTabId);
+  await chrome.storage.local.remove(['testWindowId', 'testTabId', 'testTabOpenedAt']);
 }
 
 // Heartbeat и репорт событий — приходят сообщениями от content-script.
