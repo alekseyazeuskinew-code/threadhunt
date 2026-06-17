@@ -62,6 +62,35 @@ function SectionTitle({ icon, title, hint }: { icon: React.ReactNode; title: str
   );
 }
 
+// Сворачиваемая карточка настроек: акцентная (полоса слева + иконка), в свёрнутом виде
+// показывает краткую сводку статуса — чтобы не «терять» настройки в визуальном шуме.
+function CollapsibleCard({
+  icon,
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  summary?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="overflow-hidden rounded-2xl border border-line border-l-[3px] border-l-accent bg-panel">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-panel-2/50">
+        <span className="text-accent-ink">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
+        {icon && <span className="text-accent-ink">{icon}</span>}
+        <span className="font-medium">{title}</span>
+        {!open && summary && <span className="ml-auto truncate pl-2 text-xs text-muted">{summary}</span>}
+      </button>
+      {open && <div className="border-t border-line p-4">{children}</div>}
+    </div>
+  );
+}
+
 function relTime(iso: string): string {
   const d = new Date(iso).getTime();
   const diff = Date.now() - d;
@@ -1097,13 +1126,10 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
   // Карточка автопубликации (расписание + тест/публикация). Выделена в переменную,
   // чтобы держать её внизу вкладки — после того, как посты написаны.
   const autoPublishCard = (
-      <div className="rounded-2xl border border-line bg-panel p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-medium">Автопубликация</div>
-            <div className="text-sm text-muted">Бот сам постит приманки по расписанию через официальный API.</div>
-          </div>
-          <div className="flex items-center gap-3">
+      <>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-muted">Бот сам постит приманки по расписанию через официальный API.</div>
+          <div className="flex shrink-0 items-center gap-3">
             <span className={`text-sm font-medium ${cfg.enabled ? 'text-success' : 'text-muted'}`}>{cfg.enabled ? 'Включён' : 'Выключен'}</span>
             <Toggle checked={cfg.enabled} onChange={(v) => setCfg({ ...cfg, enabled: v })} />
           </div>
@@ -1215,7 +1241,7 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
             </div>
           )}
         </div>
-      </div>
+      </>
   );
 
   return (
@@ -1332,10 +1358,16 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
         <AutosaveBadge status={autosave} />
       </div>
 
-      {/* ── 3. Автопубликация — внизу: настраивается, когда посты уже написаны ── */}
+      {/* ── 3. Публикация — внизу: настраивается, когда посты уже написаны. Свёрнута,
+          чтобы не перегружать; в шапке — краткий статус. ── */}
       <div className="pt-3">
-        <SectionTitle icon={<Send size={16} />} title="Публикация" hint="Когда посты готовы — настрой авто-постинг или опубликуй вручную." />
-        {autoPublishCard}
+        <CollapsibleCard
+          icon={<Send size={16} />}
+          title="Публикация"
+          summary={cfg.enabled ? `вкл · раз в ${parseInt(hStr || '0', 10)}ч${mStr && mStr !== '0' ? ' ' + mStr + 'м' : ''} · до ${parseInt(perDayStr || '0', 10)}/день` : 'выключена'}
+        >
+          {autoPublishCard}
+        </CollapsibleCard>
       </div>
     </div>
   );
