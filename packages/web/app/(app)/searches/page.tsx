@@ -106,11 +106,12 @@ export default function SearchesWorkspace() {
             <div className="p-3 text-sm text-muted">Поисков нет. Нажми + чтобы создать.</div>
           ) : (
             <div className="space-y-1">
-              {sorted.map((s) => (
+              {sorted.map((s, i) => (
                 <div
                   key={s.id}
+                  style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}
                   className={cn(
-                    'group relative rounded-xl transition-colors',
+                    'anim-up group relative rounded-xl transition-colors',
                     selected === s.id && !creating ? 'bg-accent-soft' : 'hover:bg-panel-2',
                   )}
                 >

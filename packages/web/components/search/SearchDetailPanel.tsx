@@ -200,8 +200,9 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
       </header>
 
       {/* Ширина контента: на десктопе узкая колонка выглядела зажато — даём простор.
-          Лиды ещё шире (split-view конструктор + превью). */}
-      <div className={tab === 'leads' ? 'max-w-6xl p-6' : 'max-w-5xl p-6'}>
+          Лиды ещё шире (split-view конструктор + превью). key={tab} + anim-fade — мягкое
+          появление при переключении вкладок. */}
+      <div key={tab} className={cn('anim-fade', tab === 'leads' ? 'max-w-6xl p-6' : 'max-w-5xl p-6')}>
         {tab === 'overview' && <OverviewTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} goTo={setTab} />}
         {tab === 'otbivka' && <OtbivkaTab s={s} reload={reload} status={s.status} onToggleSearch={toggle} />}
         {tab === 'baits' && <BaitsTab s={s} reload={reload} />}
@@ -305,7 +306,7 @@ function OverviewTab({
 
 function EngineCard({ title, on, onToggle, meta, onClick }: { title: string; on: boolean; onToggle?: (v: boolean) => void; meta: string; onClick: () => void }) {
   return (
-    <div className="rounded-2xl border border-line bg-panel p-4">
+    <div className="th-lift rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="text-sm font-medium leading-tight">{title}</div>
         {onToggle ? (
