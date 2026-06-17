@@ -489,20 +489,21 @@ function DmPassCard({ searchId }: { searchId: string }) {
   const noSections = !lim.sweepMain && !lim.sweepRequests && !lim.sweepHidden;
 
   return (
-    <div className="rounded-2xl border border-line bg-panel p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <div className="font-medium">Параметры прохода</div>
-          <div className="text-sm text-muted">
-            Как бот обходит директ. Один обход покрывает все активные поиски аккаунта.
-            {stats && (
-              <span className={`ml-2 ${stats.agent.online ? 'text-success' : 'text-warning'}`}>
-                ● агент {stats.agent.online ? 'онлайн' : 'офлайн'}
-              </span>
-            )}
-          </div>
+    <CollapsibleCard
+      icon={<Activity size={16} />}
+      title="Параметры прохода"
+      summary={`раз в ${lim.sweepIntervalMinutes} мин${stats ? (stats.agent.online ? ' · агент онлайн' : ' · агент офлайн') : ''}`}
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-sm text-muted">
+          Как бот обходит директ. Один обход покрывает все активные поиски аккаунта.
+          {stats && (
+            <span className={`ml-2 ${stats.agent.online ? 'text-success' : 'text-warning'}`}>
+              ● агент {stats.agent.online ? 'онлайн' : 'офлайн'}
+            </span>
+          )}
         </div>
-        <Button size="sm" onClick={runNow} disabled={running || noSections}>
+        <Button size="sm" onClick={runNow} disabled={running || noSections} className="shrink-0">
           <Play size={14} /> {running ? 'Запускаю…' : 'Прогон сейчас'}
         </Button>
       </div>
@@ -608,7 +609,7 @@ function DmPassCard({ searchId }: { searchId: string }) {
           </div>
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -1246,9 +1247,9 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
 
   return (
     <div className="space-y-5">
-      {/* ── 1. Генерация постов с ИИ ── */}
-      <div className="rounded-2xl border border-line bg-panel p-4">
-        <SectionTitle icon={<Sparkles size={16} />} title="Генерация постов с ИИ" hint="Опиши условия вакансии — ИИ напишет несколько вариантов. Они добавятся в список «Посты» ниже." />
+      {/* ── 1. Генерация постов с ИИ — свёрнута, чтобы не перегружать вкладку ── */}
+      <CollapsibleCard icon={<Sparkles size={16} />} title="Генерация постов с ИИ" summary="ИИ напишет варианты по брифу">
+        <p className="mb-3 -mt-1 text-sm text-muted">Опиши условия вакансии — ИИ напишет несколько вариантов. Они добавятся в список «Посты» ниже.</p>
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="text-sm font-medium">Бриф (необязательно)</div>
           <MicButton onText={(t) => setBrief((v) => appendDictation(v, t))} />
@@ -1286,7 +1287,7 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
           <Sparkles size={15} /> {busy ? 'Генерирую…' : chainMode ? 'Сгенерировать цепочки веток' : 'Сгенерировать посты'}
         </Button>
         {genMsg && <p className="mt-2 text-xs text-warning">{genMsg}</p>}
-      </div>
+      </CollapsibleCard>
 
       {/* Вдохновение: топ-ветки. Кнопка «в ИИ-бриф» подставит приём в бриф выше. */}
       <ResearchPanel searchId={s.id} onUse={(t) => setBrief('Сделай в духе этой залетевшей ветки (не копируй дословно, возьми приём/тон):\n' + t)} />
