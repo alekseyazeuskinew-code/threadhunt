@@ -665,8 +665,12 @@ export async function searchRoutes(app: FastifyInstance) {
       }
     }
 
-    // приток встал: цель активна, ещё не достигнута, новых лидов нет 3+ дня
-    const stale = search.goalEnabled && hires < search.goalHires && leadsLast3d === 0 && leads < requiredLeads;
+    // Приток ВСТАЛ (а не «ещё не начинался»): цель активна и не достигнута, лиды
+    // когда-то приходили (lastLeadAt есть), цель крутится ≥3 дней, и за 3 дня — ноль.
+    // Без этих условий флаг ложно срабатывал на свежем черновике (лидов ещё не было).
+    const goalAgeDays = (now - start.getTime()) / 86400_000;
+    const stale =
+      search.goalEnabled && hires < search.goalHires && leads < requiredLeads && leadsLast3d === 0 && !!lastLeadAt && goalAgeDays >= 3;
 
     return { requiredLeads, leads, hires, leadsLast3d, lastLeadAt, lastLeadAgeDays, daysLeft, expectedLeads, onPace, stale };
   }

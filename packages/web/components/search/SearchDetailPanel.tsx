@@ -819,8 +819,9 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
     setLoad(true);
     setGenMsg('');
     try {
-      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 4, seed, brief: brief.trim() || undefined });
-      setList((l) => [...l, ...(result || []).map((text) => ({ text, redirectTarget: '' }))]);
+      const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 3, seed, brief: brief.trim() || undefined });
+      // Убираем пустые карточки (дефолтную «болванку») — варианты заполняют с первой.
+      setList((l) => [...l.filter((t) => t.text.trim()), ...(result || []).map((text) => ({ text, redirectTarget: '' }))]);
       if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
     } catch (e: any) {
       setGenMsg(e.message);
@@ -868,6 +869,10 @@ function RepliesSection({ s, reload }: { s: SearchDetail; reload: () => void }) 
         </div>
       </div>
 
+      <div className="flex items-start gap-1.5 rounded-lg bg-accent-soft/50 px-2.5 py-1.5 text-xs text-accent-ink">
+        <MessageSquare size={13} className="mt-0.5 shrink-0" />
+        <span>ИИ уже учитывает данные поиска <b>«{s.title}»</b> и голос бренда. Поле ниже — только дополнение.</span>
+      </div>
       {/* Контекст для ИИ — наговори или впиши, и сгенерируй ответы (пусто = ИИ берёт контекст вакансии) */}
       <div className="flex items-center gap-2">
         <Input
@@ -948,12 +953,28 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
   const [enabled, setEnabled] = useState(cr?.enabled ?? false);
   const [mode, setMode] = useState<'keyword' | 'all'>(cr?.mode ?? 'keyword');
   const [replyText, setReplyText] = useState(cr?.replyText ?? '');
+  const [genBusy, setGenBusy] = useState(false);
 
   // Автосохранение всех полей правила (включая текст и режим, а не только тумблер).
   const autosave = useAutosave({ enabled, mode, replyText }, async (v) => {
     await api.put(`/api/searches/${s.id}/comment-rule`, v);
     reload(); // держим `s` свежим — иначе перемонтирование вкладки покажет старое
   });
+
+  // Своя генерация для комментариев — независимая от шаблонов директа, тянет контекст
+  // поиска/бренда. Если уже есть ручной текст — спрашиваем перед заменой (не сбрасываем молча).
+  async function generate() {
+    if (replyText.trim() && !(await confirmDialog({ title: 'Заменить ответ?', message: 'ИИ перепишет текущий текст ответа на комментарии. Заменить?', confirmText: 'Заменить' }))) return;
+    setGenBusy(true);
+    try {
+      const { result } = await api.post<{ result: string[] }>(`/api/searches/${s.id}/generate`, { kind: 'replies', count: 1 });
+      if (result?.[0]) setReplyText(result[0]);
+    } catch {
+      /* ignore */
+    } finally {
+      setGenBusy(false);
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-line bg-panel p-4">
@@ -972,8 +993,14 @@ function CommentRuleCard({ s, reload }: { s: SearchDetail; reload: () => void })
       </div>
 
       <div className="mt-3">
-        <div className="mb-1.5 flex items-center justify-end">
-          <MicButton onText={(t) => setReplyText((v) => appendDictation(v, t))} />
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span className="text-xs text-muted">ИИ учитывает контекст поиска «{s.title}»</span>
+          <div className="flex items-center gap-2">
+            <Button variant="soft" size="sm" onClick={generate} disabled={genBusy}>
+              <Sparkles size={14} /> {genBusy ? 'Генерирую…' : 'Сгенерировать ИИ'}
+            </Button>
+            <MicButton onText={(t) => setReplyText((v) => appendDictation(v, t))} />
+          </div>
         </div>
         <Textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Напр.: Привет! Спасибо за интерес 🙌 Напиши кодовое слово в директ — пришлю детали. (или наговори 🎤)" />
       </div>
@@ -1117,7 +1144,8 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
           formats: formats.length ? formats : undefined,
         });
         const chains = (result || []).map((chain) => ({ segments: chain.map((text) => ({ text, media: [] as MediaItem[] })) }));
-        setList((l) => [...l, ...chains]);
+        // Выкидываем пустые карточки (дефолтную «болванку») — сгенерированное заполняет с первой.
+        setList((l) => [...l.filter((t) => t.segments.some((sg) => sg.text.trim() || sg.media.length)), ...chains]);
         if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
       } else {
         const { result, source } = await api.post<{ result: string[]; source?: string }>(`/api/searches/${s.id}/generate`, {
@@ -1126,7 +1154,7 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
           brief: brief.trim() || undefined,
           formats: formats.length ? formats : undefined,
         });
-        setList((l) => [...l, ...(result || []).map((text) => ({ segments: [{ text, media: [] as MediaItem[] }] }))]);
+        setList((l) => [...l.filter((t) => t.segments.some((sg) => sg.text.trim() || sg.media.length)), ...(result || []).map((text) => ({ segments: [{ text, media: [] as MediaItem[] }] }))]);
         if (source === 'demo') setGenMsg('Сгенерировано демо-движком (ИИ-ключ не подключён).');
       }
     } catch (e: any) {
@@ -1272,7 +1300,11 @@ function PostsSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
     <div className="space-y-5">
       {/* ── 1. Генерация постов с ИИ — свёрнута, чтобы не перегружать вкладку ── */}
       <CollapsibleCard icon={<Sparkles size={16} />} title="Генерация постов с ИИ" summary="ИИ напишет варианты по брифу">
-        <p className="mb-3 -mt-1 text-sm text-muted">Опиши условия вакансии — ИИ напишет несколько вариантов. Они добавятся в список «Посты» ниже.</p>
+        <p className="mb-2 -mt-1 text-sm text-muted">Опиши условия вакансии — ИИ напишет несколько вариантов. Они добавятся в список «Посты» ниже.</p>
+        <div className="mb-3 flex items-start gap-1.5 rounded-lg bg-accent-soft/50 px-2.5 py-1.5 text-xs text-accent-ink">
+          <FileText size={13} className="mt-0.5 shrink-0" />
+          <span>ИИ уже учитывает данные поиска: <b>«{s.title}»</b>{s.description ? ` · ${s.description.slice(0, 90)}${s.description.length > 90 ? '…' : ''}` : ''}. Бриф ниже — только дополнение.</span>
+        </div>
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="text-sm font-medium">Бриф (необязательно)</div>
           <MicButton onText={(t) => setBrief((v) => appendDictation(v, t))} />
