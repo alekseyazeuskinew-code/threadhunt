@@ -8,7 +8,8 @@
 import type { AgentTasksResponse, AgentReplyEvent } from '@threadhunt/shared';
 
 const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
-const VERSION = '0.1.24';
+// Единый источник версии — manifest.json (иначе heartbeat и chrome://extensions расходятся).
+const VERSION = chrome.runtime.getManifest().version;
 
 // Фоновую работу (обход директа / research / тест) делаем в ОТДЕЛЬНОМ СВЁРНУТОМ окне —
 // чтобы не лезть в рабочие вкладки пользователя и не перехватывать фокус.
