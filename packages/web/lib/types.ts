@@ -35,7 +35,7 @@ export interface PostTemplate {
 }
 
 export interface DmStats {
-  lastPass: { scanned: number; sent: number; matched: number; sections: string | null; at: string } | null;
+  lastPass: { scanned: number; sent: number; matched: number; sections: string | null; at: string; dryRun?: boolean } | null;
   byKeyword: { keyword: string; count: number }[];
   agent: { online: boolean; threadsLoggedIn: boolean; lastHeartbeat: string | null };
   runNowAt: string | null;

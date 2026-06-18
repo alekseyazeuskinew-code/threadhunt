@@ -290,7 +290,9 @@ export async function searchRoutes(app: FastifyInstance) {
     if (!(await own(userId, id))) return reply.code(404).send({ error: 'not found' });
 
     const [lastPass, grouped, device, limits] = await Promise.all([
-      db.agentPass.findFirst({ where: { userId, dryRun: false }, orderBy: { at: 'desc' } }),
+      // Последний проход ЛЮБОГО режима (включая безопасный/тест) — чтобы статус «сухого»
+      // прохода оставался виден постфактум. Режим отдаём флагом dryRun для подписи.
+      db.agentPass.findFirst({ where: { userId }, orderBy: { at: 'desc' } }),
       db.lead.groupBy({ by: ['matchedKeyword'], where: { searchId: id, status: 'REPLIED' }, _count: { _all: true } }),
       db.device.findFirst({ where: { userId }, orderBy: { lastHeartbeat: 'desc' } }),
       db.limits.findUnique({ where: { userId } }),
@@ -300,7 +302,7 @@ export async function searchRoutes(app: FastifyInstance) {
       .sort((a, b) => b.count - a.count);
     const online = !!device?.lastHeartbeat && Date.now() - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
     return {
-      lastPass: lastPass ? { scanned: lastPass.scanned, sent: lastPass.sent, matched: lastPass.matched, sections: lastPass.sections, at: lastPass.at } : null,
+      lastPass: lastPass ? { scanned: lastPass.scanned, sent: lastPass.sent, matched: lastPass.matched, sections: lastPass.sections, at: lastPass.at, dryRun: lastPass.dryRun } : null,
       byKeyword,
       agent: { online, threadsLoggedIn: !!device?.threadsLoggedIn, lastHeartbeat: device?.lastHeartbeat ?? null },
       runNowAt: limits?.runNowAt ?? null,

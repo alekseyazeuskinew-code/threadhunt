@@ -532,7 +532,7 @@ function DmPassCard({ searchId }: { searchId: string }) {
     <CollapsibleCard
       icon={<Activity size={16} />}
       title="Параметры прохода"
-      summary={`раз в ${lim.sweepIntervalMinutes} мин${stats ? (stats.agent.online ? ' · агент онлайн' : ' · агент офлайн') : ''}`}
+      summary={`раз в ${lim.sweepIntervalMinutes} мин${stats ? (stats.agent.online ? ' · агент онлайн' : ' · агент офлайн') : ''}${stats?.lastPass ? ` · проход ${relTime(stats.lastPass.at)}` : ''}`}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-sm text-muted">
@@ -598,8 +598,11 @@ function DmPassCard({ searchId }: { searchId: string }) {
       {/* Статистика последнего прохода */}
       {lp && (
         <div className="mt-4 border-t border-line pt-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-            <Clock size={14} className="text-muted" /> Последний проход · {relTime(lp.at)}
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-medium">
+            <span className="inline-flex items-center gap-2"><Clock size={14} className="text-muted" /> Последний проход · {relTime(lp.at)}</span>
+            {lp.dryRun && (
+              <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning">безопасный · без отправки</span>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-3">
             <PassStat label="Отправлено" value={lp.sent} />
