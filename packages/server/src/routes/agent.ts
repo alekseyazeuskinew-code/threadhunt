@@ -134,6 +134,11 @@ export async function agentRoutes(app: FastifyInstance) {
       where: { userId: device.userId },
       data: { dmTestAt: null, lastTestAt: new Date(), lastTestScanned: parsed.data.scanned, lastTestMatched: parsed.data.matched },
     });
+    // Дублируем тест в журнал проходов — чтобы он остался в хронологии «Что происходит
+    // на бэке» (видно постфактум, даже после закрытия вкладки: прошёл тест или нет).
+    await db.agentPass.create({
+      data: { userId: device.userId, scanned: parsed.data.scanned, matched: parsed.data.matched, sent: 0, sections: null, dryRun: true },
+    });
     return { ok: true };
   });
 
