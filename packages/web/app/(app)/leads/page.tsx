@@ -255,7 +255,7 @@ export default function CandidatesPage() {
         {leads === null ? (
           <div className="flex gap-3 overflow-hidden">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="w-64 shrink-0 space-y-2">
+              <div key={i} className="w-72 shrink-0 space-y-2">
                 <Skeleton className="h-7 w-32" />
                 <Skeleton className="h-20" />
                 <Skeleton className="h-20" />
@@ -300,20 +300,20 @@ export default function CandidatesPage() {
                     if (dragId) move(dragId, key);
                     else if (colDrag) reorderColumn(key);
                   }}
-                  className={cn('flex w-64 shrink-0 flex-col rounded-2xl border bg-panel/40 p-2', colDrag ? 'border-dashed border-accent/40' : 'border-line')}
+                  className={cn('flex w-72 shrink-0 flex-col rounded-2xl border bg-panel-2/40 p-2 transition-colors', colDrag ? 'border-dashed border-accent/40' : 'border-line')}
                 >
                   <div
                     draggable
                     onDragStart={() => setColDrag(key)}
                     onDragEnd={() => setColDrag(null)}
-                    className="flex cursor-grab items-center justify-between px-2 py-2 active:cursor-grabbing"
+                    className="group/col flex cursor-grab items-center justify-between px-2 py-2 active:cursor-grabbing"
                     title="Перетащи, чтобы поменять порядок колонок"
                   >
-                    <span className={cn('flex items-center gap-1.5 text-sm font-medium', toneOf(key))}>
-                      <GripVertical size={13} className="text-muted" />
+                    <span className={cn('flex items-center gap-1.5 text-sm font-semibold', toneOf(key))}>
+                      <GripVertical size={13} className="text-muted opacity-0 transition-opacity group-hover/col:opacity-100" />
                       {label}
                     </span>
-                    <span className="text-xs text-muted">{items.length}</span>
+                    <span className="rounded-full bg-panel px-2 py-0.5 text-xs font-medium tabular-nums text-muted">{items.length}</span>
                   </div>
                   <div className="flex flex-col gap-2">
                     {items.map((l) => (
@@ -414,7 +414,7 @@ function LeadCard({
       onDragEnd={() => setDragId(null)}
       onClick={() => (selectMode ? onToggle(lead.id) : onOpen(lead.id))}
       className={cn(
-        'group/card relative cursor-pointer rounded-xl border bg-panel p-3 transition-colors',
+        'th-lift group/card relative cursor-pointer rounded-xl border bg-panel p-3',
         selected ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-accent/40',
       )}
     >
@@ -423,7 +423,12 @@ function LeadCard({
           {selected && <Check size={11} />}
         </span>
       )}
-      <div className="truncate pr-5 text-sm font-medium">{lead.fromUsername || lead.candidateName || '—'}</div>
+      <div className="flex items-center gap-2 pr-5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold uppercase text-accent-ink">
+          {(lead.fromUsername || lead.candidateName || '—').replace(/^@/, '').charAt(0) || '—'}
+        </span>
+        <div className="truncate text-sm font-medium">{lead.fromUsername || lead.candidateName || '—'}</div>
+      </div>
       <CardFields lead={lead} fields={fields} />
       {!selectMode && (
         <div className="mt-2 flex items-center gap-1 opacity-0 transition group-hover/card:opacity-100" onClick={(e) => e.stopPropagation()}>
