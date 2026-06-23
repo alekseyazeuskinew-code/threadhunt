@@ -26,7 +26,10 @@ export function LeadTable({ leads, showSearch, onSelect }: { leads: Lead[]; show
               onClick={onSelect ? () => onSelect(l.id) : undefined}
               className={`border-t border-line ${onSelect ? 'cursor-pointer hover:bg-panel-2' : ''}`}
             >
-              <td className="px-4 py-3">{l.fromUsername || '—'}</td>
+              <td className="px-4 py-3">
+                <div>{l.fromUsername || '—'}</div>
+                {l.message && <div className="mt-0.5 max-w-[260px] truncate text-xs text-muted" title={l.message}>«{l.message}»</div>}
+              </td>
               <td className="px-4 py-3 font-mono text-xs text-accent-ink">{l.matchedKeyword}</td>
               {showSearch && <td className="px-4 py-3 text-muted">{l.search?.title}</td>}
               <td className="px-4 py-3 text-muted">{l.section ? sectionLabel[l.section] || l.section : '—'}</td>

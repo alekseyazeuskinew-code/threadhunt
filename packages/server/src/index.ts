@@ -232,6 +232,7 @@ async function ensureSchema() {
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "calibration" TEXT',
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "calibrationInfo" TEXT',
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "passStartedAt" TIMESTAMP', // идёт ли проход сейчас
+    'ALTER TABLE "Lead" ADD COLUMN IF NOT EXISTS "message" TEXT', // вступительное сообщение кандидата
   ];
   for (const sql of stmts) {
     try {

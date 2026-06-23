@@ -129,6 +129,7 @@ export interface Lead {
   fromUsername: string | null;
   matchedKeyword: string;
   section: string | null;
+  message?: string | null; // вступительное сообщение кандидата (что написал помимо кодового слова)
   status: 'REPLIED' | 'FAILED' | 'MANUAL';
   stage: Stage;
   rating: number;

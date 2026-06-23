@@ -453,6 +453,7 @@ model Lead {
   fromUsername    String?
   matchedKeyword  String
   section         String? // requests | hidden | main — откуда пришёл лид
+  message         String? // вступительное сообщение кандидата (что написал помимо кодового слова)
   replyTemplateId String?
   replyTemplate   ReplyTemplate? @relation(fields: [replyTemplateId], references: [id])
   status          String         @default("REPLIED") // REPLIED | FAILED | MANUAL — ответил ли бот

@@ -228,6 +228,7 @@ export async function agentRoutes(app: FastifyInstance) {
         templateId: z.string().optional(),
         sent: z.boolean(),
         section: z.string().optional(),
+        message: z.string().max(2000).optional(),
         error: z.string().optional(),
         at: z.string(),
       }),
@@ -258,12 +259,17 @@ export async function agentRoutes(app: FastifyInstance) {
           fromUsername: e.fromUsername,
           matchedKeyword: e.matchedKeyword,
           section: e.section,
+          message: e.message?.slice(0, 2000) || null,
           replyTemplateId: e.templateId,
           status: e.sent ? 'REPLIED' : 'FAILED',
         },
         // Повторная попытка: успех → переводим лид в REPLIED (фикс «висел FAILED навсегда»).
         // Неуспех по уже существующему лиду — не трогаем (останется FAILED, попробуем ещё раз).
-        update: e.sent ? { status: 'REPLIED', replyTemplateId: e.templateId } : {},
+        // message дописываем, если на создании его не было, а сейчас прислали.
+        update: {
+          ...(e.sent ? { status: 'REPLIED', replyTemplateId: e.templateId } : {}),
+          ...(e.message ? { message: e.message.slice(0, 2000) } : {}),
+        },
       });
       if (!existed) {
         // фоновый исходящий вебхук на новый лид (не блокирует ответ агенту)

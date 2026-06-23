@@ -109,6 +109,8 @@ export interface AgentReplyEvent {
   sent: boolean;
   /** Из какого раздела директа пришёл лид: requests | hidden | main. */
   section?: string;
+  /** Вступительное сообщение кандидата (то, что он написал помимо кодового слова). */
+  message?: string;
   error?: string;
   at: string; // ISO
 }

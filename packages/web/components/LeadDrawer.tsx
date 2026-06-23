@@ -118,6 +118,14 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
                 })()}
               </div>
 
+              {/* Вступительное сообщение кандидата — что он написал помимо кодового слова */}
+              {lead.message && (
+                <div className="rounded-xl border border-line bg-panel-2 p-3">
+                  <div className="mb-1 text-xs text-muted">Сообщение кандидата</div>
+                  <div className="whitespace-pre-wrap break-words text-sm">{lead.message}</div>
+                </div>
+              )}
+
               {/* стадия */}
               <div>
                 <div className="mb-1.5 text-xs text-muted">Стадия</div>

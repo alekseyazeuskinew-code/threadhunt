@@ -583,6 +583,8 @@ async function stepInner() {
         if (sent) sweep.sent++;
         if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + kw.keyword + '»', 'reply');
         else serverLog('⚠️ Не смог @' + (chat.name || '—') + ' (' + sectionRu(chat.section) + '). Кнопки на экране: ' + diagButtons(), 'warn');
+        // Вступительное сообщение = превью без ведущего имени (что кандидат написал).
+        const introMsg = chat.preview && chat.name && chat.preview.startsWith(chat.name) ? chat.preview.slice(chat.name.length).trim() : chat.preview;
         const ev: AgentReplyEvent = {
           searchId: kw.searchId,
           fromUserKey: chat.id,
@@ -591,6 +593,7 @@ async function stepInner() {
           templateId: tpl.id,
           sent,
           section: chat.section,
+          message: introMsg,
           at: new Date().toISOString(),
         };
         sweep.events.push(ev);
@@ -624,6 +627,7 @@ async function stepInner() {
               templateId: tpl.id,
               sent,
               section: chat.section,
+              message: last.text, // полное входящее сообщение кандидата
               at: new Date().toISOString(),
             };
             sweep.events.push(ev);
