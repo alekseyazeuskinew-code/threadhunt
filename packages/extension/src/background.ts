@@ -144,8 +144,9 @@ async function maybeRunScheduledSweep(tasks: AgentTasksResponse) {
 
 async function closeScheduledSweepTab() {
   const { scheduledSweepWindowId, scheduledSweepTabId } = await chrome.storage.local.get(['scheduledSweepWindowId', 'scheduledSweepTabId']);
-  await closeWorkWindow(scheduledSweepWindowId, scheduledSweepTabId);
+  // Сначала забываем id, ПОТОМ закрываем — чтобы tabs.onRemoved не счёл наше закрытие случайным.
   await chrome.storage.local.remove(['scheduledSweepWindowId', 'scheduledSweepTabId', 'scheduledSweepOpenedAt']);
+  await closeWorkWindow(scheduledSweepWindowId, scheduledSweepTabId);
 }
 
 // «Прогон сейчас»: если дашборд запросил немедленный обход (limits.runNowAt), сами
@@ -174,8 +175,9 @@ async function maybeRunSweepInBackground(tasks: AgentTasksResponse) {
 
 async function closeSweepTab() {
   const { sweepWindowId, sweepTabId } = await chrome.storage.local.get(['sweepWindowId', 'sweepTabId']);
-  await closeWorkWindow(sweepWindowId, sweepTabId);
+  // Сначала забываем id, ПОТОМ закрываем — чтобы tabs.onRemoved не счёл наше закрытие случайным.
   await chrome.storage.local.remove(['sweepWindowId', 'sweepTabId', 'sweepTabOpenedAt']);
+  await closeWorkWindow(sweepWindowId, sweepTabId);
 }
 
 // «Собрать топ-ветки сейчас»: если дашборд запросил research-проход (research.runAt),
@@ -286,6 +288,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     });
     void closeScheduledSweepTab(); // если проход шёл в плановой фоновой вкладке — закрыть её
   }
+  if (msg?.type === 'log') {
+    // Строка живого журнала событий от content-script → сервер (дашборд её покажет).
+    void authed('/api/agent/log', { method: 'POST', body: JSON.stringify({ level: msg.level || 'info', text: String(msg.text || '').slice(0, 300) }) });
+  }
   if (msg?.type === 'cmd') {
     // Команда из дашборда (напр. «собрать сейчас») — мгновенно тикаем, не ждём будильник.
     console.log('[threadhunt] команда из дашборда:', msg.cmd, '→ tick()');
@@ -310,5 +316,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true; // async response
   }
 });
+
+// Детект случайного закрытия рабочей вкладки отбивки. Если закрылась вкладка sweep/
+// scheduledSweep, id которой ещё в storage (значит закрыли НЕ мы — мы чистим id до закрытия),
+// — сообщаем серверу: дашборд покажет «вкладка закрыта, ничего работать не будет».
+// isWindowClosing игнорируем (это выход из браузера, а не случайное закрытие вкладки).
+chrome.tabs.onRemoved.addListener((tabId, info) => {
+  if (info.isWindowClosing) return;
+  void onWorkTabRemoved(tabId);
+});
+async function onWorkTabRemoved(tabId: number) {
+  const { scheduledSweepTabId, sweepTabId } = await chrome.storage.local.get(['scheduledSweepTabId', 'sweepTabId']);
+  if (tabId !== scheduledSweepTabId && tabId !== sweepTabId) return; // не наша рабочая вкладка
+  await chrome.storage.local.remove([
+    'scheduledSweepWindowId', 'scheduledSweepTabId', 'scheduledSweepOpenedAt',
+    'sweepWindowId', 'sweepTabId', 'sweepTabOpenedAt', 'sweepHandledAt',
+  ]);
+  await chrome.storage.session.remove('sweep'); // прервать незавершённое состояние прохода
+  void authed('/api/agent/tab-closed', { method: 'POST', body: JSON.stringify({}) });
+}
 
 void tick();

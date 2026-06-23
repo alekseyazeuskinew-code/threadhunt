@@ -214,6 +214,18 @@ async function ensureSchema() {
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "lastTestAt" TIMESTAMP',
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "lastTestScanned" INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "lastTestMatched" INTEGER NOT NULL DEFAULT 0',
+    // Ручная остановка прохода + детект случайно закрытой рабочей вкладки.
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "stopAt" TIMESTAMP', // метка «Стоп» — расширение прервёт текущий проход
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "tabClosedAt" TIMESTAMP', // фоновая рабочая вкладка закрыта до завершения прохода
+    // Живой журнал событий отбивки (что бот делает прямо сейчас) — кольцевой буфер на юзера.
+    `CREATE TABLE IF NOT EXISTS "AgentLog" (
+      "id" TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "level" TEXT NOT NULL DEFAULT 'info',
+      "text" TEXT NOT NULL,
+      "at" TIMESTAMP NOT NULL DEFAULT now()
+    )`,
+    'CREATE INDEX IF NOT EXISTS "AgentLog_userId_at_idx" ON "AgentLog" ("userId","at")',
   ];
   for (const sql of stmts) {
     try {

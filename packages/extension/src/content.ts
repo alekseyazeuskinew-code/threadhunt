@@ -19,6 +19,12 @@ import { matchKeyword, type AgentTasksResponse, type AgentReplyEvent, type Keywo
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const BASE = location.origin; // www.threads.com или www.threads.net
 
+// Строка в живой журнал событий (видно в дашборде «Что происходит на бэке»). Не критично:
+// если не дошло — проход не ломаем.
+function serverLog(text: string, level: 'info' | 'reply' | 'warn' = 'info') {
+  try { chrome.runtime.sendMessage({ type: 'log', level, text: text.slice(0, 300) }); } catch { /* ignore */ }
+}
+
 // Какой ответ слать: персональный текст под совпавшее слово (replyText) или, если
 // его нет — общий шаблон поиска. Для персонального id нет → событие уйдёт без
 // templateId (в БД replyTemplateId = null, FK не нарушается).
@@ -52,6 +58,11 @@ const SECTIONS = [
 
 type SectionDef = { url: string; label: string };
 
+// Человекочитаемое имя раздела для журнала событий.
+function sectionRu(label: string): string {
+  return label === 'requests' ? 'Запросы' : label === 'hidden' ? 'Скрытые' : 'Основной директ';
+}
+
 // Какие разделы обходить — по галочкам из настроек (limits.sections). Если ничего
 // не выбрано/настроек нет — обходим все три (поведение по умолчанию).
 function activeSections(sections?: { main: boolean; requests: boolean; hidden: boolean }): SectionDef[] {
@@ -78,6 +89,7 @@ interface Sweep {
   // warmup — открыть /messages/ перед заходом в Запросы (без прогрева /messages/requests
   // падает с ошибкой, D.10 хендоффа).
   phase: 'warmup' | 'collect' | 'process';
+  startedAt: number; // ms начала прохода — сверяем с меткой «Стоп», чтобы прервать только текущий
   sectionIdx: number;
   seenIds: string[];
   chats: Chat[];
@@ -302,6 +314,33 @@ function navigate(path: string) {
   location.assign(BASE + path); // полная перезагрузка — состояние уже в storage
 }
 
+// Баннер «не закрывайте вкладку», пока идёт проход. beforeunload НЕ вешаем: автомат сам
+// навигирует через location.assign, и страж ловил бы собственную навигацию бота. Случайное
+// закрытие отлавливает background (tabs.onRemoved) и показывает уведомление в дашборде.
+const BANNER_ID = 'th-work-banner';
+async function showWorkBanner() {
+  const { hideWorkBanner } = await chrome.storage.local.get('hideWorkBanner');
+  if (hideWorkBanner) return;
+  if (document.getElementById(BANNER_ID)) return;
+  const bar = document.createElement('div');
+  bar.id = BANNER_ID;
+  bar.style.cssText =
+    'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#6d5cf6;color:#fff;' +
+    'font:600 14px/1.4 system-ui,sans-serif;padding:10px 16px;display:flex;align-items:center;' +
+    'justify-content:center;gap:12px;box-shadow:0 2px 12px rgba(0,0,0,.25)';
+  const txt = document.createElement('span');
+  txt.textContent = '🟣 ThreadHunt идёт по директу — не закрывайте эту вкладку, она закроется сама.';
+  const hide = document.createElement('button');
+  hide.textContent = 'Не показывать снова';
+  hide.style.cssText = 'background:rgba(255,255,255,.22);color:#fff;border:0;border-radius:8px;padding:6px 10px;font:600 12px system-ui;cursor:pointer';
+  hide.onclick = () => { void chrome.storage.local.set({ hideWorkBanner: true }); bar.remove(); };
+  bar.append(txt, hide);
+  (document.body || document.documentElement).appendChild(bar);
+}
+function hideWorkBannerNow() {
+  document.getElementById(BANNER_ID)?.remove();
+}
+
 // ─────────────── Конечный автомат: один шаг на загрузку страницы ───────────────
 
 async function step() {
@@ -311,6 +350,21 @@ async function step() {
   chrome.runtime.sendMessage({ type: 'heartbeat', threadsLoggedIn: isLoggedIn() });
 
   let sweep = await getSweep();
+
+  // Баннер «не закрывайте вкладку» — показываем, пока идёт проход; убираем, когда нет.
+  if (sweep) void showWorkBanner();
+  else hideWorkBannerNow();
+
+  // «Стоп» из дашборда: метка stopAt новее начала текущего прохода → прерываем и
+  // закрываемся (finishSweep отчитается, сервер погасит stopAt, background закроет вкладку).
+  if (sweep) {
+    const t = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
+    const stopTs = t?.limits?.stopAt ? Date.parse(t.limits.stopAt) : 0;
+    if (stopTs && stopTs >= sweep.startedAt) {
+      serverLog('⏹ Остановлено вручную — проход прерван', 'warn');
+      return finishSweep(sweep);
+    }
+  }
 
   // Нет активного обхода — может, пора начать новый?
   if (!sweep) {
@@ -338,8 +392,10 @@ async function step() {
     }
     if (isRunNow) await chrome.storage.session.set({ lastRunNow: runNowTs });
 
+    serverLog(safe ? '▶ Старт прохода (безопасный режим — без отправки)' : '▶ Старт прохода по директу');
     sweep = {
       phase: 'warmup',
+      startedAt: Date.now(),
       sectionIdx: 0,
       seenIds: [],
       chats: [],
@@ -391,6 +447,7 @@ async function step() {
     const sec = sweep.sections[sweep.sectionIdx];
     await sleep(3500);
     await dismissWelcome(); // в каждой секции: welcome/инфо-попап перекрывает чаты (порт bot.js)
+    serverLog('🔎 Смотрю раздел: ' + sectionRu(sec.label));
     await scrollList();
     const seen = new Set(sweep.seenIds);
     const repliedKeys = new Set(sweep.repliedKeys);
@@ -455,6 +512,7 @@ async function step() {
         await acceptRequestIfNeeded(); // закрыть OK-окно → Accept → пост-подтверждение (D.13)
         const sent = await sendReply(withObLink(tpl.text, sweep.obLinkBySearch[kw.searchId], chat.id));
         if (sent) sweep.sent++;
+        if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + kw.keyword + '»', 'reply');
         sweep.events.push({
           searchId: kw.searchId,
           fromUserKey: chat.id,
@@ -483,6 +541,7 @@ async function step() {
             if (!sweep.dryRun) {
               sent = await sendReply(withObLink(tpl.text, sweep.obLinkBySearch[kw.searchId], chat.id));
               if (sent) sweep.sent++;
+              if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + matched + '»', 'reply');
             }
             sweep.events.push({
               searchId: kw.searchId,
@@ -517,6 +576,7 @@ async function step() {
 }
 
 async function finishSweep(sweep: Sweep) {
+  serverLog(`■ Проход завершён: осмотрено ${sweep.scanned || 0}, совпадений ${sweep.events.length}, ответов ${sweep.sent || 0}`);
   // Холостой тест из дашборда: шлём результат серверу, ничего больше.
   if (sweep.serverTest) {
     chrome.runtime.sendMessage({ type: 'testResult', scanned: sweep.scanned || 0, matched: sweep.events.length });
@@ -563,6 +623,7 @@ async function startTestSweep(): Promise<{ ok: boolean; reason?: string }> {
   await chrome.storage.local.set({ [TEST_RESULT_KEY]: { scanned: 0, matched: 0, at: new Date().toISOString(), done: false } });
   const sweep: Sweep = {
     phase: 'warmup',
+    startedAt: Date.now(),
     sectionIdx: 0,
     seenIds: [],
     chats: [],
@@ -605,6 +666,7 @@ async function maybeStartDmTest(tasks: AgentTasksResponse): Promise<boolean> {
   }
   const sweep: Sweep = {
     phase: 'warmup',
+    startedAt: Date.now(),
     sectionIdx: 0,
     seenIds: [],
     chats: [],

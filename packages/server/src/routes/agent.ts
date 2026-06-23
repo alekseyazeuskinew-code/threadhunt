@@ -48,6 +48,7 @@ export async function agentRoutes(app: FastifyInstance) {
           safeMode: false,
           sections: { main: true, requests: true, hidden: true },
           runNowAt: null,
+          stopAt: null,
         },
         pollIntervalSec: 60,
       };
@@ -102,6 +103,7 @@ export async function agentRoutes(app: FastifyInstance) {
         safeMode: lim.safeMode,
         sections: { main: lim.sweepMain, requests: lim.sweepRequests, hidden: lim.sweepHidden },
         runNowAt: lim.runNowAt ? new Date(lim.runNowAt).toISOString() : null,
+        stopAt: lim.stopAt ? new Date(lim.stopAt).toISOString() : null,
       },
       research: {
         enabled: !!lim.researchEnabled,
@@ -284,6 +286,33 @@ export async function agentRoutes(app: FastifyInstance) {
       // обход выполнен — сбрасываем триггер «Прогон сейчас»
       await db.limits.updateMany({ where: { userId: device.userId }, data: { runNowAt: null } });
     }
+    // Проход завершился (в т.ч. после «Стоп») — гасим метки stopAt/tabClosedAt.
+    await db.limits.updateMany({ where: { userId: device.userId }, data: { stopAt: null, tabClosedAt: null } });
+    return { ok: true };
+  });
+
+  // Живой журнал: строка о текущем действии бота (заходит в раздел, ответил и т.п.).
+  // Кольцевой буфер — после вставки оставляем последние 100 строк на юзера.
+  const logSchema = z.object({ level: z.enum(['info', 'reply', 'warn']).default('info'), text: z.string().min(1).max(300) });
+  app.post('/api/agent/log', async (req, reply) => {
+    const device = await authDevice(req.headers.authorization);
+    if (!device) return reply.code(401).send({ error: 'unauthorized' });
+    const parsed = logSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+    await db.agentLog.create({ data: { userId: device.userId, level: parsed.data.level, text: parsed.data.text } });
+    // Кольцевой буфер: оставляем только последние 100 строк юзера.
+    const keep = await db.agentLog.findMany({ where: { userId: device.userId }, orderBy: { at: 'desc' }, take: 100, select: { id: true } });
+    await db.agentLog.deleteMany({ where: { userId: device.userId, id: { notIn: keep.map((k) => k.id) } } });
+    return { ok: true };
+  });
+
+  // Расширение сообщает, что ФОНОВАЯ рабочая вкладка закрылась до завершения прохода
+  // (юзер случайно закрыл) — ставим метку, дашборд покажет предупреждение.
+  app.post('/api/agent/tab-closed', async (req, reply) => {
+    const device = await authDevice(req.headers.authorization);
+    if (!device) return reply.code(401).send({ error: 'unauthorized' });
+    await db.limits.updateMany({ where: { userId: device.userId }, data: { tabClosedAt: new Date() } });
+    await db.agentLog.create({ data: { userId: device.userId, level: 'warn', text: 'Рабочая вкладка закрыта — проход прерван. Не закрывайте вкладку Threads до конца прохода.' } });
     return { ok: true };
   });
 

@@ -57,6 +57,7 @@ model User {
   adCampaigns    AdCampaign[]
   agentPasses    AgentPass[]
   researchPosts  ResearchPost[]
+  agentLogs      AgentLog[]
 }
 
 // Участник рабочего пространства (командный доступ с ограниченными правами).
@@ -104,6 +105,8 @@ model Limits {
   lastTestAt           DateTime? // когда пришёл результат теста
   lastTestScanned      Int     @default(0) // диалогов осмотрено в тесте
   lastTestMatched      Int     @default(0) // совпадений найдено в тесте
+  stopAt               DateTime? // «Стоп»: метка, по которой расширение прерывает текущий проход
+  tabClosedAt          DateTime? // фоновая рабочая вкладка закрыта до завершения прохода (для уведомления в дашборде)
 }
 
 // Собранные research-постом: топовые вакансии-ветки из поиска Threads (через
@@ -155,6 +158,19 @@ model AgentPass {
   sections String? // какие разделы обходили (csv: main,requests,hidden)
   dryRun   Boolean  @default(false) // безопасный/тестовый проход
   at       DateTime @default(now())
+
+  @@index([userId, at])
+}
+
+// Живой журнал событий отбивки: что бот делает прямо сейчас (заходит в раздел,
+// осмотрел N, ответил @user…). Кольцевой буфер — храним последние ~100 строк на юзера.
+model AgentLog {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level  String   @default("info") // info | reply | warn
+  text   String
+  at     DateTime @default(now())
 
   @@index([userId, at])
 }

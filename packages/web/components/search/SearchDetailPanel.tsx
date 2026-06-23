@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2, Rocket, Copy, Pencil } from 'lucide-react';
+import { Plus, Trash2, Sparkles, ShieldAlert, FlaskConical, Check, X, Send, ExternalLink, Eye, Upload, ImageIcon, Video, GitBranch, Layers, Play, Activity, MessageSquare, FileText, Clock, ChevronDown, ChevronRight, TrendingUp, Heart, Repeat2, Smartphone, Monitor, Loader2, Rocket, Copy, Pencil, Square, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { SearchDetail, ReplyTemplate, PostTemplate, PostSegment, MediaItem, Lead, SearchStats, TestPublishResult, Limits, DmStats, ActivityItem, ResearchPostRow, CompanyProfile, BrandProfile, SearchSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -456,13 +456,52 @@ function OtbivkaTab({ s, reload, status, onToggleSearch }: { s: SearchDetail; re
   );
 }
 
+// Живой журнал событий отбивки (что бот делает прямо сейчас).
+type DmLog = {
+  lines: { level: string; text: string; at: string }[];
+  stopPending: boolean;
+  runNowPending: boolean;
+  tabClosedAt: string | null;
+  agent: { online: boolean; threadsLoggedIn: boolean };
+};
+
 // Параметры прохода отбивки + статистика (аккаунт-уровень: один обход на все поиски).
 function DmPassCard({ searchId }: { searchId: string }) {
   const [lim, setLim] = useState<Limits | null>(null);
   const [stats, setStats] = useState<DmStats | null>(null);
   const [ready, setReady] = useState(false);
   const [running, setRunning] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [dmLog, setDmLog] = useState<DmLog | null>(null);
   const [msg, setMsg] = useState('');
+
+  // Живой журнал: поллим, пока карточка открыта, — видно текущий статус и события.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      const r = await api.get<DmLog>('/api/dm/log').catch(() => null);
+      if (alive && r) setDmLog(r);
+    };
+    tick();
+    const id = setInterval(tick, 4000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  // Ручная остановка текущего прохода (метка stopAt → расширение прервёт обход).
+  async function stopNow() {
+    setStopping(true);
+    try {
+      await api.post('/api/dm/stop');
+      setMsg('⏹ Остановка отправлена — проход прервётся в течение ~30 сек.');
+    } catch (e: any) {
+      setMsg('Не удалось остановить: ' + (e?.message || 'ошибка'));
+    } finally {
+      setStopping(false);
+    }
+  }
 
   async function loadAll() {
     const [l, st] = await Promise.all([api.get<Limits>('/api/limits'), api.get<DmStats>(`/api/searches/${searchId}/dm-stats`).catch(() => null)]);
@@ -543,9 +582,14 @@ function DmPassCard({ searchId }: { searchId: string }) {
             </span>
           )}
         </div>
-        <Button size="sm" onClick={runNow} disabled={running || noSections} className="shrink-0">
-          <Play size={14} /> {running ? 'Запускаю…' : 'Прогон сейчас'}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="sm" onClick={runNow} disabled={running || noSections}>
+            <Play size={14} /> {running ? 'Запускаю…' : 'Прогон сейчас'}
+          </Button>
+          <Button size="sm" variant="soft" onClick={stopNow} disabled={stopping}>
+            <Square size={14} /> {stopping ? 'Останавливаю…' : 'Стоп'}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
@@ -632,6 +676,36 @@ function DmPassCard({ searchId }: { searchId: string }) {
           </div>
         </div>
       )}
+
+      {/* Живой журнал событий + статус (что бот делает прямо сейчас) */}
+      <div className="mt-4 border-t border-line pt-4">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-sm font-medium">Что происходит сейчас</div>
+          {dmLog && (
+            <span className={`text-xs ${dmLog.agent.online ? 'text-success' : 'text-warning'}`}>
+              ● агент {dmLog.agent.online ? 'онлайн' : 'офлайн'}
+              {dmLog.stopPending ? ' · останавливается…' : dmLog.runNowPending ? ' · запуск…' : ''}
+            </span>
+          )}
+        </div>
+        {dmLog?.tabClosedAt && (
+          <div className="mb-2 flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>Рабочая вкладка Threads была закрыта — проход прерван, отбивка не идёт. Откройте Threads и держите вкладку открытой (или нажмите «Прогон сейчас»).</span>
+          </div>
+        )}
+        {dmLog && dmLog.lines.length > 0 ? (
+          <div className="max-h-52 space-y-1 overflow-y-auto rounded-xl bg-bg p-3 font-mono text-xs">
+            {dmLog.lines.map((l, i) => (
+              <div key={i} className={l.level === 'reply' ? 'text-success' : l.level === 'warn' ? 'text-warning' : 'text-muted'}>
+                <span className="text-muted/60">{new Date(l.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span> {l.text}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted">Событий пока нет. Запусти «Прогон сейчас» или дождись планового прохода — здесь появится живой лог: заходы в разделы, ответы, итог.</p>
+        )}
+      </div>
     </CollapsibleCard>
   );
 }

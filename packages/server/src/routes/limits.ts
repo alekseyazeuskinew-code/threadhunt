@@ -65,12 +65,48 @@ export async function limitsRoutes(app: FastifyInstance) {
 
   // «Прогон сейчас»: ставим метку времени — расширение увидит её в задачах и
   // запустит обход вне расписания (минуя кулдаун). Хотя бы один раздел должен
-  // быть выбран, иначе обходить нечего.
+  // быть выбран, иначе обходить нечего. Сбрасываем stopAt/tabClosedAt — новый запуск.
   app.post('/api/dm/run-now', async (req, reply) => {
     const userId = getUserId(app, req);
     if (!userId) return reply.code(401).send({ error: 'unauthorized' });
-    const l = await db.limits.upsert({ where: { userId }, create: { userId, runNowAt: new Date() }, update: { runNowAt: new Date() } });
+    const l = await db.limits.upsert({
+      where: { userId },
+      create: { userId, runNowAt: new Date() },
+      update: { runNowAt: new Date(), stopAt: null, tabClosedAt: null },
+    });
     return { ok: true, runNowAt: l.runNowAt };
+  });
+
+  // «Стоп»: ставим метку — расширение прервёт текущий проход и закроет фоновую вкладку.
+  // Заодно гасим runNowAt, чтобы остановленный «прогон сейчас» не перезапустился.
+  app.post('/api/dm/stop', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const l = await db.limits.upsert({
+      where: { userId },
+      create: { userId, stopAt: new Date() },
+      update: { stopAt: new Date(), runNowAt: null },
+    });
+    return { ok: true, stopAt: l.stopAt };
+  });
+
+  // Живой журнал событий отбивки (дашборд опрашивает раз в несколько секунд).
+  app.get('/api/dm/log', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const [lines, lim, device] = await Promise.all([
+      db.agentLog.findMany({ where: { userId }, orderBy: { at: 'desc' }, take: 50 }),
+      db.limits.findUnique({ where: { userId }, select: { stopAt: true, runNowAt: true, tabClosedAt: true } }),
+      db.device.findFirst({ where: { userId }, orderBy: { lastHeartbeat: 'desc' }, select: { lastHeartbeat: true, threadsLoggedIn: true } }),
+    ]);
+    const online = !!device?.lastHeartbeat && Date.now() - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
+    return {
+      lines: lines.reverse().map((l) => ({ level: l.level, text: l.text, at: l.at })), // в хронологическом порядке
+      stopPending: !!lim?.stopAt,
+      runNowPending: !!lim?.runNowAt,
+      tabClosedAt: lim?.tabClosedAt ?? null,
+      agent: { online, threadsLoggedIn: !!device?.threadsLoggedIn },
+    };
   });
 
   // «Собрать топ-ветки сейчас»: метка для немедленного research-прохода (минуя 12-часовой

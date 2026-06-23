@@ -33,6 +33,7 @@ export interface AgentLimits {
   safeMode: boolean; // безопасный режим: проходить и считать, но НЕ отправлять
   sections: { main: boolean; requests: boolean; hidden: boolean }; // какие разделы обходить
   runNowAt: string | null; // метка «Прогон сейчас» (ISO) — обойти расписание, если новее последнего прохода
+  stopAt: string | null; // метка «Стоп» (ISO) — прервать текущий проход, если новее его начала
 }
 
 /** Запрос для research-прохода: что искать в Threads и к какому поиску относится. */
