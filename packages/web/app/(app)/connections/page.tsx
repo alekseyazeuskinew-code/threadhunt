@@ -54,6 +54,10 @@ export default function ConnectionsPage() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [showGuide, setShowGuide] = useState(false); // развёрнута ли инструкция по установке
   const [quota, setQuota] = useState<AccountQuota | null>(null);
+  // ИИ-калибровка разметки — ОБЯЗАТЕЛЬНЫЙ шаг подключения (иначе кнопки в директе/комментах
+  // могут не нажиматься на чужом языке/вёрстке).
+  const [calib, setCalib] = useState<{ pending: boolean; at: string | null; info: string | null } | null>(null);
+  const [calibrating, setCalibrating] = useState(false);
   // Тесты «работает или нет» (без реальных действий).
   const [apiTest, setApiTest] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
   const [dmTest, setDmTest] = useState<{ busy?: boolean; ok?: boolean; msg?: string } | null>(null);
@@ -118,12 +122,28 @@ export default function ConnectionsPage() {
   const loadDevices = () => api.get<Device[]>('/api/devices').then(setDevices).catch(() => setDevices([]));
   const loadMeta = () => api.get<MetaConnection>('/api/meta/connection').then(setMeta).catch(() => setMeta({ connected: false }));
   const loadQuota = () => api.get<AccountQuota>('/api/account/quota').then(setQuota).catch(() => {});
+  const loadCalib = () => api.get<{ calibration: { pending: boolean; at: string | null; info: string | null } }>('/api/dm/log').then((r) => setCalib(r.calibration)).catch(() => {});
+
+  // Запустить калибровку вручную (метка calibrateAt → расширение снимет вёрстку и отправит на ИИ).
+  async function recalibrate() {
+    setCalibrating(true);
+    try {
+      await api.post('/api/dm/recalibrate');
+      setNotice({ ok: true, text: '🎯 Калибровка запущена — расширение снимет разметку (10–20 сек). Будь залогинен в Threads в этом браузере.' });
+      setTimeout(loadCalib, 8000);
+    } catch (e: any) {
+      setNotice({ ok: false, text: 'Не удалось запустить калибровку: ' + (e?.message || 'ошибка') });
+    } finally {
+      setCalibrating(false);
+    }
+  }
 
   useEffect(() => {
     loadConns();
     loadDevices();
     loadMeta();
     loadQuota();
+    loadCalib();
     // Результат возврата из OAuth (?threads=… / ?meta=…)
     const q = new URLSearchParams(window.location.search);
     const NOTE: Record<string, { ok: boolean; text: string }> = {
@@ -166,9 +186,12 @@ export default function ConnectionsPage() {
     if (devices?.some((d) => d.online)) setExtPresent(true);
   }, [devices]);
 
-  // Авто-обновление статуса устройств — клиенту не нужно жать F5, чтобы увидеть «онлайн».
+  // Авто-обновление статуса устройств и калибровки — клиенту не нужно жать F5.
   useEffect(() => {
-    const t = setInterval(() => loadDevices(), 15_000);
+    const t = setInterval(() => {
+      loadDevices();
+      loadCalib();
+    }, 15_000);
     return () => clearInterval(t);
   }, []);
 
@@ -270,7 +293,7 @@ export default function ConnectionsPage() {
           </div>
 
           {/* Пошаговая диагностика — клиент сразу видит, что не так и что нажать. */}
-          <ConnectionStatus extPresent={extPresent} devices={devices} onReconnect={connectBrowser} />
+          <ConnectionStatus extPresent={extPresent} devices={devices} onReconnect={connectBrowser} calib={calib} onCalibrate={recalibrate} calibrating={calibrating} />
 
 
           {/* Тест отбивки: холостой проход без отправки/приёма — «работает или нет». */}
@@ -537,7 +560,21 @@ export default function ConnectionsPage() {
 
 // Понятная диагностика подключения отбивки: три шага со статусом и конкретной
 // подсказкой на каждом сбое. Чтобы клиент не застрял на безликом «оффлайн».
-function ConnectionStatus({ extPresent, devices, onReconnect }: { extPresent: boolean; devices: Device[] | null; onReconnect: () => void }) {
+function ConnectionStatus({
+  extPresent,
+  devices,
+  onReconnect,
+  calib,
+  onCalibrate,
+  calibrating,
+}: {
+  extPresent: boolean;
+  devices: Device[] | null;
+  onReconnect: () => void;
+  calib: { pending: boolean; at: string | null; info: string | null } | null;
+  onCalibrate: () => void;
+  calibrating: boolean;
+}) {
   const online = !!devices?.some((d) => d.online);
   const loggedIn = !!devices?.some((d) => d.online && d.threadsLoggedIn);
   // Текущий «блокирующий» шаг — первый невыполненный.
@@ -570,6 +607,22 @@ function ConnectionStatus({ extPresent, devices, onReconnect }: { extPresent: bo
             threads.com
           </a>{' '}
           под нужным профилем в этом браузере.
+        </>
+      ),
+    },
+    {
+      // ОБЯЗАТЕЛЬНЫЙ шаг: без калибровки кнопки «Принять/Ответить» могут не нажиматься
+      // на чужом языке/вёрстке. ИИ один раз подгоняет разметку под пользователя.
+      ok: !!calib?.at,
+      title: 'Калибровка разметки (ИИ)' + (calib?.at && calib.info ? ` · ${calib.info}` : ''),
+      fix: (
+        <>
+          Это обязательно: ИИ один раз подгонит кнопки под твой язык и браузер, иначе отбивка может не срабатывать.
+          Будь залогинен в Threads в этом браузере и нажми{' '}
+          <button onClick={onCalibrate} disabled={calibrating || calib?.pending} className="font-medium text-accent-ink hover:underline disabled:opacity-50">
+            {calibrating || calib?.pending ? 'Калибрую…' : 'Откалибровать сейчас'}
+          </button>
+          .
         </>
       ),
     },
