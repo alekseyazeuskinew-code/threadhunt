@@ -303,8 +303,16 @@ export async function agentRoutes(app: FastifyInstance) {
       // обход выполнен — сбрасываем триггер «Прогон сейчас»
       await db.limits.updateMany({ where: { userId: device.userId }, data: { runNowAt: null } });
     }
-    // Проход завершился (в т.ч. после «Стоп») — гасим метки stopAt/tabClosedAt.
-    await db.limits.updateMany({ where: { userId: device.userId }, data: { stopAt: null, tabClosedAt: null } });
+    // Проход завершился (в т.ч. после «Стоп») — гасим метки stopAt/tabClosedAt + статус «идёт проход».
+    await db.limits.updateMany({ where: { userId: device.userId }, data: { stopAt: null, tabClosedAt: null, passStartedAt: null } });
+    return { ok: true };
+  });
+
+  // Расширение сообщает, что НАЧАЛО проход — для статуса «идёт проход» в дашборде.
+  app.post('/api/agent/pass-start', async (req, reply) => {
+    const device = await authDevice(req.headers.authorization);
+    if (!device) return reply.code(401).send({ error: 'unauthorized' });
+    await db.limits.updateMany({ where: { userId: device.userId }, data: { passStartedAt: new Date(), tabClosedAt: null } });
     return { ok: true };
   });
 

@@ -104,13 +104,22 @@ export async function limitsRoutes(app: FastifyInstance) {
     if (!userId) return reply.code(401).send({ error: 'unauthorized' });
     const [lines, lim, device] = await Promise.all([
       db.agentLog.findMany({ where: { userId }, orderBy: { at: 'desc' }, take: 50 }),
-      db.limits.findUnique({ where: { userId }, select: { stopAt: true, runNowAt: true, tabClosedAt: true, calibrateAt: true, calibratedAt: true, calibrationInfo: true } }),
+      db.limits.findUnique({ where: { userId }, select: { stopAt: true, runNowAt: true, tabClosedAt: true, passStartedAt: true, calibrateAt: true, calibratedAt: true, calibrationInfo: true } }),
       db.device.findFirst({ where: { userId }, orderBy: { lastHeartbeat: 'desc' }, select: { lastHeartbeat: true, threadsLoggedIn: true } }),
     ]);
-    const online = !!device?.lastHeartbeat && Date.now() - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
+    const now = Date.now();
+    const online = !!device?.lastHeartbeat && now - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
+    // «Идёт проход» — passStartedAt свежий (< 5 мин; проход обычно короче, метка гасится по завершении).
+    const running = !!lim?.passStartedAt && now - new Date(lim.passStartedAt).getTime() < 5 * 60_000;
+    // «Останавливается» — стоп нажат недавно (< 90с); потом метка считается отработанной/неактуальной.
+    const stopPending = !!lim?.stopAt && now - new Date(lim.stopAt).getTime() < 90_000;
+    // Явный статус для интерфейса.
+    const status: 'offline' | 'stopping' | 'running' | 'idle' = !online ? 'offline' : stopPending ? 'stopping' : running ? 'running' : 'idle';
     return {
       lines: lines.reverse().map((l) => ({ level: l.level, text: l.text, at: l.at })), // в хронологическом порядке
-      stopPending: !!lim?.stopAt,
+      status,
+      running,
+      stopPending,
       runNowPending: !!lim?.runNowAt,
       tabClosedAt: lim?.tabClosedAt ?? null,
       calibration: { pending: !!lim?.calibrateAt, at: lim?.calibratedAt ?? null, info: lim?.calibrationInfo ?? null },

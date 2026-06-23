@@ -457,14 +457,34 @@ function OtbivkaTab({ s, reload, status, onToggleSearch }: { s: SearchDetail; re
 }
 
 // Живой журнал событий отбивки (что бот делает прямо сейчас).
+type DmStatus = 'offline' | 'stopping' | 'running' | 'idle';
 type DmLog = {
   lines: { level: string; text: string; at: string }[];
+  status: DmStatus;
+  running: boolean;
   stopPending: boolean;
   runNowPending: boolean;
   tabClosedAt: string | null;
   calibration: { pending: boolean; at: string | null; info: string | null };
   agent: { online: boolean; threadsLoggedIn: boolean };
 };
+
+// Крупный понятный индикатор: идёт проход / ожидает / останавливается / агент офлайн.
+function DmStatusPill({ status }: { status?: DmStatus }) {
+  const map: Record<DmStatus, { label: string; cls: string; dot: string }> = {
+    running: { label: 'Идёт проход', cls: 'border-success/30 bg-success/10 text-success', dot: 'bg-success animate-pulse' },
+    stopping: { label: 'Останавливается…', cls: 'border-warning/30 bg-warning/10 text-warning', dot: 'bg-warning animate-pulse' },
+    idle: { label: 'Ожидает', cls: 'border-line bg-panel-2 text-muted', dot: 'bg-muted' },
+    offline: { label: 'Агент офлайн', cls: 'border-danger/30 bg-danger/5 text-danger', dot: 'bg-danger' },
+  };
+  const s = status ? map[status] : { label: 'Загрузка…', cls: 'border-line bg-panel-2 text-muted', dot: 'bg-muted' };
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${s.cls}`}>
+      <span className={`h-2 w-2 rounded-full ${s.dot}`} />
+      {s.label}
+    </span>
+  );
+}
 
 // Параметры прохода отбивки + статистика (аккаунт-уровень: один обход на все поиски).
 function DmPassCard({ searchId }: { searchId: string }) {
@@ -588,24 +608,29 @@ function DmPassCard({ searchId }: { searchId: string }) {
       title="Параметры прохода"
       summary={`раз в ${lim.sweepIntervalMinutes} мин${stats ? (stats.agent.online ? ' · агент онлайн' : ' · агент офлайн') : ''}${stats?.lastPass ? ` · проход ${relTime(stats.lastPass.at)}` : ''}`}
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm text-muted">
-          Как бот обходит директ. Один обход покрывает все активные поиски аккаунта.
-          {stats && (
-            <span className={`ml-2 ${stats.agent.online ? 'text-success' : 'text-warning'}`}>
-              ● агент {stats.agent.online ? 'онлайн' : 'офлайн'}
-            </span>
-          )}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <DmStatusPill status={dmLog?.status} />
+          <span className="text-sm text-muted">Один обход покрывает все активные поиски аккаунта.</span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button size="sm" onClick={runNow} disabled={running || noSections}>
-            <Play size={14} /> {running ? 'Запускаю…' : 'Прогон сейчас'}
+          <Button size="sm" onClick={runNow} disabled={running || noSections || !!dmLog?.running || dmLog?.status === 'stopping'}>
+            <Play size={14} /> {running || dmLog?.running ? 'Идёт проход…' : 'Прогон сейчас'}
           </Button>
-          <Button size="sm" variant="soft" onClick={stopNow} disabled={stopping}>
-            <Square size={14} /> {stopping ? 'Останавливаю…' : 'Стоп'}
+          <Button
+            size="sm"
+            variant="soft"
+            onClick={stopNow}
+            disabled={stopping || !(dmLog?.running || dmLog?.stopPending)}
+            title={dmLog?.running || dmLog?.stopPending ? 'Прервать текущий проход' : 'Сейчас проход не идёт — останавливать нечего'}
+          >
+            <Square size={14} /> {stopping || dmLog?.status === 'stopping' ? 'Останавливаю…' : 'Стоп'}
           </Button>
         </div>
       </div>
+      {dmLog?.status === 'idle' && (
+        <p className="-mt-1 mb-3 text-xs text-muted">Проход сейчас не идёт. Кнопка «Стоп» активна только во время прохода.</p>
+      )}
 
       <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
         <label className="flex items-center gap-2 text-sm text-muted">

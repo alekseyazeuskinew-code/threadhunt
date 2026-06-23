@@ -335,6 +335,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // Строка живого журнала событий от content-script → сервер (дашборд её покажет).
     void authed('/api/agent/log', { method: 'POST', body: JSON.stringify({ level: msg.level || 'info', text: String(msg.text || '').slice(0, 300) }) });
   }
+  if (msg?.type === 'pass-start') {
+    // Расширение начало проход → статус «идёт проход» в дашборде.
+    void authed('/api/agent/pass-start', { method: 'POST', body: JSON.stringify({}) });
+  }
   if (msg?.type === 'calibrate') {
     // Снятые кнопки экрана запроса → сервер (Claude определит «Принять/Показать/OK/Отклонить»).
     void authed('/api/agent/calibrate', { method: 'POST', body: JSON.stringify({ browser: msg.browser, lang: msg.lang, controls: msg.controls || [] }) }).then(() => void tick());

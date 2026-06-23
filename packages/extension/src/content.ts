@@ -451,6 +451,7 @@ async function stepInner() {
     if (isRunNow) await chrome.storage.session.set({ lastRunNow: runNowTs });
 
     serverLog(safe ? '▶ Старт прохода (безопасный режим — без отправки)' : '▶ Старт прохода по директу');
+    chrome.runtime.sendMessage({ type: 'pass-start' }); // статус «идёт проход» в дашборде
     sweep = {
       phase: 'warmup',
       startedAt: Date.now(),
