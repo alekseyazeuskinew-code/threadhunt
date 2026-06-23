@@ -11,12 +11,19 @@ const DEFAULT_API = 'https://threadhuntserver-production.up.railway.app';
 // Единый источник версии — manifest.json (иначе heartbeat и chrome://extensions расходятся).
 const VERSION = chrome.runtime.getManifest().version;
 
-// Фоновую работу (обход директа / research / тест) делаем в ОТДЕЛЬНОМ СВЁРНУТОМ окне —
-// чтобы не лезть в рабочие вкладки пользователя и не перехватывать фокус.
+// Фоновую работу (обход директа / research / тест) открываем ФОНОВОЙ ВКЛАДКОЙ
+// (active:false) в уже открытом окне браузера — она не перехватывает фокус и не плодит
+// отдельные окна, не мешая работать. Работает во ВСЕХ Chromium-браузерах (Chrome, Edge,
+// Brave, Opera, Yandex, Arc) — везде доступен chrome.tabs. Firefox/Safari — отдельная сборка.
+// Фолбэк на свёрнутое окно, если открытого окна нет (вкладку некуда добавить).
 async function openWorkWindow(url: string): Promise<{ windowId: number | null; tabId: number | null }> {
-  const win = await chrome.windows.create({ url, focused: false, state: 'minimized' });
-  const tab = win.tabs?.[0];
-  return { windowId: win.id ?? null, tabId: tab?.id ?? null };
+  try {
+    const tab = await chrome.tabs.create({ url, active: false });
+    return { windowId: null, tabId: tab.id ?? null };
+  } catch {
+    const win = await chrome.windows.create({ url, focused: false, state: 'minimized' });
+    return { windowId: win.id ?? null, tabId: win.tabs?.[0]?.id ?? null };
+  }
 }
 async function closeWorkWindow(windowId: number | null | undefined, tabId: number | null | undefined) {
   if (windowId != null) {
@@ -97,31 +104,41 @@ function withinWorkingHours(wh?: { enabled: boolean; from: string; to: string })
 // не нужно держать вкладку вручную. Единый источник кулдауна — storage.session.lastSweepAt,
 // который пишет content-script (без рассинхрона с его же проверкой).
 async function maybeRunScheduledSweep(tasks: AgentTasksResponse) {
+  // Диагностика: видно в консоли сервис-воркера (chrome://extensions → Threadhunt →
+  // «service worker» → Console), почему плановый проход (не)запустился в этот тик.
+  const log = (msg: string, extra?: unknown) => console.log('[threadhunt] плановая отбивка:', msg, extra ?? '');
+
   // Уже открыта плановая вкладка? Закрываем по таймауту, иначе ждём её завершения.
   const { scheduledSweepTabId, scheduledSweepOpenedAt } = await chrome.storage.local.get(['scheduledSweepTabId', 'scheduledSweepOpenedAt']);
   if (scheduledSweepTabId != null) {
-    if (scheduledSweepOpenedAt && Date.now() - scheduledSweepOpenedAt > 4 * 60_000) await closeScheduledSweepTab();
+    if (scheduledSweepOpenedAt && Date.now() - scheduledSweepOpenedAt > 4 * 60_000) { log('таймаут вкладки → закрываю'); await closeScheduledSweepTab(); }
+    else log('проход уже идёт в фоновой вкладке — жду завершения');
     return;
   }
   // Не мешаем другим фоновым окнам (прогон сейчас / тест / research).
   const { sweepTabId, testTabId, researchTabId } = await chrome.storage.local.get(['sweepTabId', 'testTabId', 'researchTabId']);
-  if (sweepTabId != null || testTabId != null || researchTabId != null) return;
+  if (sweepTabId != null || testTabId != null || researchTabId != null) { log('занято другим фоновым окном (runNow/test/research) — пропуск'); return; }
 
   const lim = tasks.limits;
-  if (!tasks.active || !tasks.searches?.length) return;
-  if (lim?.runNowAt) return; // «прогон сейчас» обрабатывается отдельным путём
-  if (!withinWorkingHours(lim?.workingHours)) return;
-  if (lim && (lim.repliesRemainingToday ?? 0) <= 0 && !lim.safeMode) return;
+  if (!tasks.active || !tasks.searches?.length) { log('нет активных поисков / отбивка выключена', { active: tasks.active, searches: tasks.searches?.length ?? 0 }); return; }
+  if (lim?.runNowAt) { log('есть «прогон сейчас» — его обработает отдельный путь'); return; }
+  if (!withinWorkingHours(lim?.workingHours)) { log('вне рабочих часов', lim?.workingHours); return; }
+  if (lim && (lim.repliesRemainingToday ?? 0) <= 0 && !lim.safeMode) { log('дневной лимит исчерпан (и не safeMode)', { left: lim.repliesRemainingToday }); return; }
 
   const cooldownMs = Math.max(30, lim?.sweepIntervalMinutes ?? 180) * 60_000;
   const { lastSweepAt } = await chrome.storage.session.get('lastSweepAt');
-  if (lastSweepAt && Date.now() - lastSweepAt < cooldownMs) return; // ещё не пора
+  if (lastSweepAt && Date.now() - lastSweepAt < cooldownMs) {
+    const leftMin = Math.ceil((cooldownMs - (Date.now() - lastSweepAt)) / 60_000);
+    log(`кулдаун ещё не вышел — осталось ~${leftMin} мин (интервал ${Math.round(cooldownMs / 60_000)} мин)`);
+    return;
+  }
 
   try {
+    log(`ПОРА — открываю фоновую вкладку Threads/Сообщения (интервал ${Math.round(cooldownMs / 60_000)} мин)`);
     const { windowId, tabId } = await openWorkWindow('https://www.threads.com/messages/');
     await chrome.storage.local.set({ scheduledSweepWindowId: windowId, scheduledSweepTabId: tabId, scheduledSweepOpenedAt: Date.now() });
-  } catch {
-    /* не удалось открыть окно */
+  } catch (e) {
+    log('не удалось открыть окно', (e as Error)?.message);
   }
 }
 
