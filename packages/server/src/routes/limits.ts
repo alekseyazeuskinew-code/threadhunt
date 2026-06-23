@@ -27,13 +27,23 @@ const DEFAULTS = {
 
 // Анти-бан потолки: нельзя быстрее/больше/чаще этих значений.
 const CAP = { replyDelayMin: 3, repliesMax: 100, dialogsMax: 100, intervalMin: 30 };
+// «Безопасный коридор»: в его пределах лимиты меняются свободно. Выход за него (более
+// агрессивные значения) разрешён ТОЛЬКО после принятия соглашения о рисках (юр. отказ от
+// претензий за блокировку аккаунта).
+const SAFE = { replyDelayMin: 6, repliesMax: 40, dialogsMax: 40, intervalMin: 60 };
+function exceedsSafe(v: { replyDelaySec: number; maxRepliesPerDay: number; maxDialogsPerSweep: number; sweepIntervalMinutes: number }): boolean {
+  return v.replyDelaySec < SAFE.replyDelayMin || v.maxRepliesPerDay > SAFE.repliesMax || v.maxDialogsPerSweep > SAFE.dialogsMax || v.sweepIntervalMinutes < SAFE.intervalMin;
+}
 
 export async function limitsRoutes(app: FastifyInstance) {
   app.get('/api/limits', async (req, reply) => {
     const userId = getUserId(app, req);
     if (!userId) return reply.code(401).send({ error: 'unauthorized' });
-    const l = await db.limits.findUnique({ where: { userId } });
-    return { ...DEFAULTS, ...(l || {}), caps: CAP };
+    const [l, user] = await Promise.all([
+      db.limits.findUnique({ where: { userId } }),
+      db.user.findUnique({ where: { id: userId }, select: { riskAcceptedAt: true } }),
+    ]);
+    return { ...DEFAULTS, ...(l || {}), caps: CAP, safe: SAFE, riskAcceptedAt: user?.riskAcceptedAt ?? null };
   });
 
   const schema = z.object({
@@ -59,8 +69,32 @@ export async function limitsRoutes(app: FastifyInstance) {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message || 'bad request' });
     const data = parsed.data;
+    // Эффективные значения после применения патча.
+    const cur = await db.limits.findUnique({ where: { userId } });
+    const eff = {
+      replyDelaySec: data.replyDelaySec ?? cur?.replyDelaySec ?? DEFAULTS.replyDelaySec,
+      maxRepliesPerDay: data.maxRepliesPerDay ?? cur?.maxRepliesPerDay ?? DEFAULTS.maxRepliesPerDay,
+      maxDialogsPerSweep: data.maxDialogsPerSweep ?? cur?.maxDialogsPerSweep ?? DEFAULTS.maxDialogsPerSweep,
+      sweepIntervalMinutes: data.sweepIntervalMinutes ?? cur?.sweepIntervalMinutes ?? DEFAULTS.sweepIntervalMinutes,
+    };
+    // Повышение лимитов за безопасный коридор требует принятого соглашения о рисках.
+    if (exceedsSafe(eff)) {
+      const user = await db.user.findUnique({ where: { id: userId }, select: { riskAcceptedAt: true } });
+      if (!user?.riskAcceptedAt) {
+        return reply.code(403).send({ error: 'RISK_NOT_ACCEPTED', code: 'risk_not_accepted' });
+      }
+    }
     const saved = await db.limits.upsert({ where: { userId }, create: { userId, ...data }, update: data });
-    return { ...saved, caps: CAP };
+    return { ...saved, caps: CAP, safe: SAFE };
+  });
+
+  // Принять соглашение о рисках (юр. отказ от претензий за блокировку аккаунта при
+  // повышенных лимитах). Фиксируем момент принятия — это и есть доказательство согласия.
+  app.post('/api/account/accept-risk', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const u = await db.user.update({ where: { id: userId }, data: { riskAcceptedAt: new Date() } });
+    return { ok: true, riskAcceptedAt: u.riskAcceptedAt };
   });
 
   // «Прогон сейчас»: ставим метку времени — расширение увидит её в задачах и

@@ -456,6 +456,8 @@ export interface Limits {
   researchByKeywords?: boolean;
   runNowAt?: string | null;
   caps?: { replyDelayMin: number; repliesMax: number; dialogsMax: number; intervalMin: number };
+  safe?: { replyDelayMin: number; repliesMax: number; dialogsMax: number; intervalMin: number };
+  riskAcceptedAt?: string | null;
 }
 
 export interface BrandProfile {

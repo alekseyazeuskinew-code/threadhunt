@@ -40,6 +40,7 @@ model User {
   tgDailySummary   Boolean  @default(true)  // ежедневная сводка
   tgSummarySentOn  String?  // дата последней отправленной сводки (YYYY-MM-DD), анти-дубль
   isDemo       Boolean   @default(false) // демо-аккаунт для тура (можно массово очистить)
+  riskAcceptedAt DateTime? // когда принял соглашение о рисках при повышении лимитов (юр. отказ от претензий)
   createdAt    DateTime  @default(now())
 
   connections  ThreadsConnection[]
