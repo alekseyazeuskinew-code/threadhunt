@@ -457,24 +457,38 @@ function OtbivkaTab({ s, reload, status, onToggleSearch }: { s: SearchDetail; re
 }
 
 // Живой журнал событий отбивки (что бот делает прямо сейчас).
-type DmStatus = 'offline' | 'stopping' | 'running' | 'idle';
+type DmStatus = 'offline' | 'stopping' | 'running' | 'sleeping' | 'idle';
 type DmLog = {
   lines: { level: string; text: string; at: string }[];
   status: DmStatus;
   running: boolean;
   stopPending: boolean;
   runNowPending: boolean;
+  nextPassAt: string | null;
   tabClosedAt: string | null;
   calibration: { pending: boolean; at: string | null; info: string | null };
   agent: { online: boolean; threadsLoggedIn: boolean };
 };
 
-// Крупный понятный индикатор: идёт проход / ожидает / останавливается / агент офлайн.
-function DmStatusPill({ status }: { status?: DmStatus }) {
+// «через N мин / N ч M мин» до момента в будущем (для спящего режима).
+function untilText(iso: string | null): string {
+  if (!iso) return '';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'скоро';
+  const min = Math.ceil(ms / 60_000);
+  if (min < 60) return `через ~${min} мин`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `через ~${h} ч${m ? ` ${m} мин` : ''}`;
+}
+
+// Крупный понятный индикатор: идёт проход / спит до след. прохода / останавливается / ожидает / офлайн.
+function DmStatusPill({ status, note }: { status?: DmStatus; note?: string }) {
   const map: Record<DmStatus, { label: string; cls: string; dot: string }> = {
     running: { label: 'Идёт проход', cls: 'border-success/30 bg-success/10 text-success', dot: 'bg-success animate-pulse' },
     stopping: { label: 'Останавливается…', cls: 'border-warning/30 bg-warning/10 text-warning', dot: 'bg-warning animate-pulse' },
-    idle: { label: 'Ожидает', cls: 'border-line bg-panel-2 text-muted', dot: 'bg-muted' },
+    sleeping: { label: '😴 Спящий режим', cls: 'border-accent/30 bg-accent/10 text-accent-ink', dot: 'bg-accent' },
+    idle: { label: 'Готов к проходу', cls: 'border-line bg-panel-2 text-muted', dot: 'bg-muted' },
     offline: { label: 'Агент офлайн', cls: 'border-danger/30 bg-danger/5 text-danger', dot: 'bg-danger' },
   };
   const s = status ? map[status] : { label: 'Загрузка…', cls: 'border-line bg-panel-2 text-muted', dot: 'bg-muted' };
@@ -482,6 +496,7 @@ function DmStatusPill({ status }: { status?: DmStatus }) {
     <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${s.cls}`}>
       <span className={`h-2 w-2 rounded-full ${s.dot}`} />
       {s.label}
+      {note && <span className="font-normal opacity-80">· {note}</span>}
     </span>
   );
 }
@@ -610,7 +625,7 @@ function DmPassCard({ searchId }: { searchId: string }) {
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <DmStatusPill status={dmLog?.status} />
+          <DmStatusPill status={dmLog?.status} note={dmLog?.status === 'sleeping' ? `следующий проход ${untilText(dmLog.nextPassAt)}` : undefined} />
           <span className="text-sm text-muted">Один обход покрывает все активные поиски аккаунта.</span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -628,8 +643,12 @@ function DmPassCard({ searchId }: { searchId: string }) {
           </Button>
         </div>
       </div>
-      {dmLog?.status === 'idle' && (
-        <p className="-mt-1 mb-3 text-xs text-muted">Проход сейчас не идёт. Кнопка «Стоп» активна только во время прохода.</p>
+      {(dmLog?.status === 'idle' || dmLog?.status === 'sleeping') && (
+        <p className="-mt-1 mb-3 text-xs text-muted">
+          {dmLog?.status === 'sleeping'
+            ? `Бот в спящем режиме между проходами — следующий ${untilText(dmLog.nextPassAt)}. Нужен проход прямо сейчас — жми «Прогон сейчас».`
+            : 'Проход сейчас не идёт. Кнопка «Стоп» активна только во время прохода.'}
+        </p>
       )}
 
       <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">

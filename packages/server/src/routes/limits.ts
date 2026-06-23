@@ -102,10 +102,11 @@ export async function limitsRoutes(app: FastifyInstance) {
   app.get('/api/dm/log', async (req, reply) => {
     const userId = getUserId(app, req);
     if (!userId) return reply.code(401).send({ error: 'unauthorized' });
-    const [lines, lim, device] = await Promise.all([
+    const [lines, lim, device, lastPass] = await Promise.all([
       db.agentLog.findMany({ where: { userId }, orderBy: { at: 'desc' }, take: 50 }),
-      db.limits.findUnique({ where: { userId }, select: { stopAt: true, runNowAt: true, tabClosedAt: true, passStartedAt: true, calibrateAt: true, calibratedAt: true, calibrationInfo: true } }),
+      db.limits.findUnique({ where: { userId }, select: { stopAt: true, runNowAt: true, tabClosedAt: true, passStartedAt: true, sweepIntervalMinutes: true, calibrateAt: true, calibratedAt: true, calibrationInfo: true } }),
       db.device.findFirst({ where: { userId }, orderBy: { lastHeartbeat: 'desc' }, select: { lastHeartbeat: true, threadsLoggedIn: true } }),
+      db.agentPass.findFirst({ where: { userId }, orderBy: { at: 'desc' }, select: { at: true } }),
     ]);
     const now = Date.now();
     const online = !!device?.lastHeartbeat && now - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
@@ -113,14 +114,27 @@ export async function limitsRoutes(app: FastifyInstance) {
     const running = !!lim?.passStartedAt && now - new Date(lim.passStartedAt).getTime() < 5 * 60_000;
     // «Останавливается» — стоп нажат недавно (< 90с); потом метка считается отработанной/неактуальной.
     const stopPending = !!lim?.stopAt && now - new Date(lim.stopAt).getTime() < 90_000;
+    // «Спит» — между проходами: ждём кулдаун до следующего обхода (последний проход + интервал).
+    const intervalMs = Math.max(30, lim?.sweepIntervalMinutes ?? 180) * 60_000;
+    const nextPassAtMs = lastPass?.at ? new Date(lastPass.at).getTime() + intervalMs : 0;
+    const sleeping = !running && !stopPending && !lim?.runNowAt && nextPassAtMs > now;
     // Явный статус для интерфейса.
-    const status: 'offline' | 'stopping' | 'running' | 'idle' = !online ? 'offline' : stopPending ? 'stopping' : running ? 'running' : 'idle';
+    const status: 'offline' | 'stopping' | 'running' | 'sleeping' | 'idle' = !online
+      ? 'offline'
+      : stopPending
+        ? 'stopping'
+        : running
+          ? 'running'
+          : sleeping
+            ? 'sleeping'
+            : 'idle';
     return {
       lines: lines.reverse().map((l) => ({ level: l.level, text: l.text, at: l.at })), // в хронологическом порядке
       status,
       running,
       stopPending,
       runNowPending: !!lim?.runNowAt,
+      nextPassAt: nextPassAtMs ? new Date(nextPassAtMs).toISOString() : null,
       tabClosedAt: lim?.tabClosedAt ?? null,
       calibration: { pending: !!lim?.calibrateAt, at: lim?.calibratedAt ?? null, info: lim?.calibrationInfo ?? null },
       agent: { online, threadsLoggedIn: !!device?.threadsLoggedIn },
