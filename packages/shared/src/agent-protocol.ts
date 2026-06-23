@@ -51,6 +51,16 @@ export interface AgentResearch {
   runAt?: string | null; // «собрать сейчас»: метка, по которой агент запустит research вне расписания
 }
 
+/** ИИ-калибровка разметки под язык/вёрстку юзера: подписи кнопок, которые матчит рантайм. */
+export interface CalibrationConfig {
+  acceptLabels: string[]; // «Принять» запрос
+  unhideLabels: string[]; // «Показать» (для Скрытых — первый шаг)
+  dismissLabels: string[]; // «OK/Понятно/Продолжить» инфо-окна
+  declineLabels: string[]; // «Отклонить/Удалить/Заблокировать» — НЕ нажимать
+  lang?: string;
+  notes?: string;
+}
+
 /** Ответ сервера на запрос задач. */
 export interface AgentTasksResponse {
   /** Активен ли агент вообще (план оплачен, connection не отозван). */
@@ -62,6 +72,10 @@ export interface AgentTasksResponse {
   research?: AgentResearch;
   /** Холостой тест отбивки запрошен из дашборда (ISO) — расширение прогонит без отправки. */
   dmTestAt?: string | null;
+  /** «Перекалибровать» запрошено (ISO) ИЛИ калибровки ещё нет — расширение снимет вёрстку. */
+  calibrateAt?: string | null;
+  /** Готовая ИИ-калибровка разметки (если есть) — рантайм матчит кнопки по ней. */
+  calibration?: CalibrationConfig | null;
   /** Сколько секунд ждать до следующего опроса. */
   pollIntervalSec: number;
 }

@@ -226,6 +226,11 @@ async function ensureSchema() {
       "at" TIMESTAMP NOT NULL DEFAULT now()
     )`,
     'CREATE INDEX IF NOT EXISTS "AgentLog_userId_at_idx" ON "AgentLog" ("userId","at")',
+    // ИИ-калибровка разметки под язык/браузер/вёрстку юзера.
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "calibrateAt" TIMESTAMP',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "calibratedAt" TIMESTAMP',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "calibration" TEXT',
+    'ALTER TABLE "Limits" ADD COLUMN IF NOT EXISTS "calibrationInfo" TEXT',
   ];
   for (const sql of stmts) {
     try {

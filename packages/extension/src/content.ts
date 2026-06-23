@@ -14,9 +14,15 @@
 // Селекторы те же, что в bot.js (см. блок «ЕСЛИ НЕ РАБОТАЕТ» в исходнике). При
 // поломке вёрстки Threads чинить здесь.
 
-import { matchKeyword, type AgentTasksResponse, type AgentReplyEvent, type Keyword } from '@threadhunt/shared';
+import { matchKeyword, type AgentTasksResponse, type AgentReplyEvent, type Keyword, type CalibrationConfig } from '@threadhunt/shared';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Активная ИИ-калибровка кнопок (подписи под язык/вёрстку юзера). Обновляется из задач
+// на каждом шаге; рантайм матчит по ней «Принять»/«Показать»/«OK», избегая «Отклонить».
+let runtimeCalib: CalibrationConfig | null = null;
+const hasLabel = (b: HTMLElement, labels?: string[]): boolean =>
+  !!labels?.some((l) => l && b.innerText.toLowerCase().includes(l.toLowerCase()));
 const BASE = location.origin; // www.threads.com или www.threads.net
 
 // Строка в живой журнал событий (видно в дашборде «Что происходит на бэке»). Не критично:
@@ -261,8 +267,14 @@ function diagButtons(): string {
 }
 
 // Закрыть всплывающее инфо-окно (OK/Понятно/Продолжить), если оно есть. Возвращает true, если кликнули.
+// Сначала калиброванные подписи (под язык юзера), потом встроенные эвристики.
 function clickConfirm(): boolean {
-  const b = visibleButtons().find((x) => CONFIRM_RX.test((x.innerText || '').trim()));
+  const buttons = visibleButtons();
+  if (runtimeCalib?.dismissLabels?.length) {
+    const c = buttons.find((x) => hasLabel(x, runtimeCalib!.dismissLabels));
+    if (c) { c.click(); return true; }
+  }
+  const b = buttons.find((x) => CONFIRM_RX.test((x.innerText || '').trim()));
   if (b) { b.click(); return true; }
   return false;
 }
@@ -278,11 +290,19 @@ async function dismissWelcome(tries = 3): Promise<void> {
   }
 }
 
-// Нажать «Принять»: по словам (не «отклонить») или фолбэк — главная залитая кнопка.
+// Нажать «Принять»: ПРИОРИТЕТ — калиброванные ИИ-подписи (Принять/Показать) под язык юзера,
+// затем встроенные мультиязычные эвристики, затем фолбэк — главная залитая кнопка (не «отклонить»).
 function clickAccept(): boolean {
   const buttons = visibleButtons();
-  let target = buttons.find((b) => ACCEPT_RX.test(b.innerText) && !DECLINE_RX.test(b.innerText));
-  if (!target) target = buttons.find((b) => !DECLINE_RX.test(b.innerText) && !CONFIRM_RX.test(b.innerText) && isFilled(b));
+  const isDecline = (b: HTMLElement) => DECLINE_RX.test(b.innerText) || hasLabel(b, runtimeCalib?.declineLabels);
+  // 1) калиброванные подписи «Принять»/«Показать»
+  if (runtimeCalib) {
+    const t = buttons.find((b) => (hasLabel(b, runtimeCalib!.acceptLabels) || hasLabel(b, runtimeCalib!.unhideLabels)) && !isDecline(b));
+    if (t) { t.click(); return true; }
+  }
+  // 2) встроенные эвристики
+  let target = buttons.find((b) => ACCEPT_RX.test(b.innerText) && !isDecline(b));
+  if (!target) target = buttons.find((b) => !isDecline(b) && !CONFIRM_RX.test(b.innerText) && isFilled(b));
   if (target) { target.click(); return true; }
   return false;
 }
@@ -394,6 +414,7 @@ async function stepInner() {
   // закрываемся (finishSweep отчитается, сервер погасит stopAt, background закроет вкладку).
   if (sweep) {
     const t = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
+    runtimeCalib = t?.calibration ?? runtimeCalib; // подхватить ИИ-калибровку кнопок
     const stopTs = t?.limits?.stopAt ? Date.parse(t.limits.stopAt) : 0;
     if (stopTs && stopTs >= sweep.startedAt) {
       serverLog('⏹ Остановлено вручную — проход прерван', 'warn');
@@ -405,6 +426,8 @@ async function stepInner() {
   if (!sweep) {
     const tasks = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
     if (!tasks?.active || !tasks.searches.length) return;
+    runtimeCalib = tasks.calibration ?? runtimeCalib; // подхватить ИИ-калибровку кнопок
+    if (await getCalib()) return; // идёт калибровка разметки — проход не начинаем
     // Холостой тест отбивки из дашборда — приоритетнее обычного прохода.
     if (await maybeStartDmTest(tasks)) return;
     const lim = tasks.limits;
@@ -989,6 +1012,81 @@ async function dmTestWatcher() {
   if (tasks) await maybeStartDmTest(tasks);
 }
 
+// ───────────── ИИ-калибровка разметки: этап 1 (браузер/язык), этап 2 (снятие кнопок) ─────────────
+// Расширение открывает один экран запроса, снимает ВИДИМЫЕ кнопки (без текста переписки) и шлёт
+// на сервер → Claude определяет, какая «Принять»/«Показать»/«OK»/«Отклонить» под язык юзера.
+const CALIB_KEY = 'calib';
+type CalibState = { phase: 'list' | 'capture' };
+
+function detectBrowser(): string {
+  const ua = navigator.userAgent;
+  const brands = ((navigator as any).userAgentData?.brands || []).map((x: any) => x.brand).join(' ');
+  if (/YaBrowser/i.test(ua)) return 'Yandex';
+  if (/OPR|Opera/i.test(ua) || /Opera/i.test(brands)) return 'Opera';
+  if (/Edg/i.test(ua)) return 'Edge';
+  if (/Brave/i.test(brands) || (navigator as any).brave) return 'Brave';
+  if (/Arc/i.test(ua)) return 'Arc';
+  if (/Chrome/i.test(ua)) return 'Chrome';
+  return 'Chromium';
+}
+function uiLang(): string {
+  return (document.documentElement.lang || navigator.language || '').slice(0, 12);
+}
+// Снять видимые кнопки экрана (текст/aria/role/залитость) — БЕЗ текста переписки.
+function captureControls(): { text?: string; aria?: string; role?: string; filled?: boolean }[] {
+  return [...document.querySelectorAll<HTMLElement>('[role="button"], button')]
+    .filter((b) => b.offsetParent !== null)
+    .map((b) => ({
+      text: (b.innerText || '').trim().slice(0, 40),
+      aria: (b.getAttribute('aria-label') || b.querySelector('svg')?.getAttribute('aria-label') || '').slice(0, 40),
+      role: b.getAttribute('role') || b.tagName.toLowerCase(),
+      filled: isFilled(b),
+    }))
+    .filter((c) => (c.text && c.text.length < 30) || c.aria)
+    .slice(0, 40);
+}
+async function getCalib(): Promise<CalibState | null> {
+  const s = await chrome.storage.session.get(CALIB_KEY);
+  return (s[CALIB_KEY] as CalibState) || null;
+}
+async function setCalib(v: CalibState | null) {
+  if (v) await chrome.storage.session.set({ [CALIB_KEY]: v });
+  else await chrome.storage.session.remove(CALIB_KEY);
+}
+function sendCalibration() {
+  chrome.runtime.sendMessage({ type: 'calibrate', browser: detectBrowser(), lang: uiLang(), controls: captureControls() });
+}
+async function calibrationStep() {
+  if (!location.pathname.startsWith('/messages')) return;
+  const calib = await getCalib();
+  if (!calib) return;
+  if (await getSweep()) return; // идёт проход — калибровку отложим
+
+  if (calib.phase === 'list') {
+    await sleep(3000);
+    await dismissWelcome();
+    await scrollList(1);
+    // Берём первый чат «Запросов» (там есть кнопка приёма) — его и снимем (НЕ принимая).
+    const chats = collectChats('requests');
+    if (!chats.length) {
+      serverLog('🎯 Калибровка: нет открытых запросов — снимаю с текущего экрана', 'info');
+      sendCalibration();
+      await setCalib(null);
+      return;
+    }
+    await setCalib({ phase: 'capture' });
+    navigate(chats[0].href);
+    return;
+  }
+  if (calib.phase === 'capture') {
+    await sleep(3500);
+    sendCalibration(); // только читаем кнопки экрана запроса, НЕ принимаем
+    serverLog('🎯 Калибровка: снял кнопки экрана запроса, отправил на ИИ', 'info');
+    await setCalib(null);
+    return;
+  }
+}
+
 // Запуск шага после загрузки страницы (+ периодически на случай, если юзер «припарковался»).
 void step();
 setInterval(() => void step(), 30_000);
@@ -996,3 +1094,5 @@ void researchTick();
 setInterval(() => void researchTick(), 60_000);
 void dmTestWatcher();
 setInterval(() => void dmTestWatcher(), 20_000);
+void calibrationStep();
+setInterval(() => void calibrationStep(), 15_000);

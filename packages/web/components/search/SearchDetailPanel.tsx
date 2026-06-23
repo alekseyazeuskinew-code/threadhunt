@@ -462,6 +462,7 @@ type DmLog = {
   stopPending: boolean;
   runNowPending: boolean;
   tabClosedAt: string | null;
+  calibration: { pending: boolean; at: string | null; info: string | null };
   agent: { online: boolean; threadsLoggedIn: boolean };
 };
 
@@ -500,6 +501,20 @@ function DmPassCard({ searchId }: { searchId: string }) {
       setMsg('Не удалось остановить: ' + (e?.message || 'ошибка'));
     } finally {
       setStopping(false);
+    }
+  }
+
+  // ИИ-калибровка разметки под язык/браузер юзера (метка calibrateAt → расширение снимет вёрстку).
+  const [calibrating, setCalibrating] = useState(false);
+  async function recalibrate() {
+    setCalibrating(true);
+    try {
+      await api.post('/api/dm/recalibrate');
+      setMsg('🎯 Калибровка запущена — открой Threads, расширение само снимет разметку (10–20 сек).');
+    } catch (e: any) {
+      setMsg('Не удалось запустить калибровку: ' + (e?.message || 'ошибка'));
+    } finally {
+      setCalibrating(false);
     }
   }
 
@@ -676,6 +691,23 @@ function DmPassCard({ searchId }: { searchId: string }) {
           </div>
         </div>
       )}
+
+      {/* ИИ-калибровка разметки под язык/браузер пользователя */}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+        <div className="text-sm">
+          <span className="font-medium">Калибровка разметки (ИИ)</span>
+          <span className="ml-2 text-xs text-muted">
+            {dmLog?.calibration?.pending
+              ? 'идёт…'
+              : dmLog?.calibration?.at
+                ? `готова${dmLog.calibration.info ? ` · ${dmLog.calibration.info}` : ''} · ${relTime(dmLog.calibration.at)}`
+                : 'ещё не калибровалось — подгонит кнопки под твой язык/браузер'}
+          </span>
+        </div>
+        <Button size="sm" variant="soft" onClick={recalibrate} disabled={calibrating || dmLog?.calibration?.pending}>
+          <Sparkles size={14} /> {calibrating || dmLog?.calibration?.pending ? 'Калибрую…' : 'Перекалибровать'}
+        </Button>
+      </div>
 
       {/* Живой журнал событий + статус (что бот делает прямо сейчас) */}
       <div className="mt-4 border-t border-line pt-4">

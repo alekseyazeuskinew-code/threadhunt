@@ -11,9 +11,20 @@ import { fireWebhook } from '../webhook.js';
 import { applyDmWatermark } from '../branding.js';
 import { env } from '../env.js';
 import { notifyOwner, esc } from './telegram.js';
-import type { AgentTasksResponse, AgentSearchRule } from '@threadhunt/shared';
+import { calibrateSelectors, type ControlEl } from '../ai/calibrate.js';
+import type { AgentTasksResponse, AgentSearchRule, CalibrationConfig } from '@threadhunt/shared';
 
 const POLL_INTERVAL_SEC = 20;
+
+// Безопасный разбор сохранённой калибровки (JSON в Limits.calibration).
+function parseCalibration(s: string | null | undefined): CalibrationConfig | null {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as CalibrationConfig;
+  } catch {
+    return null;
+  }
+}
 
 // По Bearer device-token находим Device + владельца (User).
 async function authDevice(authHeader?: string) {
@@ -122,6 +133,8 @@ export async function agentRoutes(app: FastifyInstance) {
         runAt: lim.researchRunAt ? new Date(lim.researchRunAt).toISOString() : null,
       },
       dmTestAt: lim.dmTestAt ? new Date(lim.dmTestAt).toISOString() : null,
+      calibrateAt: lim.calibrateAt ? new Date(lim.calibrateAt).toISOString() : null,
+      calibration: parseCalibration(lim.calibration),
       pollIntervalSec: POLL_INTERVAL_SEC,
     };
     return res;
@@ -318,6 +331,40 @@ export async function agentRoutes(app: FastifyInstance) {
     await db.limits.updateMany({ where: { userId: device.userId }, data: { tabClosedAt: new Date() } });
     await db.agentLog.create({ data: { userId: device.userId, level: 'warn', text: 'Рабочая вкладка закрыта — проход прерван. Не закрывайте вкладку Threads до конца прохода.' } });
     return { ok: true };
+  });
+
+  // ИИ-калибровка разметки: расширение прислало ВИДИМЫЕ кнопки экрана запроса (без текста
+  // переписки) + браузер/язык → Claude определяет, какие из них «Принять/Показать/OK/Отклонить».
+  // Результат кладём в Limits.calibration, рантайм расширения матчит кнопки по нему.
+  const calibSchema = z.object({
+    browser: z.string().max(60).optional(),
+    lang: z.string().max(20).optional(),
+    controls: z
+      .array(z.object({ text: z.string().optional(), aria: z.string().optional(), role: z.string().optional(), filled: z.boolean().optional() }))
+      .max(60)
+      .default([]),
+  });
+  app.post('/api/agent/calibrate', async (req, reply) => {
+    const device = await authDevice(req.headers.authorization);
+    if (!device) return reply.code(401).send({ error: 'unauthorized' });
+    const parsed = calibSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'bad request' });
+    const { browser, lang, controls } = parsed.data;
+    const config = await calibrateSelectors(controls as ControlEl[], lang);
+    if (!config) {
+      // ИИ недоступен/не распознал — снимаем триггер, чтобы не зацикливать; рантайм на эвристиках.
+      await db.limits.updateMany({ where: { userId: device.userId }, data: { calibrateAt: null } });
+      await db.agentLog.create({ data: { userId: device.userId, level: 'warn', text: 'Калибровка: ИИ не дал результат — работаю на встроенных правилах кнопок.' } });
+      return { ok: false };
+    }
+    await db.limits.updateMany({
+      where: { userId: device.userId },
+      data: { calibration: JSON.stringify(config), calibratedAt: new Date(), calibrationInfo: [browser, lang].filter(Boolean).join(' · '), calibrateAt: null },
+    });
+    await db.agentLog.create({
+      data: { userId: device.userId, level: 'info', text: `🎯 Калибровка готова (${[browser, config.lang || lang].filter(Boolean).join(' · ')}): «Принять» = ${config.acceptLabels.slice(0, 3).join(', ') || '—'}` },
+    });
+    return { ok: true, calibration: config };
   });
 
   // Heartbeat — «агент онлайн» в дашборде.

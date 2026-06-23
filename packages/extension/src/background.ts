@@ -82,6 +82,49 @@ async function tick() {
   await maybeRunResearchInBackground(tasks);
   await maybeRunSweepInBackground(tasks);
   await maybeRunScheduledSweep(tasks);
+  await maybeRunCalibration(tasks);
+}
+
+// ИИ-калибровка разметки: если запрошена вручную (calibrateAt) ИЛИ калибровки ещё нет —
+// открываем фоновую вкладку «Запросы», content-script снимет кнопки экрана и пришлёт на ИИ.
+async function maybeRunCalibration(tasks: AgentTasksResponse) {
+  const { calibTabId, calibTabOpenedAt } = await chrome.storage.local.get(['calibTabId', 'calibTabOpenedAt']);
+  if (calibTabId != null) {
+    if (calibTabOpenedAt && Date.now() - calibTabOpenedAt > 3 * 60_000) await closeCalibTab(); // таймаут
+    return;
+  }
+  if (!tasks.active) return;
+  // Не мешаем другим фоновым окнам.
+  const { scheduledSweepTabId, sweepTabId, testTabId, researchTabId } = await chrome.storage.local.get(['scheduledSweepTabId', 'sweepTabId', 'testTabId', 'researchTabId']);
+  if (scheduledSweepTabId != null || sweepTabId != null || testTabId != null || researchTabId != null) return;
+
+  const manualTs = tasks.calibrateAt ? Date.parse(tasks.calibrateAt) : 0;
+  const { calibHandledAt, calibAutoTriedAt } = await chrome.storage.local.get(['calibHandledAt', 'calibAutoTriedAt']);
+  const isManual = !!manualTs && manualTs !== calibHandledAt;
+  // Авто-калибровка: если её ещё нет, делаем один заход (и не чаще раза в 6ч, чтобы не зацикливать).
+  const needAuto = !tasks.calibration && !!tasks.searches?.length && (!calibAutoTriedAt || Date.now() - calibAutoTriedAt > 6 * 3600_000);
+  if (!isManual && !needAuto) return;
+
+  await chrome.storage.session.set({ calib: { phase: 'list' } });
+  try {
+    const { windowId, tabId } = await openWorkWindow('https://www.threads.com/messages/requests');
+    await chrome.storage.local.set({
+      calibWindowId: windowId,
+      calibTabId: tabId,
+      calibTabOpenedAt: Date.now(),
+      calibAutoTriedAt: Date.now(),
+      ...(isManual ? { calibHandledAt: manualTs } : {}),
+    });
+  } catch {
+    /* не удалось открыть окно */
+  }
+}
+
+async function closeCalibTab() {
+  const { calibWindowId, calibTabId } = await chrome.storage.local.get(['calibWindowId', 'calibTabId']);
+  await chrome.storage.local.remove(['calibWindowId', 'calibTabId', 'calibTabOpenedAt']);
+  await chrome.storage.session.remove('calib');
+  await closeWorkWindow(calibWindowId, calibTabId);
 }
 
 // Сейчас рабочее время? (окно «HH:MM», локальное время). Дубль логики content-script,
@@ -291,6 +334,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'log') {
     // Строка живого журнала событий от content-script → сервер (дашборд её покажет).
     void authed('/api/agent/log', { method: 'POST', body: JSON.stringify({ level: msg.level || 'info', text: String(msg.text || '').slice(0, 300) }) });
+  }
+  if (msg?.type === 'calibrate') {
+    // Снятые кнопки экрана запроса → сервер (Claude определит «Принять/Показать/OK/Отклонить»).
+    void authed('/api/agent/calibrate', { method: 'POST', body: JSON.stringify({ browser: msg.browser, lang: msg.lang, controls: msg.controls || [] }) }).then(() => void tick());
+    void closeCalibTab();
   }
   if (msg?.type === 'cmd') {
     // Команда из дашборда (напр. «собрать сейчас») — мгновенно тикаем, не ждём будильник.

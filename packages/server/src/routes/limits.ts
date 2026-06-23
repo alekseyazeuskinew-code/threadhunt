@@ -90,13 +90,21 @@ export async function limitsRoutes(app: FastifyInstance) {
     return { ok: true, stopAt: l.stopAt };
   });
 
+  // «Перекалибровать»: метка — расширение снимет вёрстку экрана запроса и отправит на ИИ.
+  app.post('/api/dm/recalibrate', async (req, reply) => {
+    const userId = getUserId(app, req);
+    if (!userId) return reply.code(401).send({ error: 'unauthorized' });
+    const l = await db.limits.upsert({ where: { userId }, create: { userId, calibrateAt: new Date() }, update: { calibrateAt: new Date() } });
+    return { ok: true, calibrateAt: l.calibrateAt };
+  });
+
   // Живой журнал событий отбивки (дашборд опрашивает раз в несколько секунд).
   app.get('/api/dm/log', async (req, reply) => {
     const userId = getUserId(app, req);
     if (!userId) return reply.code(401).send({ error: 'unauthorized' });
     const [lines, lim, device] = await Promise.all([
       db.agentLog.findMany({ where: { userId }, orderBy: { at: 'desc' }, take: 50 }),
-      db.limits.findUnique({ where: { userId }, select: { stopAt: true, runNowAt: true, tabClosedAt: true } }),
+      db.limits.findUnique({ where: { userId }, select: { stopAt: true, runNowAt: true, tabClosedAt: true, calibrateAt: true, calibratedAt: true, calibrationInfo: true } }),
       db.device.findFirst({ where: { userId }, orderBy: { lastHeartbeat: 'desc' }, select: { lastHeartbeat: true, threadsLoggedIn: true } }),
     ]);
     const online = !!device?.lastHeartbeat && Date.now() - new Date(device.lastHeartbeat).getTime() < 3 * 60_000;
@@ -105,6 +113,7 @@ export async function limitsRoutes(app: FastifyInstance) {
       stopPending: !!lim?.stopAt,
       runNowPending: !!lim?.runNowAt,
       tabClosedAt: lim?.tabClosedAt ?? null,
+      calibration: { pending: !!lim?.calibrateAt, at: lim?.calibratedAt ?? null, info: lim?.calibrationInfo ?? null },
       agent: { online, threadsLoggedIn: !!device?.threadsLoggedIn },
     };
   });
