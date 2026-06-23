@@ -4,7 +4,7 @@
 // подключено без копипаста. Затем шлём подтверждение обратно в страницу.
 
 interface PairMsg {
-  source: 'threadhunt-pair' | 'threadhunt-cmd';
+  source: 'threadhunt-pair' | 'threadhunt-cmd' | 'threadhunt-ping';
   token?: string;
   api?: string;
   cmd?: string;
@@ -14,6 +14,12 @@ window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   const data = e.data as PairMsg | undefined;
   if (!data) return;
+  // Пинг присутствия: дашборд при каждом заходе на «Подключения» (в т.ч. SPA-переход
+  // без перезагрузки) спрашивает «ты тут?» — отвечаем, чтобы статус не сбрасывался.
+  if (data.source === 'threadhunt-ping') {
+    window.postMessage({ source: 'threadhunt-present' }, location.origin);
+    return;
+  }
   // Спаривание.
   if (data.source === 'threadhunt-pair' && data.token) {
     chrome.storage.local.set({ token: data.token, api: data.api || 'http://localhost:3010' }, () => {

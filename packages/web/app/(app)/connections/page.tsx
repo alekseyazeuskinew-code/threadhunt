@@ -129,7 +129,7 @@ export default function ConnectionsPage() {
     const NOTE: Record<string, { ok: boolean; text: string }> = {
       'threads:connected': { ok: true, text: 'Threads подключён через OAuth ✓' },
       'threads:error': { ok: false, text: 'Не удалось подключить Threads. Попробуйте ещё раз или вставьте токен вручную.' },
-      'threads:unconfigured': { ok: false, text: 'Вход через Threads ещё не настроен (приложение на модерации Meta). Пока используйте ручной токен.' },
+      'threads:unconfigured': { ok: false, text: 'Вход через Threads ещё не настроен на сервере (нет ключей приложения). Пока используйте ручной токен.' },
       'meta:connected': { ok: true, text: 'Рекламный кабинет Meta подключён ✓' },
       'meta:error': { ok: false, text: 'Не удалось подключить Meta. Попробуйте ещё раз или укажите кабинет вручную.' },
       'meta:unconfigured': { ok: false, text: 'Вход через Meta ещё не настроен (приложение на модерации). Пока укажите кабинет вручную.' },
@@ -148,8 +148,23 @@ export default function ConnectionsPage() {
       }
     };
     window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
+    // Спрашиваем расширение «ты тут?» — оно ответит 'threadhunt-present'. Нужно для SPA-переходов
+    // (без перезагрузки content-script не перезапускается и сам не объявляется → статус сбрасывался).
+    const ping = () => window.postMessage({ source: 'threadhunt-ping' }, location.origin);
+    ping();
+    const pingTimer = setInterval(ping, 4000);
+    setTimeout(() => clearInterval(pingTimer), 20_000); // первые 20с добиваемся ответа, дальше не спамим
+    return () => {
+      window.removeEventListener('message', onMsg);
+      clearInterval(pingTimer);
+    };
   }, []);
+
+  // Если есть онлайн-устройство (серверная правда), расширение точно установлено —
+  // не показываем «установите расширение» даже до ответа на пинг (анти-мигание при переходах).
+  useEffect(() => {
+    if (devices?.some((d) => d.online)) setExtPresent(true);
+  }, [devices]);
 
   // Авто-обновление статуса устройств — клиенту не нужно жать F5, чтобы увидеть «онлайн».
   useEffect(() => {

@@ -129,6 +129,20 @@ export function SearchDetailPanel({ id, onChanged }: { id: string; onChanged?: (
   const [tab, setTab] = useState<TabKey>('overview');
   const [celebrate, setCelebrate] = useState(false); // анимация запуска сбора
 
+  // Запоминаем активную вкладку, чтобы перезагрузка окна не сбрасывала на «Обзор».
+  // Восстанавливаем в effect (а не в инициализаторе) — без рассинхрона гидрации SSR.
+  useEffect(() => {
+    const v = localStorage.getItem('th_search_tab');
+    if (v === 'overview' || v === 'baits' || v === 'otbivka' || v === 'leads') setTab(v as TabKey);
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('th_search_tab', tab);
+    } catch {
+      /* ignore */
+    }
+  }, [tab]);
+
   async function load() {
     setS(await api.get<SearchDetail>(`/api/searches/${id}`));
   }
@@ -1989,12 +2003,28 @@ function LeadsAndOnboardingTab({ s, reload, id }: { s: SearchDetail; reload: () 
 
 function LeadsList({ id }: { id: string }) {
   const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     api.get<Lead[]>(`/api/searches/${id}/leads`).then(setLeads);
   }, [id]);
   if (!leads) return <div className="text-muted">Загрузка…</div>;
   if (!leads.length) return <div className="text-sm text-muted">Пока лидов нет. Появятся, как только кто-то напишет кодовое слово.</div>;
-  return <LeadTable leads={leads} showSearch={false} />;
+  // По умолчанию показываем 5 последних, чтобы список не растягивал страницу и не отодвигал
+  // онбординг. Разворот — со скроллом внутри (страница не «едет» вниз).
+  const LIMIT = 5;
+  const shown = expanded ? leads : leads.slice(0, LIMIT);
+  return (
+    <div className="space-y-2">
+      <div className={cn(expanded && leads.length > 10 && 'max-h-[480px] overflow-y-auto rounded-2xl')}>
+        <LeadTable leads={shown} showSearch={false} />
+      </div>
+      {leads.length > LIMIT && (
+        <button onClick={() => setExpanded((v) => !v)} className="text-sm font-medium text-accent-ink hover:underline">
+          {expanded ? '← Свернуть' : `Показать все (${leads.length}) →`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void }) {
@@ -2188,8 +2218,10 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
     }
   };
 
+  // Раскладка: ТЕЛЕФОН-превью — сбоку справа (узкое, не мешает настройкам);
+  // ПК-превью широкое → уводим его ПОД настройки на всю ширину, чтобы не сужать редактор.
   return (
-    <div className="lg:flex lg:gap-6">
+    <div className={cn('lg:gap-6', device === 'phone' && 'lg:flex')}>
       <div className="min-w-0 space-y-5 lg:flex-1">
       <div className="rounded-2xl border border-line bg-panel p-4">
         <div className="flex items-center justify-between">
@@ -2313,8 +2345,11 @@ function OnboardingSection({ s, reload }: { s: SearchDetail; reload: () => void 
 
       {/* ── ПРАВО: живое превью (десктоп) — обновляется на каждое изменение слева.
           Ширина колонки зависит от устройства: телефон ~380, компьютер ~760. ── */}
-      <div className="mt-6 hidden shrink-0 lg:mt-0 lg:block" style={{ width: device === 'desktop' ? 760 : 380 }}>
-        <div className="sticky top-4 space-y-3">
+      <div
+        className={cn('hidden lg:block', device === 'desktop' ? 'mt-8 w-full' : 'mt-6 shrink-0 lg:mt-0')}
+        style={device === 'desktop' ? undefined : { width: 380 }}
+      >
+        <div className={cn('space-y-3', device === 'phone' && 'sticky top-4')}>
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">Превью вживую</div>
             <div className="flex rounded-full border border-line p-0.5 text-xs">
