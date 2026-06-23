@@ -74,6 +74,61 @@ async function tick() {
   await maybeRunTestInBackground(tasks);
   await maybeRunResearchInBackground(tasks);
   await maybeRunSweepInBackground(tasks);
+  await maybeRunScheduledSweep(tasks);
+}
+
+// Сейчас рабочее время? (окно «HH:MM», локальное время). Дубль логики content-script,
+// чтобы не открывать фоновую вкладку ночью.
+function withinWorkingHours(wh?: { enabled: boolean; from: string; to: string }): boolean {
+  if (!wh || !wh.enabled) return true;
+  const d = new Date();
+  const cur = d.getHours() * 60 + d.getMinutes();
+  const [fh, fm] = wh.from.split(':').map(Number);
+  const [th, tm] = wh.to.split(':').map(Number);
+  const from = fh * 60 + fm;
+  const to = th * 60 + tm;
+  return from <= to ? cur >= from && cur <= to : cur >= from || cur <= to; // через полночь
+}
+
+// ПЛАНОВЫЙ обход директа БЕЗ участия клиента. Раньше периодическая отбивка шла только
+// если у юзера была открыта вкладка /messages. Теперь, когда подошёл срок, background
+// сам открывает ФОНОВУЮ свёрнутую вкладку Threads/Сообщения — content-script делает
+// проход и закрывает её (тот же приём, что «Прогон сейчас»/тест). Так расширению больше
+// не нужно держать вкладку вручную. Единый источник кулдауна — storage.session.lastSweepAt,
+// который пишет content-script (без рассинхрона с его же проверкой).
+async function maybeRunScheduledSweep(tasks: AgentTasksResponse) {
+  // Уже открыта плановая вкладка? Закрываем по таймауту, иначе ждём её завершения.
+  const { scheduledSweepTabId, scheduledSweepOpenedAt } = await chrome.storage.local.get(['scheduledSweepTabId', 'scheduledSweepOpenedAt']);
+  if (scheduledSweepTabId != null) {
+    if (scheduledSweepOpenedAt && Date.now() - scheduledSweepOpenedAt > 4 * 60_000) await closeScheduledSweepTab();
+    return;
+  }
+  // Не мешаем другим фоновым окнам (прогон сейчас / тест / research).
+  const { sweepTabId, testTabId, researchTabId } = await chrome.storage.local.get(['sweepTabId', 'testTabId', 'researchTabId']);
+  if (sweepTabId != null || testTabId != null || researchTabId != null) return;
+
+  const lim = tasks.limits;
+  if (!tasks.active || !tasks.searches?.length) return;
+  if (lim?.runNowAt) return; // «прогон сейчас» обрабатывается отдельным путём
+  if (!withinWorkingHours(lim?.workingHours)) return;
+  if (lim && (lim.repliesRemainingToday ?? 0) <= 0 && !lim.safeMode) return;
+
+  const cooldownMs = Math.max(30, lim?.sweepIntervalMinutes ?? 180) * 60_000;
+  const { lastSweepAt } = await chrome.storage.session.get('lastSweepAt');
+  if (lastSweepAt && Date.now() - lastSweepAt < cooldownMs) return; // ещё не пора
+
+  try {
+    const { windowId, tabId } = await openWorkWindow('https://www.threads.com/messages/');
+    await chrome.storage.local.set({ scheduledSweepWindowId: windowId, scheduledSweepTabId: tabId, scheduledSweepOpenedAt: Date.now() });
+  } catch {
+    /* не удалось открыть окно */
+  }
+}
+
+async function closeScheduledSweepTab() {
+  const { scheduledSweepWindowId, scheduledSweepTabId } = await chrome.storage.local.get(['scheduledSweepWindowId', 'scheduledSweepTabId']);
+  await closeWorkWindow(scheduledSweepWindowId, scheduledSweepTabId);
+  await chrome.storage.local.remove(['scheduledSweepWindowId', 'scheduledSweepTabId', 'scheduledSweepOpenedAt']);
 }
 
 // «Прогон сейчас»: если дашборд запросил немедленный обход (limits.runNowAt), сами
@@ -212,6 +267,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     void authed('/api/agent/pass', { method: 'POST', body: JSON.stringify(msg.report || {}) }).then(() => {
       void tick(); // подтянуть свежие настройки (в т.ч. сброшенный runNowAt)
     });
+    void closeScheduledSweepTab(); // если проход шёл в плановой фоновой вкладке — закрыть её
   }
   if (msg?.type === 'cmd') {
     // Команда из дашборда (напр. «собрать сейчас») — мгновенно тикаем, не ждём будильник.
