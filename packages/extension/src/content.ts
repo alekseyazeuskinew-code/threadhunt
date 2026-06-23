@@ -242,6 +242,17 @@ function clickConfirm(): boolean {
   return false;
 }
 
+// Закрыть одноразовое окно-приветствие директа («Direct messages have arrived on
+// web» / «Продолжить»/«Continue» на любом языке). ПОРТ dismissWelcome из рабочего
+// bot.js: без него попап висит ПОВЕРХ списка чатов на фазах прогрева/сбора, сбор
+// находит 0 и отбивка «молчит». Попап появляется с задержкой → пара попыток.
+async function dismissWelcome(tries = 3): Promise<void> {
+  for (let i = 0; i < tries; i++) {
+    if (clickConfirm()) { await sleep(1200); return; }
+    await sleep(700);
+  }
+}
+
 // Нажать «Принять»: по словам (не «отклонить») или фолбэк — главная залитая кнопка.
 function clickAccept(): boolean {
   const buttons = visibleButtons();
@@ -357,6 +368,7 @@ async function step() {
   // Прогрев: мы на /messages/ — теперь можно безопасно идти в Запросы (D.10).
   if (sweep.phase === 'warmup') {
     await sleep(2500);
+    await dismissWelcome(); // закрыть welcome-попап, иначе он перекроет список (порт bot.js)
     sweep.phase = 'collect';
     sweep.sectionIdx = 0;
     sweep.expectPath = sweep.sections[0].url;
@@ -378,6 +390,7 @@ async function step() {
   if (sweep.phase === 'collect') {
     const sec = sweep.sections[sweep.sectionIdx];
     await sleep(3500);
+    await dismissWelcome(); // в каждой секции: welcome/инфо-попап перекрывает чаты (порт bot.js)
     await scrollList();
     const seen = new Set(sweep.seenIds);
     const repliedKeys = new Set(sweep.repliedKeys);
@@ -458,6 +471,7 @@ async function step() {
     } else {
       // Основной директ: открыть, прочитать последнее сообщение, проверить направление.
       sweep.scanned = (sweep.scanned || 0) + 1;
+      await dismissWelcome(); // welcome-попап перекрывает и поле ввода, и сообщения (порт bot.js)
       const last = readLastMessage(false);
       if (last && last.incoming) {
         const matched = matchKeyword(last.text, sweep.keywords);
