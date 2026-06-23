@@ -83,6 +83,59 @@ async function tick() {
   await maybeRunSweepInBackground(tasks);
   await maybeRunScheduledSweep(tasks);
   await maybeRunCalibration(tasks);
+  await maybeRunComments(tasks);
+}
+
+// Авто-обход КОММЕНТАРИЕВ под нашими постами (путь B). Открываем фоновую вкладку с первым
+// нашим постом, content-script сканит комменты и отвечает, потом идёт к следующему посту.
+// Кулдаун/лимит/часы — те же, что у директа (общий дневной потолок).
+async function maybeRunComments(tasks: AgentTasksResponse) {
+  const { commentTabId, commentTabOpenedAt } = await chrome.storage.local.get(['commentTabId', 'commentTabOpenedAt']);
+  if (commentTabId != null) {
+    if (commentTabOpenedAt && Date.now() - commentTabOpenedAt > 14 * 60_000) await closeCommentTab();
+    return;
+  }
+  if (!tasks.active) return;
+  const posts = tasks.commentPosts || [];
+  if (!posts.length) return;
+  // Не мешаем другим фоновым окнам.
+  const { scheduledSweepTabId, sweepTabId, testTabId, researchTabId, calibTabId } = await chrome.storage.local.get(['scheduledSweepTabId', 'sweepTabId', 'testTabId', 'researchTabId', 'calibTabId']);
+  if (scheduledSweepTabId != null || sweepTabId != null || testTabId != null || researchTabId != null || calibTabId != null) return;
+  const lim = tasks.limits;
+  if (lim?.runNowAt) return; // идёт прогон директа — не конкурируем за вкладку
+  if (!withinWorkingHours(lim?.workingHours)) return;
+  if (lim && (lim.repliesRemainingToday ?? 0) <= 0 && !lim.safeMode) return;
+  const cooldownMs = Math.max(30, lim?.sweepIntervalMinutes ?? 180) * 60_000;
+  const { lastCSweepAt } = await chrome.storage.session.get('lastCSweepAt');
+  if (lastCSweepAt && Date.now() - lastCSweepAt < cooldownMs) return;
+
+  await chrome.storage.session.set({
+    csweep: {
+      phase: 'process',
+      startedAt: Date.now(),
+      posts,
+      postIdx: 0,
+      attempted: [],
+      sent: 0,
+      scanned: 0,
+      repliesLeft: lim?.repliesRemainingToday ?? 40,
+      minDelayMs: lim?.minDelayMs ?? 8000,
+      dryRun: !!lim?.safeMode,
+    },
+  });
+  try {
+    const { windowId, tabId } = await openWorkWindow(posts[0]);
+    await chrome.storage.local.set({ commentWindowId: windowId, commentTabId: tabId, commentTabOpenedAt: Date.now() });
+  } catch {
+    await chrome.storage.session.remove('csweep');
+  }
+}
+
+async function closeCommentTab() {
+  const { commentWindowId, commentTabId } = await chrome.storage.local.get(['commentWindowId', 'commentTabId']);
+  await chrome.storage.local.remove(['commentWindowId', 'commentTabId', 'commentTabOpenedAt']);
+  await chrome.storage.session.remove('csweep');
+  await closeWorkWindow(commentWindowId, commentTabId);
 }
 
 // ИИ-калибровка разметки: если запрошена вручную (calibrateAt) ИЛИ калибровки ещё нет —
@@ -330,6 +383,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       void tick(); // подтянуть свежие настройки (в т.ч. сброшенный runNowAt)
     });
     void closeScheduledSweepTab(); // если проход шёл в плановой фоновой вкладке — закрыть её
+    void closeCommentTab(); // если это был проход по комментариям — закрыть его вкладку
   }
   if (msg?.type === 'log') {
     // Строка живого журнала событий от content-script → сервер (дашборд её покажет).

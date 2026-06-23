@@ -1,7 +1,7 @@
 import type { Lead } from '@/lib/types';
 import { Badge } from './ui/Badge';
 
-const sectionLabel: Record<string, string> = { requests: 'Запросы', hidden: 'Скрытые', main: 'Основной' };
+const sectionLabel: Record<string, string> = { requests: 'Запросы', hidden: 'Скрытые', main: 'Основной', comment: 'Комментарий' };
 
 // Таблица лидов — используется и в детали поиска, и на странице «Лиды».
 // onSelect (опц.) делает строки кликабельными — чтобы из списка открывать карточку лида.

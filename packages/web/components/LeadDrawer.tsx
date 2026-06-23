@@ -99,7 +99,7 @@ export function LeadDrawer({ id, onClose, onChanged }: { id: string | null; onCl
             <div className="space-y-4 border-b border-line p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone="accent">{lead.matchedKeyword}</Badge>
-                {lead.section && <Badge>{lead.section === 'requests' ? 'Запросы' : lead.section === 'hidden' ? 'Скрытые' : 'Основной'}</Badge>}
+                {lead.section && <Badge>{lead.section === 'requests' ? 'Запросы' : lead.section === 'hidden' ? 'Скрытые' : lead.section === 'comment' ? 'Комментарий' : 'Основной'}</Badge>}
                 {(() => {
                   const contact = lead.candidateContact || lead.contact || '';
                   const href = contactHref(contact);

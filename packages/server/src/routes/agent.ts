@@ -72,6 +72,7 @@ export async function agentRoutes(app: FastifyInstance) {
         keywords: true,
         replyTemplates: { orderBy: { order: 'asc' } },
         publishConfig: true,
+        commentRules: { where: { enabled: true }, take: 1 }, // правило авто-ответа на комментарии (если включено)
         // В «уже отвечали» — только УСПЕШНО отвеченные (REPLIED). Лиды со статусом FAILED
         // (не прошёл приём/отправка) НЕ исключаем — расширение попробует ответить им снова.
         leads: { where: { status: 'REPLIED' }, select: { fromUserKey: true } },
@@ -101,7 +102,24 @@ export async function agentRoutes(app: FastifyInstance) {
       maxRepliesPerDay: lim.maxRepliesPerDay,
       // Персональная ссылка онбординга в ответ (если включено в настройках поиска).
       obLink: s.obEnabled && s.obLinkInReply ? `${env.WEB_ORIGIN}/api/c/by/${s.id}/` : undefined,
+      // Авто-ответ на комментарии (через расширение): правило + текст под вотермарк тарифа.
+      commentRule: s.commentRules?.[0]
+        ? { enabled: true, mode: (s.commentRules[0].mode as 'keyword' | 'all') || 'keyword', replyText: applyDmWatermark(s.commentRules[0].replyText || '', plan) }
+        : undefined,
     }));
+
+    // Если где-то включён авто-ответ на комментарии — отдаём permalinks наших недавних
+    // постов, где расширение будет их сканировать (путь B, без API-скоупов на комментарии).
+    let commentPosts: string[] = [];
+    if (rules.some((r) => r.commentRule?.enabled)) {
+      const posts = await db.publishedPost.findMany({
+        where: { search: { userId: device.userId }, ok: true, permalink: { not: null }, createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        select: { permalink: true },
+      });
+      commentPosts = posts.map((p) => p.permalink).filter((x): x is string => !!x);
+    }
 
     const res: AgentTasksResponse = {
       active: true,
@@ -133,6 +151,7 @@ export async function agentRoutes(app: FastifyInstance) {
         runAt: lim.researchRunAt ? new Date(lim.researchRunAt).toISOString() : null,
       },
       dmTestAt: lim.dmTestAt ? new Date(lim.dmTestAt).toISOString() : null,
+      commentPosts,
       calibrateAt: lim.calibrateAt ? new Date(lim.calibrateAt).toISOString() : null,
       calibration: parseCalibration(lim.calibration),
       pollIntervalSec: POLL_INTERVAL_SEC,

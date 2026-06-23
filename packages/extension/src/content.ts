@@ -1021,6 +1021,158 @@ async function dmTestWatcher() {
   if (tasks) await maybeStartDmTest(tasks);
 }
 
+// ═════════════ Авто-ответ на КОММЕНТАРИИ под нашими постами (путь B, без API-скоупов) ═════════════
+// Открываем наши опубликованные посты (permalinks с сервера), сканим комменты, матчим кодовое
+// слово (или mode 'all'), жмём «Ответить» и отвечаем. Дедуп/лимит — через лиды (section='comment',
+// fromUserKey = id коммента): сервер сам не даёт ответить дважды и считает общий дневной лимит.
+// Кнопка «Ответить» — мультиязычно + калибровка как фолбэк. Селекторы best-effort (вёрстка
+// меняется) — при сбое пишем в журнал снятые кнопки для точечной починки.
+const CSWEEP_KEY = 'csweep';
+const LAST_CSWEEP_KEY = 'lastCSweepAt';
+const REPLY_RX = /(reply|ответить|відповісти|rispondi|responder|répondre|antworten|yanıtla|cevapla|antwoorden|odpowiedz)/i;
+
+interface CSweep {
+  phase: 'process';
+  startedAt: number;
+  posts: string[]; // permalinks наших постов
+  postIdx: number;
+  attempted: string[]; // id комментов, которым уже пытались ответить в этом проходе
+  sent: number;
+  scanned: number;
+  repliesLeft: number;
+  minDelayMs: number;
+  dryRun?: boolean;
+}
+
+async function getCSweep(): Promise<CSweep | null> {
+  const s = await chrome.storage.session.get(CSWEEP_KEY);
+  return (s[CSWEEP_KEY] as CSweep) || null;
+}
+async function setCSweep(v: CSweep | null) {
+  if (v) await chrome.storage.session.set({ [CSWEEP_KEY]: v });
+  else await chrome.storage.session.remove(CSWEEP_KEY);
+}
+
+// Найти кнопку «Ответить» внутри контейнера коммента (калибровка → мультиязычная эвристика).
+function findReplyButton(container: HTMLElement): HTMLElement | null {
+  const btns = [...container.querySelectorAll<HTMLElement>('[role="button"], button')].filter((b) => b.offsetParent !== null);
+  // калиброванные подписи (если в калибровке есть что-то про «ответить» — кладём в acceptLabels не годится;
+  // используем общий REPLY_RX по тексту/aria)
+  for (const b of btns) {
+    const label = (b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.querySelector('svg')?.getAttribute('aria-label') || '');
+    if (REPLY_RX.test(label) && !DECLINE_RX.test(label)) return b;
+  }
+  return null;
+}
+
+// Собрать комментарии на странице поста: контейнеры, кроме корневого поста (первый).
+function captureComments(): { id: string; author: string; text: string; el: HTMLElement }[] {
+  const out: { id: string; author: string; text: string; el: HTMLElement }[] = [];
+  const seen = new Set<string>();
+  const containers = [...document.querySelectorAll<HTMLElement>('[data-pressable-container="true"]')];
+  // Первый контейнер обычно — сам наш пост; комменты идут дальше.
+  for (let i = 1; i < containers.length; i++) {
+    const c = containers[i];
+    const link = c.querySelector<HTMLAnchorElement>('a[href*="/post/"]');
+    const id = (link?.getAttribute('href')?.match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1];
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const author = (c.querySelector<HTMLAnchorElement>('a[href^="/@"]')?.getAttribute('href') || '').replace(/^\/@/, '').split('/')[0];
+    // Текст коммента — самый длинный dir=auto без ника/даты.
+    let text = '';
+    for (const n of c.querySelectorAll<HTMLElement>('div[dir="auto"], span[dir="auto"]')) {
+      const t = (n.innerText || '').replace(/\s+/g, ' ').trim();
+      if (t.length > text.length && t !== author) text = t;
+    }
+    out.push({ id, author, text, el: c });
+  }
+  return out;
+}
+
+let commentRunning = false;
+async function commentStep() {
+  if (commentRunning) return;
+  // Работаем только на странице поста (есть /post/ в пути).
+  if (!/\/post\//.test(location.pathname)) return;
+  const cs = await getCSweep();
+  if (!cs) return;
+  commentRunning = true;
+  try {
+    chrome.runtime.sendMessage({ type: 'heartbeat', threadsLoggedIn: isLoggedIn() });
+    const tasks = (await chrome.runtime.sendMessage({ type: 'getTasks' })) as AgentTasksResponse | null;
+    runtimeCalib = tasks?.calibration ?? runtimeCalib;
+
+    // «Стоп» прерывает и комментарии.
+    const stopTs = tasks?.limits?.stopAt ? Date.parse(tasks.limits.stopAt) : 0;
+    if (stopTs && stopTs >= cs.startedAt) {
+      serverLog('⏹ Остановлено вручную — обход комментариев прерван', 'warn');
+      return finishCSweep(cs);
+    }
+
+    // Правила комментариев + дедуп (уже отвеченные) из задач.
+    const rules = (tasks?.searches || [])
+      .filter((s) => s.commentRule?.enabled)
+      .map((s) => ({ searchId: s.searchId, keywords: s.keywords, mode: s.commentRule!.mode, replyText: s.commentRule!.replyText }));
+    const alreadyReplied = new Set((tasks?.searches || []).flatMap((s) => s.alreadyReplied));
+    if (!rules.length) return finishCSweep(cs);
+
+    await sleep(3000);
+    await dismissWelcome();
+    await scrollList(3); // подгрузить комменты
+
+    const comments = captureComments();
+    for (const cm of comments) {
+      if (cs.sent >= cs.repliesLeft) break;
+      if (cs.attempted.includes(cm.id) || alreadyReplied.has(cm.id)) continue;
+      // Кому отвечаем: первое правило, чьё условие совпало.
+      let hit: { searchId: string; replyText: string; keyword: string } | null = null;
+      for (const r of rules) {
+        if (r.mode === 'all') { hit = { searchId: r.searchId, replyText: r.replyText, keyword: 'all' }; break; }
+        const m = matchKeyword(cm.text, r.keywords);
+        if (m) { hit = { searchId: r.searchId, replyText: r.replyText, keyword: m }; break; }
+      }
+      cs.scanned++;
+      if (!hit || !hit.replyText.trim()) continue;
+
+      // Анти-дубль: помечаем и персистим ДО клика/отправки.
+      cs.attempted.push(cm.id);
+      await setCSweep(cs);
+      if (cs.dryRun) {
+        chrome.runtime.sendMessage({ type: 'events', events: [{ searchId: hit.searchId, fromUserKey: cm.id, fromUsername: cm.author, matchedKeyword: hit.keyword, sent: false, section: 'comment', message: cm.text, at: new Date().toISOString() }] });
+        continue;
+      }
+      const btn = findReplyButton(cm.el);
+      let sent = false;
+      if (btn) {
+        btn.click();
+        sent = await sendReply(hit.replyText);
+      }
+      if (sent) { cs.sent++; serverLog('💬 Ответил на коммент @' + (cm.author || '—') + ' на «' + hit.keyword + '»', 'reply'); }
+      else serverLog('⚠️ Коммент @' + (cm.author || '—') + ': не нашёл «Ответить»/поле. Кнопки: ' + diagButtons(), 'warn');
+      chrome.runtime.sendMessage({ type: 'events', events: [{ searchId: hit.searchId, fromUserKey: cm.id, fromUsername: cm.author, matchedKeyword: hit.keyword, sent, section: 'comment', message: cm.text, at: new Date().toISOString() }] });
+      await sleep(cs.minDelayMs);
+    }
+
+    // К следующему посту или конец.
+    cs.postIdx++;
+    if (cs.postIdx < cs.posts.length && cs.sent < cs.repliesLeft) {
+      await setCSweep(cs);
+      navigate(new URL(cs.posts[cs.postIdx]).pathname);
+    } else {
+      finishCSweep(cs);
+    }
+  } finally {
+    commentRunning = false;
+  }
+}
+
+async function finishCSweep(cs: CSweep) {
+  serverLog(`■ Комментарии: проверено ${cs.scanned}, ответов ${cs.sent}`);
+  chrome.runtime.sendMessage({ type: 'pass', report: { scanned: cs.scanned, sent: cs.sent, matched: cs.sent, sections: 'comment', dryRun: !!cs.dryRun } });
+  await chrome.storage.session.set({ [LAST_CSWEEP_KEY]: Date.now() });
+  await setCSweep(null);
+}
+
 // ───────────── ИИ-калибровка разметки: этап 1 (браузер/язык), этап 2 (снятие кнопок) ─────────────
 // Расширение открывает один экран запроса, снимает ВИДИМЫЕ кнопки (без текста переписки) и шлёт
 // на сервер → Claude определяет, какая «Принять»/«Показать»/«OK»/«Отклонить» под язык юзера.
@@ -1105,3 +1257,5 @@ void dmTestWatcher();
 setInterval(() => void dmTestWatcher(), 20_000);
 void calibrationStep();
 setInterval(() => void calibrationStep(), 15_000);
+void commentStep();
+setInterval(() => void commentStep(), 20_000);
