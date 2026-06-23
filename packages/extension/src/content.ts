@@ -583,7 +583,7 @@ async function stepInner() {
         if (sent) sweep.sent++;
         if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + kw.keyword + '»', 'reply');
         else serverLog('⚠️ Не смог @' + (chat.name || '—') + ' (' + sectionRu(chat.section) + '). Кнопки на экране: ' + diagButtons(), 'warn');
-        sweep.events.push({
+        const ev: AgentReplyEvent = {
           searchId: kw.searchId,
           fromUserKey: chat.id,
           fromUsername: chat.name,
@@ -592,7 +592,9 @@ async function stepInner() {
           sent,
           section: chat.section,
           at: new Date().toISOString(),
-        });
+        };
+        sweep.events.push(ev);
+        chrome.runtime.sendMessage({ type: 'events', events: [ev] }); // шлём лид СРАЗУ — не теряем, если проход прервётся/вкладку закроют
         await sleep(sweep.minDelayMs); // анти-бан пауза
         if (sweep.sent >= sweep.repliesLeft) return finishSweep(sweep);
       }
@@ -614,7 +616,7 @@ async function stepInner() {
               if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + matched + '»', 'reply');
               else serverLog('⚠️ Не смог ответить @' + (chat.name || '—') + ' — поле ввода не открылось', 'warn');
             }
-            sweep.events.push({
+            const ev: AgentReplyEvent = {
               searchId: kw.searchId,
               fromUserKey: chat.id,
               fromUsername: chat.name,
@@ -623,7 +625,9 @@ async function stepInner() {
               sent,
               section: chat.section,
               at: new Date().toISOString(),
-            });
+            };
+            sweep.events.push(ev);
+            if (!sweep.dryRun) chrome.runtime.sendMessage({ type: 'events', events: [ev] }); // лид сразу (в тесте — нет)
             if (!sweep.dryRun) {
               await sleep(sweep.minDelayMs); // анти-бан пауза
               if (sweep.sent >= sweep.repliesLeft) return finishSweep(sweep);

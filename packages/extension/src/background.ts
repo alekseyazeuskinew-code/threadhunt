@@ -154,7 +154,7 @@ async function maybeRunScheduledSweep(tasks: AgentTasksResponse) {
   // Уже открыта плановая вкладка? Закрываем по таймауту, иначе ждём её завершения.
   const { scheduledSweepTabId, scheduledSweepOpenedAt } = await chrome.storage.local.get(['scheduledSweepTabId', 'scheduledSweepOpenedAt']);
   if (scheduledSweepTabId != null) {
-    if (scheduledSweepOpenedAt && Date.now() - scheduledSweepOpenedAt > 4 * 60_000) { log('таймаут вкладки → закрываю'); await closeScheduledSweepTab(); }
+    if (scheduledSweepOpenedAt && Date.now() - scheduledSweepOpenedAt > 14 * 60_000) { log('таймаут вкладки → закрываю'); await closeScheduledSweepTab(); }
     else log('проход уже идёт в фоновой вкладке — жду завершения');
     return;
   }
@@ -204,7 +204,7 @@ async function maybeRunSweepInBackground(tasks: AgentTasksResponse) {
   }
   const { sweepHandledAt, sweepTabOpenedAt } = await chrome.storage.local.get(['sweepHandledAt', 'sweepTabOpenedAt']);
   if (sweepHandledAt === runNowAt) {
-    if (sweepTabOpenedAt && Date.now() - sweepTabOpenedAt > 4 * 60_000) await closeSweepTab(); // таймаут
+    if (sweepTabOpenedAt && Date.now() - sweepTabOpenedAt > 14 * 60_000) await closeSweepTab(); // таймаут (хватает на длинный проход)
     return;
   }
   await closeSweepTab();
