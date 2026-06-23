@@ -61,7 +61,9 @@ export async function agentRoutes(app: FastifyInstance) {
         keywords: true,
         replyTemplates: { orderBy: { order: 'asc' } },
         publishConfig: true,
-        leads: { select: { fromUserKey: true } },
+        // В «уже отвечали» — только УСПЕШНО отвеченные (REPLIED). Лиды со статусом FAILED
+        // (не прошёл приём/отправка) НЕ исключаем — расширение попробует ответить им снова.
+        leads: { where: { status: 'REPLIED' }, select: { fromUserKey: true } },
       },
     });
 
@@ -246,7 +248,9 @@ export async function agentRoutes(app: FastifyInstance) {
           replyTemplateId: e.templateId,
           status: e.sent ? 'REPLIED' : 'FAILED',
         },
-        update: {}, // уже отвечали — не трогаем
+        // Повторная попытка: успех → переводим лид в REPLIED (фикс «висел FAILED навсегда»).
+        // Неуспех по уже существующему лиду — не трогаем (останется FAILED, попробуем ещё раз).
+        update: e.sent ? { status: 'REPLIED', replyTemplateId: e.templateId } : {},
       });
       if (!existed) {
         // фоновый исходящий вебхук на новый лид (не блокирует ответ агенту)

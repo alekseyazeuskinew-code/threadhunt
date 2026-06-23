@@ -279,25 +279,33 @@ function clickAccept(): boolean {
 // ПОТОМ нажать «Accept». Окна появляются с задержкой → пробуем в цикле. После
 // приёма иногда всплывает ещё одно подтверждение — закрываем и его.
 async function acceptRequestIfNeeded(): Promise<void> {
-  let accepted = false;
-  for (let i = 0; i < 8 && !accepted; i++) {
-    clickConfirm(); // закрыть OK-окно, если перекрывает
-    if (clickAccept()) accepted = true;
-    else await sleep(1100);
+  // Критерий «принято» — появилось ПОЛЕ ВВОДА (а не факт клика). Так корректно
+  // обрабатываются: инфо-окно «How message requests work» (OK перекрывает Accept) и
+  // «Скрытые», где нужно ДВА шага: «Показать» → «Принять». Поэтому жмём в цикле,
+  // пока поле не появится (или не выйдут попытки).
+  for (let i = 0; i < 10; i++) {
+    const input = document.querySelector<HTMLElement>('[contenteditable="true"][role="textbox"]');
+    if (input && input.offsetParent !== null) return; // принято — можно отвечать
+    clickConfirm(); // закрыть OK/инфо-окно, если перекрывает приём
+    clickAccept(); // «Принять» / «Показать» (для «Скрытых» — первый шаг)
+    await sleep(1300);
   }
-  if (accepted) {
-    await sleep(1400);
-    clickConfirm(); // пост-приёмное подтверждение, если есть
-    await sleep(1600);
-  }
-  // Если принять не удалось — попробуем ответить как есть (в части языков/версий
-  // приём не требуется). При поломке вёрстки чинить здесь (см. хендофф D.13).
+  // Поле так и не появилось — sendReply ещё раз подождёт его и, если нет, вернёт false
+  // (лид останется FAILED и попадёт в повторную попытку на следующем проходе).
 }
 
 async function sendReply(text: string): Promise<boolean> {
   try {
-    const inputs = document.querySelectorAll<HTMLElement>('[contenteditable="true"][role="textbox"]');
-    const input = inputs[inputs.length - 1];
+    // После «Принять» поле ввода отрисовывается НЕ сразу — ждём его появления до ~8 сек
+    // (порт ожидания input.waitFor из bot.js). Без этого ответы в Запросах/Скрытых падали.
+    let input: HTMLElement | null = null;
+    for (let i = 0; i < 16; i++) {
+      const inputs = document.querySelectorAll<HTMLElement>('[contenteditable="true"][role="textbox"]');
+      input = inputs[inputs.length - 1] || null;
+      if (input && input.offsetParent !== null) break; // видимое поле
+      input = null;
+      await sleep(500);
+    }
     if (!input) return false;
     input.focus();
     document.execCommand('insertText', false, text);
@@ -513,6 +521,7 @@ async function step() {
         const sent = await sendReply(withObLink(tpl.text, sweep.obLinkBySearch[kw.searchId], chat.id));
         if (sent) sweep.sent++;
         if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + kw.keyword + '»', 'reply');
+        else serverLog('⚠️ Не смог ответить @' + (chat.name || '—') + ' (' + sectionRu(chat.section) + ') — не прошёл приём/поле ввода', 'warn');
         sweep.events.push({
           searchId: kw.searchId,
           fromUserKey: chat.id,
@@ -542,6 +551,7 @@ async function step() {
               sent = await sendReply(withObLink(tpl.text, sweep.obLinkBySearch[kw.searchId], chat.id));
               if (sent) sweep.sent++;
               if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + matched + '»', 'reply');
+              else serverLog('⚠️ Не смог ответить @' + (chat.name || '—') + ' — поле ввода не открылось', 'warn');
             }
             sweep.events.push({
               searchId: kw.searchId,
