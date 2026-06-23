@@ -248,6 +248,18 @@ function visibleButtons(): HTMLElement[] {
   });
 }
 
+// Диагностика: подписи видимых кнопок на экране (для точечной починки приёма в Скрытых/Запросах).
+// Возвращает короткую строку «текст|aria|…» — попадает в живой журнал при сбое отправки.
+function diagButtons(): string {
+  return [...document.querySelectorAll<HTMLElement>('[role="button"], button')]
+    .filter((b) => b.offsetParent !== null)
+    .map((b) => ((b.innerText || '').trim() || b.getAttribute('aria-label') || '').replace(/\s+/g, ' '))
+    .filter((t) => t && t.length < 30)
+    .slice(0, 14)
+    .join(' | ')
+    .slice(0, 240);
+}
+
 // Закрыть всплывающее инфо-окно (OK/Понятно/Продолжить), если оно есть. Возвращает true, если кликнули.
 function clickConfirm(): boolean {
   const b = visibleButtons().find((x) => CONFIRM_RX.test((x.innerText || '').trim()));
@@ -546,7 +558,7 @@ async function stepInner() {
         const sent = await sendReply(withObLink(tpl.text, sweep.obLinkBySearch[kw.searchId], chat.id));
         if (sent) sweep.sent++;
         if (sent) serverLog('✅ Ответил @' + (chat.name || '—') + ' на «' + kw.keyword + '»', 'reply');
-        else serverLog('⚠️ Не смог ответить @' + (chat.name || '—') + ' (' + sectionRu(chat.section) + ') — не прошёл приём/поле ввода', 'warn');
+        else serverLog('⚠️ Не смог @' + (chat.name || '—') + ' (' + sectionRu(chat.section) + '). Кнопки на экране: ' + diagButtons(), 'warn');
         sweep.events.push({
           searchId: kw.searchId,
           fromUserKey: chat.id,
