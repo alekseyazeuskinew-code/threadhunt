@@ -94,6 +94,7 @@ interface Sweep {
   seenIds: string[];
   chats: Chat[];
   processIdx: number;
+  attempted?: string[]; // chat.id, которым уже отправляли в ЭТОМ проходе — защита от двойной отправки
   events: AgentReplyEvent[];
   // правила, снятые на старте прохода (чтобы не зависеть от обновления tasks в середине)
   keywords: (Keyword & { searchId: string })[];
@@ -351,9 +352,23 @@ function hideWorkBannerNow() {
 
 // ─────────────── Конечный автомат: один шаг на загрузку страницы ───────────────
 
+// КРИТИЧНО: автомат не должен запускаться параллельно сам с собой. Шаги стали дольше
+// (цикл приёма + ожидание поля ввода), и setInterval(step,30s) накладывался на ещё не
+// завершённый проход → одному человеку уходило по 8 одинаковых сообщений. Этот флаг живёт
+// в рамках одной загрузки страницы (после navigate страница перезагружается и он сбросится).
+let stepRunning = false;
 async function step() {
+  if (stepRunning) return; // уже идёт шаг — не запускаем второй параллельно
   if (!location.pathname.startsWith('/messages')) return;
+  stepRunning = true;
+  try {
+    await stepInner();
+  } finally {
+    stepRunning = false;
+  }
+}
 
+async function stepInner() {
   // heartbeat всегда
   chrome.runtime.sendMessage({ type: 'heartbeat', threadsLoggedIn: isLoggedIn() });
 
@@ -511,7 +526,17 @@ async function step() {
     const chat = sweep.chats[sweep.processIdx];
     await sleep(2500);
 
-    if (chat.section !== 'main' && chat.matched) {
+    // КРИТИЧНО (анти-дубль): помечаем чат «обработан» и ПЕРСИСТИМ ДО медленного приёма/
+    // отправки. Повторный заход step() или перезагрузка увидит метку и НЕ отправит снова —
+    // иначе одному человеку уходило по 8 одинаковых сообщений.
+    if (!sweep.attempted) sweep.attempted = [];
+    const alreadyAttempted = sweep.attempted.includes(chat.id);
+    if (!alreadyAttempted) {
+      sweep.attempted.push(chat.id);
+      await setSweep(sweep);
+    }
+
+    if (!alreadyAttempted && chat.section !== 'main' && chat.matched) {
       // Запрос/Скрытый, уже совпавший по превью на сборе (в тесте их тут нет —
       // они засчитаны без открытия). Реальный проход: принять диалог и ответить.
       const kw = chat.matched;
@@ -535,7 +560,7 @@ async function step() {
         await sleep(sweep.minDelayMs); // анти-бан пауза
         if (sweep.sent >= sweep.repliesLeft) return finishSweep(sweep);
       }
-    } else {
+    } else if (!alreadyAttempted) {
       // Основной директ: открыть, прочитать последнее сообщение, проверить направление.
       sweep.scanned = (sweep.scanned || 0) + 1;
       await dismissWelcome(); // welcome-попап перекрывает и поле ввода, и сообщения (порт bot.js)
