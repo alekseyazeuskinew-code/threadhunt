@@ -52,7 +52,9 @@ export function threadsAuthUrl(state: string): string {
   const p = new URLSearchParams({
     client_id: env.THREADS_APP_ID!,
     redirect_uri: env.THREADS_OAUTH_REDIRECT!,
-    scope: 'threads_basic,threads_content_publish,threads_manage_replies,threads_read_replies',
+    // Только одобренные Meta scope (App Review, 19.06.2026): threads_basic + threads_content_publish.
+    // Неодобренные scope ломают вход для обычных юзеров — отбивка по комментариям идёт через расширение, не API.
+    scope: 'threads_basic,threads_content_publish',
     response_type: 'code',
     state,
   });

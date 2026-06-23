@@ -6,8 +6,8 @@
 // в PublishConfig, а планировщик в нужный момент реально вызывает Threads API.
 
 import { db } from './db.js';
-import { decrypt } from './crypto.js';
-import { publishChain, fetchReplies, publishReply } from './threads/publisher.js';
+import { decrypt, encrypt } from './crypto.js';
+import { publishChain, fetchReplies, publishReply, refreshToken } from './threads/publisher.js';
 import { parseSegments } from './threads/segments.js';
 import { applyPostWatermark } from './branding.js';
 import { resolveConnection } from './threads/resolve.js';
@@ -23,6 +23,7 @@ let commentsRunning = false;
 let remindersRunning = false;
 let tgSummaryRunning = false;
 let mediaCleanupRunning = false;
+let tokenRefreshRunning = false;
 
 export function startScheduler() {
   setInterval(tick, 60_000); // автопостинг — каждую минуту
@@ -37,7 +38,9 @@ export function startScheduler() {
   setTimeout(tgSummaryTick, 60_000); // и вскоре после старта
   setInterval(mediaCleanupTick, 24 * 60 * 60_000); // чистка осиротевшего медиа — раз в сутки
   setTimeout(mediaCleanupTick, 10 * 60_000); // и через 10 мин после старта
-  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии + напоминания + telegram-сводки + чистка медиа)');
+  setInterval(tokenRefreshTick, 12 * 60 * 60_000); // продление Threads-токенов — дважды в сутки
+  setTimeout(tokenRefreshTick, 2 * 60_000); // и через 2 мин после старта
+  console.log('🕒 Планировщик запущен (автопостинг + email-цепочки + комментарии + напоминания + telegram-сводки + чистка медиа + продление токенов)');
 }
 
 // Чистка осиротевшего медиа в R2: удаляем объекты без ссылок в БД старше 14 дней.
@@ -51,6 +54,40 @@ async function mediaCleanupTick() {
     console.error('[scheduler] mediaCleanup error:', (e as Error).message);
   } finally {
     mediaCleanupRunning = false;
+  }
+}
+
+// Продление долгоживущих Threads-токенов (живут ~60 дней). Меняем те, которым
+// осталось ≤10 дней: th_refresh_token → новый токен + срок. Без этого автопостинг
+// у пользователя молча встаёт через ~2 месяца после OAuth-подключения.
+async function tokenRefreshTick() {
+  if (tokenRefreshRunning) return;
+  tokenRefreshRunning = true;
+  try {
+    const soon = new Date(Date.now() + 10 * 86_400_000);
+    const conns = await db.threadsConnection.findMany({
+      where: { accessTokenEnc: { not: null }, tokenExpiresAt: { not: null, lte: soon } },
+      take: 200,
+    });
+    for (const conn of conns) {
+      try {
+        const r = await refreshToken(decrypt(conn.accessTokenEnc!));
+        if (!r?.access_token) continue;
+        await db.threadsConnection.update({
+          where: { id: conn.id },
+          data: {
+            accessTokenEnc: encrypt(r.access_token),
+            tokenExpiresAt: r.expires_in ? new Date(Date.now() + r.expires_in * 1000) : conn.tokenExpiresAt,
+          },
+        });
+      } catch (e) {
+        console.error('[scheduler] tokenRefresh conn error:', (e as Error).message);
+      }
+    }
+  } catch (e) {
+    console.error('[scheduler] tokenRefresh error:', (e as Error).message);
+  } finally {
+    tokenRefreshRunning = false;
   }
 }
 
